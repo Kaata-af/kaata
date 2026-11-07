@@ -324,8 +324,13 @@ async function screenCase() {
       },
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "@expo/vector-icons": { Ionicons: "Icon" },
-      "expo-router": { useRouter: () => router, useLocalSearchParams: () => ({ token: "offer" }) },
+      "expo-router": {
+        useIsFocused: () => true,
+        useRouter: () => router,
+        useLocalSearchParams: () => ({ token: "offer" }),
+      },
       "react-native": {
+        AppState: { currentState: "active", addEventListener: () => ({ remove: () => {} }) },
         ActivityIndicator: "Spinner",
         Text: "Text",
         View: "View",

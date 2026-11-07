@@ -2005,6 +2005,20 @@ const en = {
   "members.empty": "No members yet.",
   "members.finishingSetup": "Finishing setup",
   "members.finishingSetupHint": "The invitation was accepted. Membership is still syncing.",
+  "members.rejoin.section": "Ready to rejoin",
+  "members.rejoin.hint":
+    "These former members accepted a new invitation. Restore access to let them rejoin.",
+  "members.rejoin.restore": "Restore access",
+  "members.rejoin.restoring": "Restoring access…",
+  "members.rejoin.confirmTitle": "Restore this member’s access?",
+  "members.rejoin.confirmBody":
+    "{name} accepted your new invitation as {role}. Restore their access to this Kaata?",
+  "members.rejoin.saved": "Access restored for {name}",
+  "members.rejoin.failed":
+    "Couldn't confirm access was restored. The member list will refresh before you can try again.",
+  "members.rejoin.loadFailed":
+    "Couldn't check who is ready to rejoin. Check your connection and try again.",
+  "members.rejoin.retry": "Check returning members",
   "members.nameUnavailable": "Name unavailable",
   "members.youSuffix": " (You)",
   "members.transferBanner": "Tap a member to transfer ownership to them.",
@@ -2122,6 +2136,7 @@ const en = {
   "invite.people.failed": "Couldn't send the invitation. Check your connection and try again.",
   "invite.people.readmission":
     "This person was previously removed. Ask the Kaata owner to arrange their return.",
+  "invite.people.readmissionSent": "After they accept, open Members and choose Restore access.",
   "invite.people.roleConflict": "This person already has a pending invitation with another role.",
   "invite.people.requestsTitle": "Kaata member invitations",
   "invite.people.requestBody": "{name} invited you to join {kaata} as {role}.",
@@ -2197,6 +2212,12 @@ const en = {
   "inviteAccept.joining": "Joining vault…",
   "inviteAccept.joinedToast": "Joined {name}",
   "inviteAccept.pending.title": "Finishing your connection",
+  "inviteAccept.readmission.accept": "Accept return invitation",
+  "inviteAccept.readmission.body":
+    "{inviter} has invited you back as {role}. After you accept, the owner will approve this phone before your access is restored.",
+  "inviteAccept.readmission.waitingTitle": "Waiting for the owner",
+  "inviteAccept.readmission.waitingBody":
+    "Your return request is saved. The owner needs to approve this phone in Members. We will check again automatically; you can leave this screen while you wait.",
   "inviteAccept.pending.body":
     "Your invitation was accepted. Keep Kaata online to finish setup. We’ll retry automatically.",
   "inviteAccept.blocked.title": "Setup needs help",
@@ -4483,6 +4504,20 @@ const fa: Partial<Record<Key, string>> = {
   "members.empty": "هنوز عضوی نیست.",
   "members.finishingSetup": "در حال تکمیل راه‌اندازی",
   "members.finishingSetupHint": "دعوت پذیرفته شده است. عضویت هنوز همگام می‌شود.",
+  "members.rejoin.section": "آمادهٔ پیوستن دوباره",
+  "members.rejoin.hint":
+    "این اعضای قبلی دعوت تازه را پذیرفته‌اند. برای پیوستن دوباره، دسترسی‌شان را بازگردانید.",
+  "members.rejoin.restore": "بازگرداندن دسترسی",
+  "members.rejoin.restoring": "در حال بازگرداندن دسترسی…",
+  "members.rejoin.confirmTitle": "دسترسی این عضو بازگردانده شود؟",
+  "members.rejoin.confirmBody":
+    "{name} دعوت تازهٔ شما را با نقش {role} پذیرفته است. دسترسی او به این کاتا بازگردانده شود؟",
+  "members.rejoin.saved": "دسترسی {name} بازگردانده شد",
+  "members.rejoin.failed":
+    "بازگرداندن دسترسی تأیید نشد. پیش از تلاش دوباره، فهرست اعضا تازه می‌شود.",
+  "members.rejoin.loadFailed":
+    "بررسی اعضای آمادهٔ پیوستن دوباره ممکن نشد. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.",
+  "members.rejoin.retry": "بررسی اعضای بازگشتی",
   "members.nameUnavailable": "نام در دسترس نیست",
   "members.youSuffix": " (شما)",
   "members.transferBanner": "برای انتقال مالکیت روی یک عضو ضربه بزنید.",
@@ -4586,6 +4621,8 @@ const fa: Partial<Record<Key, string>> = {
   "invite.people.failed": "دعوت فرستاده نشد. اتصال خود را بررسی کنید و دوباره کوشش کنید.",
   "invite.people.readmission":
     "این شخص قبلاً حذف شده است. از مالک کاتا بخواهید بازگشت او را تنظیم کند.",
+  "invite.people.readmissionSent":
+    "پس از پذیرش دعوت، بخش اعضا را باز کنید و «بازگرداندن دسترسی» را انتخاب کنید.",
   "invite.people.roleConflict": "این شخص از قبل یک دعوت در انتظار با نقش دیگر دارد.",
   "invite.people.requestsTitle": "دعوت‌های عضویت کاتا",
   "invite.people.requestBody": "{name} شما را دعوت کرده تا به عنوان {role} به {kaata} بپیوندید.",
@@ -4654,6 +4691,12 @@ const fa: Partial<Record<Key, string>> = {
   "inviteAccept.joining": "در حال پیوستن به کاتا…",
   "inviteAccept.joinedToast": "به {name} پیوستید",
   "inviteAccept.pending.title": "در حال تکمیل اتصال",
+  "inviteAccept.readmission.accept": "پذیرفتن دعوت بازگشت",
+  "inviteAccept.readmission.body":
+    "{inviter} شما را دوباره به‌عنوان {role} دعوت کرده است. پس از پذیرش شما، مالک باید این تلفن را تأیید کند تا دسترسی شما برگردد.",
+  "inviteAccept.readmission.waitingTitle": "در انتظار تأیید مالک",
+  "inviteAccept.readmission.waitingBody":
+    "درخواست بازگشت شما ذخیره شد. مالک باید این تلفن را در بخش اعضا تأیید کند. ما خودکار دوباره بررسی می‌کنیم؛ در این مدت می‌توانید از این صفحه خارج شوید.",
   "inviteAccept.pending.body":
     "دعوت شما پذیرفته شد. کاتا را به اینترنت وصل نگه دارید تا راه‌اندازی تکمیل شود. دوباره خودکار تلاش می‌کنیم.",
   "inviteAccept.blocked.title": "راه‌اندازی به کمک نیاز دارد",
@@ -6510,6 +6553,20 @@ const ps: Record<Key, string> = {
   "members.empty": "تر اوسه غړي نشته.",
   "members.finishingSetup": "د چمتووالي په حال کې",
   "members.finishingSetupHint": "بلنه منل شوې ده. غړیتوب لا هم همغږي کېږي.",
+  "members.rejoin.section": "بیا یوځای کېدو ته چمتو",
+  "members.rejoin.hint":
+    "دې پخوانیو غړو نوې بلنه منلې ده. د بیا یوځای کېدو لپاره یې لاسرسی بېرته ورکړئ.",
+  "members.rejoin.restore": "لاسرسی بېرته ورکړئ",
+  "members.rejoin.restoring": "لاسرسی بېرته ورکول کېږي…",
+  "members.rejoin.confirmTitle": "د دې غړي لاسرسی بېرته ورکړئ؟",
+  "members.rejoin.confirmBody":
+    "{name} ستاسو نوې بلنه د {role} په توګه منلې ده. دې کاټې ته یې لاسرسی بېرته ورکړئ؟",
+  "members.rejoin.saved": "د {name} لاسرسی بېرته ورکړل شو",
+  "members.rejoin.failed":
+    "د لاسرسي بېرته ورکول تایید نه شول. له بیا هڅې مخکې به د غړو لړ تازه شي.",
+  "members.rejoin.loadFailed":
+    "د بیا یوځای کېدو لپاره چمتو غړي ونه کتل شول. انټرنېټ وګورئ او بیا هڅه وکړئ.",
+  "members.rejoin.retry": "بېرته راتلونکي غړي وګورئ",
   "members.nameUnavailable": "نوم نشته",
   "members.youSuffix": " (تاسو)",
   "members.transferBanner": "د مالکیت د سپارلو لپاره د یوه غړي نوم ووهئ.",
@@ -6792,6 +6849,8 @@ const ps: Record<Key, string> = {
   "invite.people.failed": "بلنه ونه لېږل شوه. خپل انټرنېټ وګورئ او بیا هڅه وکړئ.",
   "invite.people.readmission":
     "دا کس مخکې لرې شوی و. د کاټې له خاوند څخه د هغه د بېرته راتګ غوښتنه وکړئ.",
+  "invite.people.readmissionSent":
+    "کله چې بلنه ومني، د غړو برخه پرانیزئ او «لاسرسی بېرته ورکړئ» وټاکئ.",
   "invite.people.roleConflict": "دا کس له مخکې په بل رول کې یوه ناتایید شوې بلنه لري.",
   "invite.people.requestsTitle": "د کاټې د غړیتوب بلنې",
   "invite.people.requestBody": "{name} تاسو ته په {kaata} کې د {role} په توګه د ګډون بلنه درکړې.",
@@ -6846,6 +6905,12 @@ const ps: Record<Key, string> = {
   "inviteAccept.joining": "په کاټه کې ګډون کېږي…",
   "inviteAccept.joinedToast": "په {name} کې مو ګډون وکړ",
   "inviteAccept.pending.title": "ستاسو نښلول بشپړېږي",
+  "inviteAccept.readmission.accept": "د بېرته راتګ بلنه ومنئ",
+  "inviteAccept.readmission.body":
+    "{inviter} تاسو ته د {role} په توګه د بېرته راتګ بلنه درکړې ده. ستاسو له منلو وروسته، مالک باید دا ټیلیفون تایید کړي چې لاسرسی مو بېرته فعال شي.",
+  "inviteAccept.readmission.waitingTitle": "د مالک تایید ته انتظار",
+  "inviteAccept.readmission.waitingBody":
+    "ستاسو د بېرته راتګ غوښتنه خوندي شوه. مالک باید دا ټیلیفون د غړو په برخه کې تایید کړي. موږ به بیا په اتومات ډول وګورو؛ تر هغه وخته له دې پاڼې وتلی شئ.",
   "inviteAccept.pending.body":
     "ستاسو بلنه ومنل شوه. د چمتو کولو د بشپړولو لپاره کاټه له انټرنېټ سره وصل وساتئ. بیا به په خپله هڅه وکړو.",
   "inviteAccept.blocked.title": "چمتو کول مرستې ته اړتیا لري",

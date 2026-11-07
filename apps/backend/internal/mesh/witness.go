@@ -158,7 +158,7 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 	err = s.pool.QueryRow(ctx, `
 		SELECT role, invited_by::text,
 		       invite_token_hash IS NOT NULL OR
-		       (invite_request_id IS NOT NULL AND invite_account_id = account_id)
+		       (invite_request_id IS NOT NULL AND invite_account_id = account_id AND readmission_from_id IS NULL)
 		  FROM vault_members
 		 WHERE vault_id = $1::uuid AND account_id = $2::uuid
 		   AND revoked_at IS NULL AND accepted_at IS NOT NULL
@@ -210,6 +210,8 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 	// account-bound request ID and deliberately have no bearer token. Checking
 	// only the hash stranded direct invitees in the ACL without chain admission.
 	// Acceptance, not the now-possibly-expired invitation, is the durable fact.
+	// A return already carries a fresh owner signature; do not mint a member
+	// witness that could be replayed as another grant.
 	//
 	// SEC FIX 3 (defense-in-depth): never issue a member_witness for an
 	// owner — or, since roles v2, ANY member-managing role (manager+). A

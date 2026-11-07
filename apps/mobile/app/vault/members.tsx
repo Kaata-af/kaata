@@ -69,6 +69,11 @@ import {
   type MemberRosterSnapshot,
 } from "../../lib/member-profiles";
 import {
+  completeMemberReadmission,
+  listMemberReadmissions,
+  type MemberReadmission,
+} from "../../lib/member-readmission";
+import {
   MemberCreditPermissionError,
   readMemberCreditPermission,
   refreshMemberCreditPermissions,
@@ -110,6 +115,15 @@ type TransferRequest = {
   target: MemberRow;
   session: Promise<SessionSnapshot | null>;
 };
+
+type ReadmissionView = {
+  vaultId: string;
+  identity: string;
+  session: SessionSnapshot;
+  rows: MemberReadmission[];
+  failed: boolean;
+};
+type ReadmissionTarget = ReadmissionView & { request: MemberReadmission };
 
 // ConfirmDialog fades out in 140 ms. Begin the transfer after its closed
 // render has committed, with room for native Modal dismissal before any pop.
@@ -194,6 +208,15 @@ export default function VaultMembersScreen() {
   const loadRequestRef = useRef(0);
   const authorizationRequestRef = useRef(0);
   const rosterRequestRef = useRef(0);
+  const [readmissions, setReadmissions] = useState<ReadmissionView | null>(null);
+  const [readmissionTarget, setReadmissionTarget] = useState<ReadmissionTarget | null>(null);
+  const [readmissionBusy, setReadmissionBusy] = useState(false);
+  const readmissionRequestRef = useRef(0);
+  const readmissionPending = useRef(false);
+  const readmissionViewRef = useRef(readmissions);
+  readmissionViewRef.current = readmissions;
+  const readmissionTargetRef = useRef(readmissionTarget);
+  readmissionTargetRef.current = readmissionTarget;
 
   const role: VaultRole = useVaultRole(vaultId, accountId);
   const isOwner = role === "owner";
@@ -204,6 +227,81 @@ export default function VaultMembersScreen() {
   // author events the server refuses (permanent local divergence). Owners
   // keep the offline event path unchanged.
   const isManager = role === "manager";
+  const ownerScopeRef = useRef({ vaultId, accountId, isOwner });
+  ownerScopeRef.current = { vaultId, accountId, isOwner };
+  const readmissionCurrent = useCallback(
+    (scope: { vaultId: string; identity: string; session: SessionSnapshot }) =>
+      focusedRef.current &&
+      AppState.currentState === "active" &&
+      ownerScopeRef.current.isOwner &&
+      ownerScopeRef.current.vaultId === scope.vaultId &&
+      ownerScopeRef.current.accountId === scope.session.accountId &&
+      !!scope.session.accountId &&
+      getSessionAccountIdSync() === scope.session.accountId &&
+      getActiveVaultIdSyncMaybe() === scope.vaultId &&
+      readIdentity() === scope.identity,
+    [],
+  );
+
+  const refreshReadmissions = useCallback(async (scope: string) => {
+    const owner = ownerScopeRef.current;
+    if (
+      readmissionPending.current ||
+      !owner.isOwner ||
+      owner.vaultId !== scope ||
+      !owner.accountId ||
+      getSessionAccountIdSync() !== owner.accountId ||
+      !focusedRef.current ||
+      AppState.currentState !== "active"
+    )
+      return;
+    const startIdentity = readIdentity();
+    const request = ++readmissionRequestRef.current;
+    let view: ReadmissionView | null = null;
+    try {
+      const session = await captureCurrentSession();
+      view = { vaultId: scope, identity: startIdentity, session, rows: [], failed: false };
+      if (!session.jwt || !readmissionCurrent(view) || request !== readmissionRequestRef.current)
+        return;
+      const rows = await listMemberReadmissions(scope, session);
+      const loaded = { ...view, rows };
+      await applyForCurrentSession(session, async () => {
+        if (readmissionCurrent(loaded) && request === readmissionRequestRef.current) {
+          setReadmissions(loaded);
+          // A changed grant must be reviewed again, but an unchanged poll must
+          // not dismiss a confirmation the owner is reading.
+          setReadmissionTarget((target) => {
+            if (!target) return null;
+            const next = rows.find((row) => row.invite_id === target.request.invite_id);
+            return next &&
+              next.account_id === target.request.account_id &&
+              next.role === target.request.role &&
+              next.device_id === target.request.device_id &&
+              next.device_pubkey === target.request.device_pubkey
+              ? { ...loaded, request: next }
+              : null;
+          });
+        }
+      });
+    } catch {
+      if (view) {
+        const failed = { ...view, failed: true };
+        await applyForCurrentSession(view.session, async () => {
+          if (readmissionCurrent(failed) && request === readmissionRequestRef.current) {
+            setReadmissions(failed);
+            setReadmissionTarget(null);
+          }
+        }).catch(() => undefined);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    ++readmissionRequestRef.current;
+    setReadmissions(null);
+    setReadmissionTarget(null);
+    if (isOwner && vaultId) void refreshReadmissions(vaultId);
+  }, [vaultId, accountId, identity, isOwner, refreshReadmissions]);
 
   // Whose list is on screen: a return to this screen keeps it while it
   // refreshes, unless the kaata changed meanwhile.
@@ -495,6 +593,7 @@ export default function VaultMembersScreen() {
   useFocusEffect(
     useCallback(() => {
       focusedRef.current = true;
+      if (!readmissionPending.current) setReadmissionBusy(false);
       // Returning used to blank the list to a full-screen spinner and could
       // flash "No members" (audit #19). Only another kaata's list is cleared.
       if (listedScope.current !== getActiveVaultIdSyncMaybe()) {
@@ -523,6 +622,7 @@ export default function VaultMembersScreen() {
             if (__DEV__) console.warn("[vault/members] profile refresh failed", err);
           }
           await refreshMemberCreditPermissions(activeVaultId).catch(() => undefined);
+          await refreshReadmissions(activeVaultId);
           // Also reload after a refusal: that clears cached profile email.
           if (!cancelled && focusedRef.current) await loadAll();
         } catch (err) {
@@ -549,12 +649,15 @@ export default function VaultMembersScreen() {
         ++loadRequestRef.current;
         ++authorizationRequestRef.current;
         ++rosterRequestRef.current;
+        ++readmissionRequestRef.current;
         ++creditEditRequest.current;
         ++transferRequestRef.current;
         transferPending.current = false;
         setTransferTarget(null);
         setTransferRequest(null);
         setCreditEditor(null);
+        readmissionTargetRef.current = null;
+        setReadmissionTarget(null);
         app.remove();
         clearInterval(timer);
       };
@@ -585,6 +688,7 @@ export default function VaultMembersScreen() {
         if (activeVaultId) {
           await refreshProfiles(activeVaultId);
           await refreshMemberCreditPermissions(activeVaultId);
+          await refreshReadmissions(activeVaultId);
         }
       } catch (err) {
         console.warn("[vault/members] profile refresh failed", err);
@@ -607,6 +711,75 @@ export default function VaultMembersScreen() {
     // Manager cap: owners and peer managers are out of a manager's reach.
     if (isManager && VAULT_ROLE_RANK[m.role] >= VAULT_ROLE_RANK.manager) return;
     setSheetTarget(m);
+  }
+
+  function openReadmission(request: MemberReadmission) {
+    const view = readmissionViewRef.current;
+    if (
+      !view ||
+      view.failed ||
+      readmissionPending.current ||
+      transferPending.current ||
+      !readmissionCurrent(view) ||
+      !view.rows.includes(request)
+    )
+      return;
+    const target = { ...view, request };
+    readmissionTargetRef.current = target;
+    setReadmissionTarget(target);
+  }
+
+  async function restoreMember(target: ReadmissionTarget | null) {
+    if (
+      !target ||
+      readmissionTargetRef.current !== target ||
+      readmissionPending.current ||
+      !readmissionCurrent(target)
+    )
+      return;
+    readmissionPending.current = true;
+    setReadmissionBusy(true);
+    ++readmissionRequestRef.current;
+    readmissionTargetRef.current = null;
+    setReadmissionTarget(null);
+    const beforeDispatch = () => {
+      if (!readmissionCurrent(target)) throw new Error("Member readmission screen changed");
+    };
+    try {
+      await completeMemberReadmission(
+        target.vaultId,
+        target.request,
+        target.session,
+        beforeDispatch,
+      );
+      await applyForCurrentSession(target.session, async () => {
+        if (readmissionCurrent(target)) {
+          setReadmissions(null);
+          toast.push(
+            t("members.rejoin.saved", {
+              name: target.request.name || t("members.nameUnavailable"),
+            }),
+            "success",
+          );
+        }
+      });
+    } catch {
+      await applyForCurrentSession(target.session, async () => {
+        if (readmissionCurrent(target)) {
+          // Reconcile before exposing another confirmation. A lost response
+          // cannot safely be treated as a refusal or blindly resubmitted.
+          setReadmissions(null);
+          toast.push(t("members.rejoin.failed"), "error");
+        }
+      }).catch(() => undefined);
+    } finally {
+      readmissionPending.current = false;
+      if (focusedRef.current) setReadmissionBusy(false);
+      if (readmissionCurrent(target)) {
+        await loadAll().catch(() => undefined);
+        await refreshReadmissions(target.vaultId);
+      }
+    }
   }
 
   async function openCreditPermission(member: MemberRow) {
@@ -956,6 +1129,11 @@ export default function VaultMembersScreen() {
       !excluded?.has(member.account_id) &&
       member.account_id !== ownerAlias,
   );
+  const readmissionView = readmissions && readmissionCurrent(readmissions) ? readmissions : null;
+  const readyToRejoin =
+    readmissionView?.rows.filter((request) => !knownIds.has(request.account_id)) ?? [];
+  const visibleReadmissionTarget =
+    readmissionTarget && readmissionCurrent(readmissionTarget) ? readmissionTarget : null;
 
   if (!loaded) {
     // Same title / onBack / edges as the loaded branch, so the header is
@@ -1052,6 +1230,38 @@ export default function VaultMembersScreen() {
           <EmptyHint label={t("members.finishingSetupHint")} isRTL={isRTL} />
         ) : null}
 
+        {readmissionView && (readyToRejoin.length > 0 || readmissionView.failed) ? (
+          <>
+            <SectionGap />
+            <SectionHeader label={t("members.rejoin.section")} isRTL={isRTL} />
+            <EmptyHint label={t("members.rejoin.hint")} isRTL={isRTL} />
+            {readyToRejoin.map((request, index) => (
+              <MemberIdentityRow
+                key={`rejoin-${request.invite_id}`}
+                name={request.name || t("members.nameUnavailable")}
+                sub={t(readmissionBusy ? "members.rejoin.restoring" : "members.rejoin.restore")}
+                messageSub
+                role={request.role}
+                isRTL={isRTL}
+                onPress={() => openReadmission(request)}
+                disabled={readmissionBusy || transferRequest !== null}
+                isLast={index === readyToRejoin.length - 1}
+              />
+            ))}
+            {readmissionView.failed ? (
+              <NavRow
+                icon="refresh-outline"
+                label={t("members.rejoin.retry")}
+                hint={t("members.rejoin.loadFailed")}
+                onPress={() => void refreshReadmissions(readmissionView.vaultId)}
+                isRTL={isRTL}
+                isLast
+              />
+            ) : null}
+            <SectionGap />
+          </>
+        ) : null}
+
         {isOwner || isManager ? (
           <>
             {/* PARKED (mesh): the in-person QR pair flow (vault/pair) is parked
@@ -1132,6 +1342,24 @@ export default function VaultMembersScreen() {
         onDismiss={() => setSheetTarget(null)}
       />
 
+      <ConfirmDialog
+        visible={visibleReadmissionTarget !== null}
+        title={t("members.rejoin.confirmTitle")}
+        description={
+          visibleReadmissionTarget
+            ? t("members.rejoin.confirmBody", {
+                name: visibleReadmissionTarget.request.name || t("members.nameUnavailable"),
+                role: humanizeRole(visibleReadmissionTarget.request.role),
+              })
+            : ""
+        }
+        confirmLabel={t("members.rejoin.restore")}
+        onConfirm={() => void restoreMember(visibleReadmissionTarget)}
+        onCancel={() => {
+          readmissionTargetRef.current = null;
+          setReadmissionTarget(null);
+        }}
+      />
       <ConfirmDialog
         visible={revokeTarget !== null}
         title={t("members.confirm.remove.title")}

@@ -46,8 +46,14 @@ func lockPushAccounts(ctx context.Context, tx pgx.Tx, in PushInput) (map[uuid.UU
 	for id := range ids {
 		keys = append(keys, id.String())
 	}
+	lock := "FOR KEY SHARE"
+	if in.ReadmissionInviteID != "" {
+		// Serialize the accepting account with sign-in and deletion while the
+		// approval revalidates the exact install and registered key.
+		lock = "FOR UPDATE"
+	}
 	rows, err := tx.Query(ctx, `SELECT id::text, pending_delete_at IS NOT NULL FROM accounts
-		WHERE id=ANY($1::uuid[]) ORDER BY id FOR KEY SHARE`, keys)
+		WHERE id=ANY($1::uuid[]) ORDER BY id `+lock, keys)
 	if err != nil {
 		return nil, fmt.Errorf("lock push accounts: %w", err)
 	}

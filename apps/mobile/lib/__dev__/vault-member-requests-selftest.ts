@@ -176,7 +176,11 @@ test("new account endpoint sends only recipient and allowed role with the captur
     const post = f.requests[1];
     assert.equal(post.url, `https://fixture.invalid/v1/vaults/${vaultA}/account-invites`);
     assert.equal(post.init.method, "POST");
-    assert.deepEqual(JSON.parse(post.init.body as string), { target_account_id: accountB, role });
+    assert.deepEqual(JSON.parse(post.init.body as string), {
+      target_account_id: accountB,
+      role,
+      readmit_removed: true,
+    });
     assert.equal((post.init.headers as Record<string, string>).Authorization, "Bearer fixture-1");
   }
 });
@@ -346,6 +350,36 @@ test("account inbox filters legacy, duplicate, expired and invalid rows without 
     },
   ]);
   assert.equal(f.localWrites, 0);
+});
+
+test("private return preview preserves its explicit consent kind", async () => {
+  const f = apiFixture();
+  f.replies.push(() =>
+    response({
+      kind: "member_readmission",
+      vault_name: "Shop",
+      role: "viewer",
+      expires_at: expires,
+    }),
+  );
+  assert.equal(
+    (await f.api.fetchVaultMemberRequestInfo(`v_${inviteId}`, f.session()))?.kind,
+    "member_readmission",
+  );
+  assert.equal(f.localWrites, 0);
+});
+
+test("create result retains only the literal owner return marker", async () => {
+  for (const marker of [true, false, "true"]) {
+    const f = apiFixture();
+    f.replies.push(() => response({ ...created, member_readmission: marker }));
+    const result = await f.api.createVaultMemberRequest(
+      vaultA,
+      { recipientAccountId: accountB, role: "viewer" },
+      f.session(),
+    );
+    assert.equal(result.member_readmission, marker === true ? true : undefined);
+  }
 });
 
 function hookFixture(kind: "members" | "people" = "members") {

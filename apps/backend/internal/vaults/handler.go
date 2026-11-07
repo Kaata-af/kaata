@@ -121,6 +121,8 @@ func mapServiceError(err error) (int, string, string) {
 		return http.StatusConflict, "already_member", err.Error()
 	case errors.Is(err, ErrMemberReadmissionRequired):
 		return http.StatusConflict, "member_readmission_required", err.Error()
+	case errors.Is(err, ErrReadmissionDeviceUnavailable):
+		return http.StatusConflict, "readmission_device_unavailable", err.Error()
 	case errors.Is(err, ErrInviteRoleConflict):
 		return http.StatusConflict, "invite_role_conflict", err.Error()
 	case errors.Is(err, ErrInvalidInviteAccount):
@@ -531,8 +533,9 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 }
 
 type acceptInviteRequest struct {
-	Token     string `json:"token"`
-	InstallID string `json:"install_id"`
+	Token             string `json:"token"`
+	InstallID         string `json:"install_id"`
+	MemberReadmission bool   `json:"member_readmission"`
 }
 
 // AcceptInvite — POST /v1/vaults/invites/accept
@@ -561,7 +564,7 @@ func (h *Handler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := h.svc.AcceptInvite(r.Context(), AcceptInviteInput{
-		Token: req.Token, AccountID: claims.AccountID, InstallID: req.InstallID,
+		Token: req.Token, AccountID: claims.AccountID, InstallID: req.InstallID, MemberReadmission: req.MemberReadmission,
 	})
 	if err != nil {
 		// NB: no Retry-After header on ErrInviteRateLimited. The soft-cap

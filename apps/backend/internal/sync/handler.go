@@ -55,8 +55,9 @@ type pushRequest struct {
 	// other devices (relays, sync v2 §4 scenario 4) are legitimate: each
 	// event's author is its hlc.device_id, which is what gets stored and
 	// what author_seq slots key on.
-	DeviceID string      `json:"device_id"`
-	Events   []PushEvent `json:"events"`
+	DeviceID            string      `json:"device_id"`
+	Events              []PushEvent `json:"events"`
+	ReadmissionInviteID string      `json:"readmission_invite_id,omitempty"`
 }
 
 // PushEvent is the wire format for a single event on push.
@@ -119,6 +120,16 @@ type RejectedEvent struct {
 
 // Push — POST /v1/sync/push (PROTECTED).
 func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
+	h.push(w, r, false)
+}
+
+// A separate route keeps readmission fail-closed on servers that only
+// understand ordinary event pushes.
+func (h *Handler) PushMemberReadmission(w http.ResponseWriter, r *http.Request) {
+	h.push(w, r, true)
+}
+
+func (h *Handler) push(w http.ResponseWriter, r *http.Request, readmission bool) {
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok {
 		httpx.Error(w, http.StatusUnauthorized, "authentication required")
@@ -152,7 +163,17 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "device_id must be a uuid")
 		return
 	}
-	if !h.allowCurrencyClient(w, r, req.VaultID, claims.AccountID) {
+	if readmission {
+		id, err := uuid.Parse(req.ReadmissionInviteID)
+		if err != nil || id == uuid.Nil || id.String() != req.ReadmissionInviteID || len(req.Events) != 2 || req.DeviceID != claims.InstallID {
+			httpx.Error(w, http.StatusBadRequest, "invalid member return approval")
+			return
+		}
+	} else if req.ReadmissionInviteID != "" {
+		httpx.Error(w, http.StatusBadRequest, "member return approvals require the dedicated route")
+		return
+	}
+	if !readmission && !h.allowCurrencyClient(w, r, req.VaultID, claims.AccountID) {
 		return
 	}
 	if r.Header.Get("X-Kaata-Entry-Currency-Edit") != "1" {
@@ -326,14 +347,18 @@ func (h *Handler) Push(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := h.svc.PushEvents(r.Context(), PushInput{
-		AccountID: claims.AccountID,
-		Session:   claims,
-		VaultID:   req.VaultID,
-		DeviceID:  req.DeviceID,
-		Events:    req.Events,
+		AccountID:           claims.AccountID,
+		Session:             claims,
+		VaultID:             req.VaultID,
+		DeviceID:            req.DeviceID,
+		Events:              req.Events,
+		ReadmissionInviteID: req.ReadmissionInviteID,
 	})
 	if err != nil {
 		switch {
+		case errors.Is(err, ErrMemberReadmissionConflict):
+			httpx.ErrorCode(w, http.StatusConflict, "member_readmission_conflict", "Refresh the member return request and try again.")
+			return
 		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound),
 			errors.Is(err, ErrVaultArchived):
 			writeMembershipDenied(w, err)
@@ -363,6 +388,9 @@ func writeMembershipDenied(w http.ResponseWriter, err error) {
 	code := "not_member"
 	msg := "not a member of this vault"
 	switch {
+	case errors.Is(err, errReadmittedDeviceRetired):
+		code = "device_removed"
+		msg = "this device was removed from the vault"
 	case errors.Is(err, ErrVaultNotFound):
 		code = "vault_unknown"
 	case errors.Is(err, ErrVaultArchived):

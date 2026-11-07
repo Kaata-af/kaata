@@ -206,9 +206,11 @@ type PushInput struct {
 	VaultID   string
 	DeviceID  string
 	Events    []PushEvent
-	// Session is server-authenticated context, never a wire field. It only
-	// attributes current browser usage; transport/relayed device IDs cannot.
+	// Session identifies the authenticated install for browser attribution
+	// and return approvals. Transport and relayed device IDs are not credentials.
 	Session *auth.SessionClaims
+	// ReadmissionInviteID is set only on the dedicated atomic owner approval.
+	ReadmissionInviteID string
 }
 
 // PushEvents validates membership, then inserts events one-by-one inside a
@@ -295,6 +297,11 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 	if archived && role != "owner" {
 		return nil, ErrVaultArchived
 	}
+	if in.Session != nil {
+		if err := checkReadmittedDevice(ctx, tx, in.VaultID, in.AccountID, in.Session.InstallID); err != nil {
+			return nil, err
+		}
+	}
 	sharedScopes, err := sharedGroupPushScopes(ctx, tx, in.VaultID)
 	if err != nil {
 		return nil, err
@@ -360,11 +367,28 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		}
 		return a.EventID < b.EventID
 	})
+	var readmissionSeatID int64
+	if in.ReadmissionInviteID != "" {
+		readmissionSeatID, err = loadReadmissionForPush(ctx, tx, in, role, archived, vaultAnchor, ordered)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	nowMS := time.Now().UnixMilli()
 
 	for i := range ordered {
 		ev := ordered[i]
+		if readmissionSeatID == 0 {
+			fresh, err := isUncommittedReadmissionEvent(ctx, tx, in.VaultID, &ev)
+			if err != nil {
+				return nil, err
+			}
+			if fresh {
+				rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: RejectReasonMembershipUnverified})
+				continue
+			}
+		}
 		if ev.EventType == EventPersonNoteSet {
 			if err := validatePersonNotePushEvent(ev); err != nil {
 				rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "invalid_payload"})
@@ -467,6 +491,9 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 				continue
 			}
 			m2Verified = true
+		}
+		if readmissionSeatID != 0 && !m2Verified {
+			return nil, ErrMemberReadmissionConflict
 		}
 		// A sentinel is chain history, not a JWT account. Never let legacy ACL
 		// fallback admit an unsigned/unanchored local-target event.
@@ -797,7 +824,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		// accepting the event without revoking the vault_members row would
 		// leave the server ACL forever out of step with the leaver's device.
 		if m2Verified || legacySelfLeave {
-			accts, ferr := s.foldMembershipEvent(ctx, tx, in.VaultID, in.AccountID, &ev)
+			accts, ferr := s.foldMembershipEvent(ctx, tx, in.VaultID, in.AccountID, &ev, readmissionSeatID)
 			if ferr != nil {
 				return nil, fmt.Errorf("fold membership event %s: %w", ev.EventID, ferr)
 			}
@@ -917,6 +944,14 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		}
 		creditState.accepted(in.VaultID, ev)
 		curSeq = nextSeq
+	}
+	if readmissionSeatID != 0 {
+		if len(accepted) != 2 {
+			return nil, ErrMemberReadmissionConflict
+		}
+		if err := finishReadmissionPush(ctx, tx, in.VaultID, readmissionSeatID, ordered); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := recordWebPushUsage(ctx, tx, in.VaultID, webUsage); err != nil {
@@ -1048,6 +1083,9 @@ func (s *Service) checkMembershipFresh(ctx context.Context, accountID, vaultID s
 	// locally; not_member would make it self-revoke its membership forever.
 	if archived && role != "owner" {
 		return ErrVaultArchived
+	}
+	if claims, ok := auth.ClaimsFromContext(ctx); ok && claims.AccountID == accountID {
+		return checkReadmittedDevice(ctx, s.pool, vaultID, accountID, claims.InstallID)
 	}
 	return nil
 }

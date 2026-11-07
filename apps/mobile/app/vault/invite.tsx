@@ -85,7 +85,12 @@ type RecipientChoice = {
   generation: number;
   vaultName?: string;
 };
-type SentInvitation = { person: DiscoveredPerson; role: VaultRole; expires_at: number };
+type SentInvitation = {
+  person: DiscoveredPerson;
+  role: VaultRole;
+  expires_at: number;
+  member_readmission: boolean;
+};
 
 /** Result-row avatar well. Named so its radius is size/2 rather than a
  *  literal 22 that can drift from the diameter (lib/tokens rule 3). */
@@ -436,7 +441,12 @@ export default function VaultInviteScreen() {
       );
       await applyForCurrentSession(session, async () => {
         if (!scopeCurrent(choice)) return;
-        setSent({ person: choice.person, role: choice.role, expires_at: response.expires_at });
+        setSent({
+          person: choice.person,
+          role: choice.role,
+          expires_at: response.expires_at,
+          member_readmission: response.member_readmission === true,
+        });
         setRecipient(null);
         setQuery("");
       });
@@ -455,7 +465,7 @@ export default function VaultInviteScreen() {
           ? "invite.people.alreadyMember"
           : code === "recipient_unavailable"
             ? "invite.people.unavailable"
-            : code === "member_readmission_required"
+            : code === "member_readmission_required" || code === "owner_only"
               ? "invite.people.readmission"
               : code === "invite_role_conflict"
                 ? "invite.people.roleConflict"
@@ -674,6 +684,11 @@ export default function VaultInviteScreen() {
                       when: formatExpires(sent.expires_at),
                     })}
                   </Text>
+                  {sent.member_readmission ? (
+                    <Text style={[styles.identitySub, textDir(isRTL)]}>
+                      {t("invite.people.readmissionSent")}
+                    </Text>
+                  ) : null}
                 </View>
               </View>
               <View style={styles.formInset}>

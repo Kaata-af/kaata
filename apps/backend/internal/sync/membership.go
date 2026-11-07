@@ -61,6 +61,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/matee/kaata-backend/internal/canonical"
 	"github.com/matee/kaata-backend/internal/mesh"
@@ -733,6 +734,7 @@ func (s *Service) foldMembershipEvent(
 	vaultID string,
 	pusherAccountID string,
 	ev *PushEvent,
+	readmissionSeatID int64,
 ) ([]string, error) {
 	switch ev.EventType {
 	case EventVaultMemberAdded:
@@ -776,7 +778,16 @@ func (s *Service) foldMembershipEvent(
 		// existing active row wins (role changes ride
 		// vault_member_role_changed). SEC FIX 4: stamp last_change_hlc_ms on
 		// insert so subsequent guarded writes can arbitrate by HLC.
-		tag, err := tx.Exec(ctx, `
+		var tag pgconn.CommandTag
+		var err error
+		if readmissionSeatID != 0 {
+			tag, err = tx.Exec(ctx, `
+			UPDATE vault_members SET account_id=$2::uuid,accepted_at=NOW(),updated_at=NOW(),last_change_hlc_ms=$4
+			WHERE id=$5 AND vault_id=$1::uuid AND invite_account_id=$2::uuid
+			AND role=$3 AND accepted_at IS NULL AND revoked_at IS NULL
+			`, vaultID, p.AccountID, p.Role, ev.HLC.PhysicalMS, readmissionSeatID)
+		} else {
+			tag, err = tx.Exec(ctx, `
 			INSERT INTO vault_members (vault_id, account_id, role, invited_at, accepted_at, invited_by, last_change_hlc_ms)
 			SELECT $1::uuid, $2::uuid, $3, NOW(), NOW(), $4::uuid, $5
 			WHERE NOT EXISTS (
@@ -784,7 +795,8 @@ func (s *Service) foldMembershipEvent(
 				 WHERE vault_id = $1::uuid AND account_id = $2::uuid
 				   AND revoked_at IS NULL
 			)
-		`, vaultID, p.AccountID, p.Role, invitedBy, ev.HLC.PhysicalMS)
+			`, vaultID, p.AccountID, p.Role, invitedBy, ev.HLC.PhysicalMS)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("fold member_added: insert: %w", err)
 		}

@@ -209,6 +209,9 @@ func (s *Service) WebLedger(ctx context.Context, accountID, installID, vaultID s
 		ms := archivedAt.UnixMilli()
 		view.ArchivedAtMS = &ms
 	}
+	if err := checkReadmittedDevice(ctx, tx, vaultID, accountID, installID); err != nil {
+		return nil, err
+	}
 	if err := tx.QueryRow(ctx, `SELECT (SELECT encode(device_pubkey,'base64') FROM vault_devices WHERE vault_id=$1::uuid
 		AND device_id=$2::uuid AND account_id=$3::uuid AND removed_at_ms IS NULL)`, vaultID, installID, accountID).Scan(&view.DevicePubkey); err != nil {
 		return nil, err

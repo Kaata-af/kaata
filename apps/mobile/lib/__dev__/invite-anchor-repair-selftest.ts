@@ -337,6 +337,76 @@ function fixture() {
 }
 
 async function main() {
+  const returning = fixture();
+  await returning.seed();
+  returning.storage.exec(
+    "UPDATE vaults SET archived_at=123; UPDATE vault_members_mirror SET revoked_at=456",
+  );
+  assert.equal(
+    await returning.recovery.prepareMemberReadmissionVault("joined", returning.currentSession()),
+    true,
+  );
+  assert.equal(returning.pin(), "server-anchor");
+  assert.equal(
+    (returning.storage.prepare("SELECT archived_at FROM vaults").get() as any).archived_at,
+    123,
+    "explicit return preparation preserves local archive",
+  );
+  assert.equal(
+    (returning.storage.prepare("SELECT revoked_at FROM vault_members_mirror").get() as any)
+      .revoked_at,
+    456,
+    "metadata preparation cannot clear membership removal",
+  );
+  assert.deepEqual(returning.emissions, []);
+  assert.deepEqual(returning.sweeps, [], "no visibility projection before exact owner proof");
+  returning.storage.exec("UPDATE vaults SET vault_trust_anchor_pubkey='original-other-pin'");
+  await assert.rejects(
+    returning.recovery.prepareMemberReadmissionVault("joined", returning.currentSession()),
+    /cannot replace/,
+  );
+  assert.equal(returning.pin(), "original-other-pin");
+  returning.storage.close();
+  const returnFresh = fixture();
+  returnFresh.storage.exec("INSERT INTO sync_state VALUES('joined',99,123)");
+  assert.equal(
+    await returnFresh.recovery.prepareMemberReadmissionVault(
+      "joined",
+      returnFresh.currentSession(),
+    ),
+    true,
+  );
+  assert.equal(
+    (
+      returnFresh.storage
+        .prepare("SELECT COUNT(*) AS n FROM vault_members_mirror WHERE revoked_at IS NULL")
+        .get() as any
+    ).n,
+    0,
+    "new return metadata creates no active membership mirror",
+  );
+  assert.equal(
+    (returnFresh.storage.prepare("SELECT revoked_at FROM vault_members_mirror").get() as any)
+      .revoked_at > 0,
+    true,
+    "new book is hidden until owner proof projects",
+  );
+  assert.equal(
+    (returnFresh.storage.prepare("SELECT last_pulled_server_seq FROM sync_state").get() as any)
+      .last_pulled_server_seq,
+    0,
+    "missing book rewinds its dangling cursor atomically",
+  );
+  returnFresh.storage.exec("UPDATE sync_state SET last_pulled_server_seq=7");
+  await returnFresh.recovery.prepareMemberReadmissionVault("joined", returnFresh.currentSession());
+  assert.equal(
+    (returnFresh.storage.prepare("SELECT last_pulled_server_seq FROM sync_state").get() as any)
+      .last_pulled_server_seq,
+    7,
+    "existing book keeps its cursor on retry",
+  );
+  returnFresh.storage.close();
+
   const fresh = fixture();
   await fresh.seed();
   assert.equal(fresh.pin(), null);

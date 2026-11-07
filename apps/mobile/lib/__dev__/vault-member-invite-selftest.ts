@@ -413,12 +413,67 @@ async function main() {
     await Promise.all([first, second]);
     await f.settle();
     assert.ok(f.button("invite.people.sendAnother"));
+    assert.equal(
+      f.all().some((node) => node.props.children === "invite.people.readmissionSent"),
+      false,
+      "ordinary invitations do not show a restore-access instruction",
+    );
     assert.equal(f.links.length, 0);
     assert.equal(
       f.all().some((n) => n.props.label === "invite.copy"),
       false,
       "Targeted invitations never expose a secret share link",
     );
+  }
+  {
+    const f = fixture();
+    await f.settle();
+    await f.select();
+    const sending = f.confirm().props.onConfirm();
+    await f.settle();
+    f.writes[0].reply.resolve({
+      expires_at: Date.now() + 86400_000,
+      delivery: "in_app",
+      member_readmission: true,
+    });
+    await sending;
+    await f.settle();
+    assert.ok(f.button("invite.people.sendAnother"));
+    assert.ok(
+      f
+        .all()
+        .some(
+          (node) => node.type === "Text" && node.props.children === "invite.people.readmissionSent",
+        ),
+      "a returning-member invitation explains the owner's Members > Restore access step",
+    );
+    assert.equal(f.links.length, 0);
+    f.setAccount("other-account");
+    assert.equal(
+      f.all().some((node) => node.props.children === "invite.people.readmissionSent"),
+      false,
+      "the return instruction is scoped to the successful sender's view",
+    );
+  }
+  {
+    const f = fixture();
+    await f.settle();
+    await f.select();
+    const sending = f.confirm().props.onConfirm();
+    await f.settle();
+    f.writes[0].reply.reject(new ApiError(403, "owner_only"));
+    await sending;
+    await f.settle();
+    assert.ok(
+      f
+        .all()
+        .some(
+          (node) => node.type === "Text" && node.props.children === "invite.people.readmission",
+        ),
+      "a manager's returning-member refusal points to the owner",
+    );
+    assert.ok(f.button("invite.people.send"), "the selected recipient remains available");
+    assert.equal(f.links.length, 0, "owner-only refusal never falls back to a share link");
   }
   {
     const f = fixture();

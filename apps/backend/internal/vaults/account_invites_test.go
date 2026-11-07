@@ -434,6 +434,7 @@ func accountInvitesRouter(svc *Service) http.Handler {
 		p.Post("/v1/vaults/invites/accept", h.AcceptInvite)
 		p.Get("/v1/vaults/invites/pending", h.PendingInvites)
 		p.Get("/v1/vaults/invites/requests/{invite_id}", h.AccountInviteInfo)
+		p.Get("/v1/vaults/invites/requests/{invite_id}/readmission", h.MemberReadmissionStatus)
 		p.Delete("/v1/vaults/invites/requests/{invite_id}", h.DeclineAccountInvite)
 	})
 	return r

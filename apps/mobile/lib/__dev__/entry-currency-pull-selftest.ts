@@ -91,6 +91,7 @@ function fixture() {
     getFirstAsync: async (q: string, ...args: unknown[]) => sql.prepare(q).get(...args) ?? null,
     getAllAsync: async (q: string, ...args: unknown[]) => sql.prepare(q).all(...args),
     runAsync: async (q: string, ...args: unknown[]) => {
+      trace.push("write");
       requireSession();
       assert.ok(applyHeld && transaction, "financial writes hold the apply mutex and transaction");
       return sql.prepare(q).run(...args);
@@ -218,7 +219,12 @@ function fixture() {
         trace.push("fetch");
         const body = await responses[responseIndex++];
         assert.ok(body, "fixture must provide each response page");
-        return { ok: true, status: 200, headers: new Headers(), json: async () => body };
+        return {
+          ok: body.__status !== 403,
+          status: body.__status === 403 ? 403 : 200,
+          headers: new Headers(),
+          json: async () => body,
+        };
       },
     },
   ) as typeof import("../sync/pull");
@@ -261,7 +267,7 @@ function fixture() {
           "note-event",
         );
     },
-    pull: () => pull.pullEvents(VAULT, session()),
+    pull: (options?: { deferProjection?: boolean }) => pull.pullEvents(VAULT, session(), options),
   };
 }
 type Fixture = ReturnType<typeof fixture>;
@@ -277,6 +283,26 @@ const requestsBaselines = (request: Fixture["requests"][number]) =>
   request.url.searchParams.get("entry_currency_baselines");
 
 async function main() {
+  await using(async (f) => {
+    f.respond({ __status: 403, error_code: "device_removed" });
+    await assert.rejects(f.pull(), /device requires owner approval/);
+    assert.equal(
+      f.trace.includes("write"),
+      false,
+      "retired phone denial cannot revoke the whole member or clear its archive probe",
+    );
+    assert.equal(f.trace.includes("sweep"), false);
+  });
+  await using(async (f) => {
+    f.respond(page({ events: [{ event_id: "new-admission" }], next_after_server_seq: 9 }));
+    await f.pull({ deferProjection: true });
+    assert.equal(f.cursor(), 9, "return proof is durably downloaded first");
+    assert.equal(
+      f.trace.includes("sweep"),
+      false,
+      "return flow defers visibility projection until its exact proof verifies",
+    );
+  });
   await using(async (f) => {
     f.seed({ pms: 100, l: 0, did: "precise-author" });
     f.respond(page());

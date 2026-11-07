@@ -24,6 +24,7 @@ func (h *Handler) CreateAccountInvite(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TargetAccountID string `json:"target_account_id"`
 		Role            string `json:"role"`
+		ReadmitRemoved  bool   `json:"readmit_removed"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -36,7 +37,7 @@ func (h *Handler) CreateAccountInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.svc.CreateAccountInvite(r.Context(), CreateAccountInviteInput{
-		VaultID: vaultID, InviterAccID: claims.AccountID, TargetAccountID: req.TargetAccountID, Role: req.Role,
+		VaultID: vaultID, InviterAccID: claims.AccountID, TargetAccountID: req.TargetAccountID, Role: req.Role, ReadmitRemoved: req.ReadmitRemoved,
 	})
 	if err != nil {
 		writeServiceError(w, err)

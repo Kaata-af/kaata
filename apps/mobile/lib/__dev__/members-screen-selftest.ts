@@ -7,6 +7,7 @@ import { colors } from "../colors";
 import { VAULT_ROLE_RANK } from "../vault-roles";
 import type { VaultRole } from "../events";
 import type { MemberCreditPermission } from "../member-credit-permissions";
+import type { MemberReadmission } from "../member-readmission";
 
 type Node = { type: string; props: Record<string, any> };
 type Deferred = { promise: Promise<void>; resolve: () => void };
@@ -61,6 +62,23 @@ let inviteGate: Deferred | null = null;
 let authorityGate: Deferred | null = null;
 let profileGate: Deferred | null = null;
 let profileOffline = false;
+const rejoining: MemberReadmission = {
+  invite_id: "return-invite",
+  account_id: "peer",
+  name: "Returning Peer",
+  role: "editor",
+  device_id: "return-device",
+  device_pubkey: "return-key",
+  after_ms: 100,
+};
+let readmissionRows: MemberReadmission[] = [];
+let readmissionListGate: Deferred | null = null;
+let readmissionDispatchGate: Deferred | null = null;
+let readmissionReplyGate: Deferred | null = null;
+let readmissionFailure = false;
+let readmissionListFailure = false;
+let readmissionReads = 0;
+const restoredMembers: { vault: string; request: MemberReadmission; account: string }[] = [];
 let peerInMirror = true;
 let callerRevoked = false;
 let serverMembers: { account_id: string; role: VaultRole; display_name: string }[] = [];
@@ -350,7 +368,41 @@ const screen = compile("../../app/vault/members", {
     trackingSafe: () => ({}),
   },
   "../../lib/fonts": { fonts: {} },
-  "../../lib/i18n": { t: (key: string) => key },
+  "../../lib/i18n": {
+    t: (key: string, params?: Record<string, string>) =>
+      key === "members.rejoin.confirmBody" ? `${key}|${params?.name}|${params?.role}` : key,
+  },
+  "../../lib/member-readmission": {
+    listMemberReadmissions: async (vault: string, session: any) => {
+      assert.equal(vault, activeVault);
+      assert.equal(session.accountId, currentSessionAccount());
+      assert.equal(session.bindingVersion, binding);
+      readmissionReads++;
+      const rows = readmissionRows.map((row) => ({ ...row }));
+      if (readmissionListGate) await readmissionListGate.promise;
+      if (readmissionListFailure) throw new Error("readmission list unavailable");
+      return rows;
+    },
+    completeMemberReadmission: async (
+      vault: string,
+      request: MemberReadmission,
+      session: any,
+      beforeDispatch: () => void,
+    ) => {
+      if (readmissionDispatchGate) await readmissionDispatchGate.promise;
+      beforeDispatch();
+      assert.equal(vault, activeVault);
+      assert.equal(session.accountId, currentSessionAccount());
+      assert.equal(session.bindingVersion, binding);
+      restoredMembers.push({ vault, request, account: session.accountId });
+      if (readmissionReplyGate) await readmissionReplyGate.promise;
+      if (readmissionFailure) throw new Error("readmission response unavailable");
+      readmissionRows = readmissionRows.filter((row) => row.invite_id !== request.invite_id);
+      peerInMirror = true;
+      peerRevoked = false;
+      peerRole = request.role;
+    },
+  },
   "../../lib/member-profiles": {
     memberIdentityName: (member: any) => member.display_name,
     refreshMemberProfiles: async (scope: string, onRoster?: (snapshot: unknown) => void) => {
@@ -459,6 +511,14 @@ function fixture() {
   authorityGate = null;
   profileGate = null;
   profileOffline = false;
+  readmissionRows = [];
+  readmissionListGate = null;
+  readmissionDispatchGate = null;
+  readmissionReplyGate = null;
+  readmissionFailure = false;
+  readmissionListFailure = false;
+  readmissionReads = 0;
+  restoredMembers.length = 0;
   peerInMirror = true;
   callerRevoked = false;
   serverMembers = [];
@@ -506,6 +566,203 @@ async function refocus() {
 }
 
 export async function runMembersScreenSelftest() {
+  const returningRow = () =>
+    nodes(tree).find(
+      (node) => node.type === "MemberIdentityRow" && node.props.name === rejoining.name,
+    );
+  const rejoinConfirmation = () =>
+    nodes(tree).find(
+      (node) => node.type === "ConfirmDialog" && node.props.title === "members.rejoin.confirmTitle",
+    )!;
+  fixture();
+  peerRevoked = true;
+  await flush();
+  assert.equal(returningRow(), undefined);
+  readmissionRows = [rejoining];
+  await poll();
+  assert.equal(returningRow()?.props.role, "editor");
+  assert.equal(returningRow()?.props.sub, "members.rejoin.restore");
+  assert.equal(restoredMembers.length, 0, "acceptance only exposes a pending owner action");
+  returningRow()!.props.onPress();
+  await flush();
+  assert.equal(rejoinConfirmation().props.visible, true);
+  assert.equal(
+    rejoinConfirmation().props.description,
+    "members.rejoin.confirmBody|Returning Peer|vaultSettings.role.editor",
+  );
+  readmissionRows = [{ ...rejoining, after_ms: 200 }];
+  await poll();
+  assert.equal(
+    rejoinConfirmation().props.visible,
+    true,
+    "a newer signing-clock floor preserves confirmation of the same grant",
+  );
+  const cancelledConfirm = rejoinConfirmation().props.onConfirm;
+  rejoinConfirmation().props.onCancel();
+  cancelledConfirm();
+  await flush();
+  assert.equal(restoredMembers.length, 0, "cancelled confirmation callbacks cannot restore access");
+  returningRow()!.props.onPress();
+  await flush();
+  const confirmRestore = rejoinConfirmation().props.onConfirm;
+  readmissionReplyGate = deferred();
+  confirmRestore();
+  confirmRestore();
+  await flush();
+  assert.equal(restoredMembers.length, 1, "same-frame confirmation restores only once");
+  assert.equal(restoredMembers[0].request.after_ms, 200);
+  assert.equal(returningRow()?.props.disabled, true);
+  readmissionReplyGate.resolve();
+  await flush();
+  assert.equal(returningRow(), undefined);
+  assert.equal(
+    memberRow()?.props.role,
+    "editor",
+    "the verified member row replaces the ready section",
+  );
+  assert.ok(toastMessages.includes("members.rejoin.saved"));
+
+  for (const forbidden of ["manager", "viewer"] as const) {
+    fixture();
+    actorRole = forbidden;
+    peerRevoked = true;
+    readmissionRows = [rejoining];
+    await flush();
+    await poll();
+    assert.equal(returningRow(), undefined, `${forbidden} cannot see owner readmissions`);
+    assert.equal(readmissionReads, 0, `${forbidden} does not request owner-only data`);
+  }
+
+  for (const change of ["account", "vault", "role", "focus"] as const) {
+    fixture();
+    peerRevoked = true;
+    readmissionRows = [rejoining];
+    await flush();
+    returningRow()!.props.onPress();
+    await flush();
+    readmissionDispatchGate = deferred();
+    rejoinConfirmation().props.onConfirm();
+    await flush();
+    if (change === "account") {
+      // Account identity events invalidate A -> out -> A even in one render.
+      sessionAccount = null;
+      identityListeners.forEach((listener) => listener());
+      sessionAccount = undefined;
+      binding++;
+      identityListeners.forEach((listener) => listener());
+    } else if (change === "vault") activeVault = "other-vault";
+    else if (change === "role") actorRole = "manager";
+    else {
+      focused = false;
+      focusEpoch++;
+    }
+    dirty = true;
+    await flush();
+    readmissionDispatchGate.resolve();
+    await flush();
+    assert.equal(restoredMembers.length, 0, `${change} change before dispatch cancels restoration`);
+    assert.equal(toastMessages.includes("members.rejoin.saved"), false);
+  }
+
+  fixture();
+  peerRevoked = true;
+  readmissionRows = [rejoining];
+  readmissionListGate = deferred();
+  await flush();
+  sessionAccount = null;
+  identityListeners.forEach((listener) => listener());
+  await flush();
+  readmissionListGate.resolve();
+  await flush();
+  assert.equal(returningRow(), undefined, "a late owner list cannot paint after sign-out");
+
+  fixture();
+  peerRevoked = true;
+  readmissionRows = [rejoining];
+  await flush();
+  returningRow()!.props.onPress();
+  await flush();
+  readmissionReplyGate = deferred();
+  rejoinConfirmation().props.onConfirm();
+  await flush();
+  assert.equal(restoredMembers.length, 1);
+  sessionAccount = null;
+  binding++;
+  identityListeners.forEach((listener) => listener());
+  await flush();
+  readmissionReplyGate.resolve();
+  await flush();
+  assert.equal(returningRow(), undefined);
+  assert.equal(
+    toastMessages.includes("members.rejoin.saved"),
+    false,
+    "a completed old-session request cannot paint a success in the new view",
+  );
+
+  fixture();
+  peerRevoked = true;
+  readmissionRows = [rejoining];
+  await flush();
+  returningRow()!.props.onPress();
+  await flush();
+  readmissionReplyGate = deferred();
+  readmissionFailure = true;
+  rejoinConfirmation().props.onConfirm();
+  await flush();
+  focused = false;
+  focusEpoch++;
+  dirty = true;
+  await flush();
+  readmissionReplyGate.resolve();
+  await flush();
+  await refocus();
+  assert.equal(
+    returningRow()?.props.disabled,
+    false,
+    "completion while blurred cannot leave a returning screen permanently busy",
+  );
+  assert.equal(returningRow()?.props.sub, "members.rejoin.restore");
+
+  fixture();
+  peerRevoked = true;
+  readmissionRows = [rejoining];
+  await flush();
+  const readsBeforeBackground = readmissionReads;
+  appChange("background");
+  await poll();
+  assert.equal(readmissionReads, readsBeforeBackground);
+  appChange("active");
+  await flush();
+  assert.ok(
+    readmissionReads > readsBeforeBackground,
+    "foreground refresh discovers accepted returns",
+  );
+  returningRow()!.props.onPress();
+  await flush();
+  readmissionFailure = true;
+  readmissionListFailure = true;
+  rejoinConfirmation().props.onConfirm();
+  await flush();
+  assert.equal(restoredMembers.length, 1);
+  assert.ok(toastMessages.includes("members.rejoin.failed"));
+  assert.equal(
+    returningRow(),
+    undefined,
+    "uncertain writes require a successful fresh list before another confirmation",
+  );
+  const retry = nodes(tree).find(
+    (node) => node.type === "NavRow" && node.props.label === "members.rejoin.retry",
+  )!;
+  assert.ok(retry, "list failure exposes a read-only retry");
+  readmissionListFailure = false;
+  retry.props.onPress();
+  await flush();
+  assert.ok(returningRow(), "a confirmed still-pending request can be reviewed again");
+  assert.equal(restoredMembers.length, 1, "reconciliation never retries a mutation automatically");
+  console.log(
+    "PASS owner readmission UI: explicit role confirmation, owner-only requests, duplicate/cancel guards, scoped races, foreground refresh and uncertain-write reconciliation",
+  );
+
   const finishingRow = () =>
     nodes(tree).find(
       (node) => node.type === "MemberIdentityRow" && node.props.sub === "members.finishingSetup",
@@ -784,7 +1041,14 @@ export async function runMembersScreenSelftest() {
     "PASS admin staff access, protected roles, online member permission choices, duplicate taps and stale session guards",
   );
 
-  const transferDialog = () => nodes(tree).filter((node) => node.type === "ConfirmDialog")[1]!;
+  const transferDialog = () =>
+    nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        ["members.confirm.transfer.cta", "members.confirm.transfer.cta.fallback"].includes(
+          node.props.confirmLabel,
+        ),
+    )!;
   const openTransfer = async () => {
     memberRow()!.props.onPress();
     await flush();

@@ -40,7 +40,8 @@ async function fixture() {
     CREATE TABLE event_log(event_id TEXT PRIMARY KEY,event_type TEXT,vault_id TEXT,target_id TEXT,
       relationship_id TEXT,hlc_physical_ms INTEGER,hlc_logical INTEGER,hlc_device_id TEXT,
       device_id TEXT,actor_account_id TEXT,payload_json TEXT,payload_schema INTEGER,event_sig_b64 TEXT,
-      signer_device_pubkey TEXT,author_seq INTEGER,tombstone_reason TEXT,rejected_at INTEGER,server_acked_at INTEGER);
+      signer_device_pubkey TEXT,author_seq INTEGER,tombstone_reason TEXT,rejected_at INTEGER,server_acked_at INTEGER,
+      applied_at INTEGER,quarantine_reason TEXT);
     INSERT INTO pending_invitations VALUES('invite',NULL,NULL);
   `);
   store.prepare("INSERT INTO vaults VALUES('vault',?,NULL)").run(ownerKey);
@@ -133,7 +134,9 @@ async function fixture() {
     );
     event.signer_device_pubkey = key(seed);
     store
-      .prepare("INSERT INTO event_log VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?)")
+      .prepare(
+        `INSERT INTO event_log(event_id,event_type,vault_id,target_id,relationship_id,hlc_physical_ms,hlc_logical,hlc_device_id,device_id,actor_account_id,payload_json,payload_schema,event_sig_b64,signer_device_pubkey,author_seq,tombstone_reason,rejected_at,server_acked_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?)`,
+      )
       .run(
         event.event_id,
         event.event_type,
@@ -179,6 +182,9 @@ async function fixture() {
     },
     signWithDeviceKey: async (msg: Uint8Array) => ed.sign(msg, peerSeed),
   };
+  let currentPubkey = peerKey;
+  device.ensureDeviceKey = async () => ({ pubkey_b64: currentPubkey });
+  device.getDevicePubkey = () => currentPubkey;
   const events = compileUI("../event-log", {
     "expo-crypto": { randomUUID },
     "./db-tx": dbTx,
@@ -302,6 +308,41 @@ async function fixture() {
     { Date: { now: () => now } },
   );
   let responseMode = "ok";
+  let readmissionResult: Record<string, any> | undefined;
+  let recoveryPublished = false;
+  let skipReturnProjection = false;
+  const readmission = compileUI("../member-readmission-guest", {
+    "./auth": auth,
+    "./db-tx": dbTx,
+    "./mesh/device-key": device,
+    "./trust/proof": proof,
+    "./recovery": {
+      prepareMemberReadmissionVault: async () => {
+        calls.push("return-metadata");
+        return true;
+      },
+    },
+    "./sync/pull": {
+      pullEvents: async (_: any, saved: any, options: any) => {
+        assert.equal(locked, false, "return pull releases session mutex");
+        assert.equal(saved.accountId, account);
+        assert.equal(options.deferProjection, true);
+        calls.push("return-pull");
+      },
+    },
+    "./projection/sweep": {
+      sweepVaultNow: async () => {
+        assert.ok(locked);
+        calls.push("return-sweep");
+        recoveryPublished = true;
+        if (!skipReturnProjection) {
+          store.exec(
+            "UPDATE event_log SET applied_at=1; UPDATE vault_members_mirror SET revoked_at=NULL",
+          );
+        }
+      },
+    },
+  });
   let timeoutCallback: (() => void) | undefined;
   const requestGate = deferred<any>();
   const requestStarted = deferred<void>();
@@ -315,6 +356,8 @@ async function fixture() {
       "./db": dbModule,
       "./db-tx": dbTx,
       "./vault-member-requests": memberRequests,
+      "./mesh/device-key": device,
+      "./member-readmission-guest": readmission,
       "./projection": { applyEventMutex: { runExclusive: (work: any) => work() } },
       "./recovery": {
         recoverJoinedVault: async () => {
@@ -333,10 +376,22 @@ async function fixture() {
         timeoutCallback = fn;
         return 1;
       },
-      fetch: async (_: string, opts: any) => {
+      fetch: async (url: string, opts: any) => {
+        if (url.endsWith("/v1/devices/register-key")) {
+          calls.push("return-register-key");
+          assert.equal(JSON.parse(opts.body).ed25519_pubkey, currentPubkey);
+          return { ok: true, status: 204, headers: { get: () => "" } };
+        }
         requestStarted.resolve();
-        calls.push(`post:${opts.headers.Authorization}`);
+        calls.push(`${opts.method.toLowerCase()}:${opts.headers.Authorization}`);
         assert.ok(await getMeta("invite_accept_pending:peer"), "intent precedes consuming POST");
+        if (readmissionResult) {
+          if (opts.method === "POST") assert.equal(JSON.parse(opts.body).member_readmission, true);
+          else {
+            assert.ok(url.endsWith("/11111111-1111-4111-8111-111111111111/readmission"));
+            assert.equal(opts.body, undefined, "read-only status never repeats consent");
+          }
+        }
         if (responseMode === "lost") throw Error("lost response after server commit");
         return {
           ok: true,
@@ -345,7 +400,7 @@ async function fixture() {
           json: async () =>
             responseMode === "hold"
               ? requestGate.promise
-              : { vault_id: "vault", vault_name: "Shop", role: "viewer" },
+              : (readmissionResult ?? { vault_id: "vault", vault_name: "Shop", role: "viewer" }),
         };
       },
     },
@@ -379,6 +434,35 @@ async function fixture() {
     proof,
     backfill,
     api,
+    readmission,
+    returnResult: (pending: boolean) => {
+      readmissionResult = {
+        vault_id: "vault",
+        vault_name: "Shop",
+        role: "viewer",
+        member_readmission: true,
+        readmission_pending: pending,
+        readmission_invite_id: "11111111-1111-4111-8111-111111111111",
+        readmission_device_id: "peer-device",
+        readmission_device_pubkey: peerKey,
+        ...(!pending
+          ? {
+              readmission_member_event_id: "return-member",
+              readmission_device_event_id: "return-device",
+            }
+          : {}),
+      };
+      return readmissionResult;
+    },
+    rotateKey: () => {
+      currentPubkey = ownerKey;
+    },
+    get recoveryPublished() {
+      return recoveryPublished;
+    },
+    skipReturnProjection: (skip: boolean) => {
+      skipReturnProjection = skip;
+    },
     getMeta,
     setMeta,
     calls,
@@ -454,6 +538,7 @@ async function fixture() {
 }
 
 async function main() {
+  await readmissionCases();
   const healthy = await fixture();
   await assert.rejects(healthy.backfill.emitWitnessedSelfAdmission("vault"), /server confirmation/);
   const folded = await healthy.proof.getLocalMembershipState("vault");
@@ -670,7 +755,7 @@ async function main() {
   );
   const oversized = await fixture();
   const clone = oversized.store.prepare(
-    "INSERT INTO event_log SELECT ?,event_type,vault_id,target_id,relationship_id,hlc_physical_ms,hlc_logical,hlc_device_id,device_id,actor_account_id,payload_json,payload_schema,event_sig_b64,signer_device_pubkey,author_seq,tombstone_reason,rejected_at,server_acked_at FROM event_log WHERE event_id='genesis'",
+    "INSERT INTO event_log SELECT ?,event_type,vault_id,target_id,relationship_id,hlc_physical_ms,hlc_logical,hlc_device_id,device_id,actor_account_id,payload_json,payload_schema,event_sig_b64,signer_device_pubkey,author_seq,tombstone_reason,rejected_at,server_acked_at,applied_at,quarantine_reason FROM event_log WHERE event_id='genesis'",
   );
   for (let i = 0; i < 500; i++) clone.run(`extra-${i}`);
   await assert.rejects(
@@ -811,6 +896,224 @@ async function main() {
   );
 }
 
+async function readmissionCases() {
+  const token = "v_11111111-1111-4111-8111-111111111111";
+  const returned = await fixture();
+  const ownerEvent = async (id: string, type: string, payload: any, ack = true) =>
+    returned.append(
+      {
+        event_id: id,
+        event_type: type,
+        vault_id: "vault",
+        target_id: payload.device_id ?? payload.account_id,
+        device_id: "owner-device",
+        actor_account_id: "owner",
+        payload_schema: 1,
+        payload,
+      },
+      ownerSeed,
+      ack,
+    );
+  await ownerEvent("old-member", "vault_member_added", { account_id: "peer", role: "editor" });
+  await ownerEvent("old-device", "vault_device_added", {
+    account_id: "peer",
+    device_id: "peer-device",
+    device_pubkey: peerKey,
+  });
+  await ownerEvent("old-second-device", "vault_device_added", {
+    account_id: "peer",
+    device_id: "second-device",
+    device_pubkey: serverKey,
+  });
+  await ownerEvent("removal", "vault_member_removed", { account_id: "peer" });
+  returned.store
+    .prepare("INSERT INTO vault_members_mirror VALUES('vault','peer','editor',1,2,'Ahmad')")
+    .run();
+  returned.store.exec("UPDATE vaults SET archived_at=123");
+  returned.returnResult(true);
+  await returned.setMeta("witness_emit_pending:vault", "1");
+  await returned.setMeta("vault_materialize_pending", "vault");
+  await returned.api.acceptVaultInvite(token, returned.session(), "member_readmission");
+  assert.equal(
+    await returned.getMeta("witness_emit_pending:vault"),
+    "",
+    "waiting return cannot schedule witnessed resurrection",
+  );
+  assert.equal(
+    await returned.getMeta("vault_materialize_pending"),
+    "",
+    "waiting return cannot materialize an ACL",
+  );
+  const journal = JSON.parse((await returned.getMeta("invite_accept_pending:peer"))!);
+  assert.equal(journal[0].kind, "member_readmission");
+  assert.deepEqual(journal[0].device, { id: "peer-device", pubkey: peerKey });
+  await returned.api.retryPendingVaultMaterialize();
+  assert.equal(
+    returned.calls.filter((call) => call === "return-register-key").length,
+    1,
+    "polling never exhausts key registration budget",
+  );
+  assert.equal(
+    returned.calls.filter((call) => call.startsWith("post:")).length,
+    1,
+    "polling never consumes invitation POST budget",
+  );
+  assert.equal(returned.calls.filter((call) => call.startsWith("get:")).length, 1);
+  assert.equal(
+    returned.calls.includes("return-metadata"),
+    false,
+    "scheduler leaves consent pending without any recovery",
+  );
+  assert.equal(
+    (await returned.proof.getLocalMembershipState("vault")).members.get("peer").removed,
+    true,
+  );
+  const completed = returned.returnResult(false);
+  completed.role = "manager";
+  delete completed.readmission_pending;
+  const resumed = await returned.api.resumePendingVaultInvite(token, returned.session());
+  assert.equal(
+    resumed.role,
+    "manager",
+    "completed return allows a later legitimate promotion without changing the original low-role admission",
+  );
+  assert.equal(
+    resumed.readmission_pending,
+    false,
+    "remount refreshes the durable request instead of returning stale pending result",
+  );
+  assert.equal(
+    await returned.readmission.isMemberReadmissionPublished(completed, returned.session()),
+    false,
+    "completed HTTP alone grants no local access",
+  );
+  await ownerEvent("return-member", "vault_member_added", {
+    account_id: "peer",
+    role: "viewer",
+    readmission_invite_id: token.slice(2),
+  });
+  assert.equal(
+    await returned.readmission.isMemberReadmissionPublished(completed, returned.session()),
+    false,
+    "membership alone cannot revive the removed phone",
+  );
+  await ownerEvent(
+    "return-device",
+    "vault_device_added",
+    {
+      account_id: "peer",
+      device_id: "peer-device",
+      device_pubkey: peerKey,
+      readmission_invite_id: token.slice(2),
+    },
+    false,
+  );
+  assert.equal(
+    await returned.readmission.isMemberReadmissionPublished(completed, returned.session()),
+    false,
+    "unpublished pair cannot complete return",
+  );
+  returned.ack();
+  await ownerEvent("later-promotion", "vault_member_role_changed", {
+    account_id: "peer",
+    role: "manager",
+  });
+  assert.equal(
+    await returned.readmission.isMemberReadmissionPublished(completed, returned.session()),
+    true,
+  );
+  assert.equal(
+    (await returned.proof.getLocalMembershipState("vault")).devices.get(serverKey).removed,
+    true,
+    "other previously removed phones stay removed",
+  );
+  returned.skipReturnProjection(true);
+  assert.equal(
+    (await returned.readmission.recoverMemberReadmission(completed, returned.session())).ready,
+    false,
+    "verified fold cannot finish while projection remains deferred",
+  );
+  returned.skipReturnProjection(false);
+  assert.deepEqual(
+    await returned.readmission.recoverMemberReadmission(completed, returned.session()),
+    { ready: true, archived: true },
+    "existing local archive remains unchanged",
+  );
+  assert.ok(returned.recoveryPublished);
+  await returned.api.retryPendingVaultMaterialize();
+  assert.deepEqual(
+    JSON.parse((await returned.getMeta("invite_accept_pending:peer"))!),
+    [],
+    "scheduler completes and clears exactly the finished request",
+  );
+  await ownerEvent("removed-again", "vault_member_removed", { account_id: "peer" });
+  assert.equal(
+    await returned.readmission.isMemberReadmissionPublished(completed, returned.session()),
+    false,
+    "later removal defeats old completed receipt",
+  );
+  returned.store.close();
+
+  const interrupted = await fixture();
+  interrupted.returnResult(true);
+  interrupted.response("lost");
+  await assert.rejects(
+    interrupted.api.acceptVaultInvite(token, interrupted.session(), "member_readmission"),
+    /lost response/,
+  );
+  const saved = JSON.parse((await interrupted.getMeta("invite_accept_pending:peer"))!);
+  assert.equal(saved[0].result, null);
+  assert.equal(saved[0].device.pubkey, peerKey, "lost consent reply retains exact device identity");
+  interrupted.response("ok");
+  await interrupted.api.retryPendingVaultMaterialize();
+  assert.equal(
+    interrupted.calls.filter((call) => call === "return-register-key").length,
+    1,
+    "lost-response replay reuses the already registered pinned key",
+  );
+  assert.equal(
+    JSON.parse((await interrupted.getMeta("invite_accept_pending:peer"))!)[0].result
+      .readmission_pending,
+    true,
+  );
+  interrupted.rotateKey();
+  const beforeRotation = interrupted.calls.length;
+  await assert.rejects(
+    interrupted.api.resumePendingVaultInvite(token, interrupted.session()),
+    /another device key/,
+  );
+  assert.equal(
+    interrupted.calls.length,
+    beforeRotation,
+    "key rotation cannot silently retarget saved consent",
+  );
+  interrupted.store.close();
+
+  const lateConsent = await fixture();
+  lateConsent.returnResult(true);
+  lateConsent.response("hold");
+  const pendingConsent = lateConsent.api.acceptVaultInvite(
+    token,
+    lateConsent.session(),
+    "member_readmission",
+  );
+  await lateConsent.waitForRequest();
+  lateConsent.switchAccount();
+  lateConsent.releaseResponse();
+  await assert.rejects(pendingConsent, lateConsent.SessionChangedError);
+  assert.equal(
+    await lateConsent.getMeta("invite_accept_pending:other"),
+    null,
+    "late return consent cannot enter a new account journal",
+  );
+  assert.equal(
+    JSON.parse((await lateConsent.getMeta("invite_accept_pending:peer"))!)[0].result,
+    null,
+    "original uncertain consent stays recoverable",
+  );
+  lateConsent.store.close();
+}
+
 async function screenCases() {
   for (const mode of ["pending", "late-success", "late-error"]) {
     const hooks = uiHooks();
@@ -832,8 +1135,13 @@ async function screenCases() {
         react: sessionReact(hooks),
         "react/jsx-runtime": { jsx, jsxs: jsx },
         "@expo/vector-icons": { Ionicons: "Icon" },
-        "expo-router": { useRouter: () => router, useLocalSearchParams: () => ({ token }) },
+        "expo-router": {
+          useIsFocused: () => true,
+          useRouter: () => router,
+          useLocalSearchParams: () => ({ token }),
+        },
         "react-native": {
+          AppState: { currentState: "active", addEventListener: () => ({ remove: () => {} }) },
           ActivityIndicator: "Spinner",
           Text: "Text",
           View: "View",
@@ -973,6 +1281,24 @@ async function targetedScreenFixture() {
   let account: string | null = "A",
     bindingVersion = 0,
     localLookups = 0;
+  let focused = true,
+    foregroundListener: ((state: string) => void) | undefined;
+  let returnResponse: any,
+    returnReady = false,
+    returnArchived = false,
+    returnRecoveryCalls = 0;
+  let returnTimer: (() => void) | undefined;
+  const appState = {
+    currentState: "active",
+    addEventListener: (_: string, listener: (state: string) => void) => {
+      foregroundListener = listener;
+      return {
+        remove: () => {
+          foregroundListener = undefined;
+        },
+      };
+    },
+  };
   const listeners = new Set<() => void>();
   const previews: { session: any; reply: ReturnType<typeof deferred<any>> }[] = [];
   const posts: any[] = [],
@@ -1001,8 +1327,13 @@ async function targetedScreenFixture() {
       react: sessionReact(hooks),
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "@expo/vector-icons": { Ionicons: "Icon" },
-      "expo-router": { useRouter: () => router, useLocalSearchParams: () => ({ token }) },
+      "expo-router": {
+        useIsFocused: () => focused,
+        useRouter: () => router,
+        useLocalSearchParams: () => ({ token }),
+      },
       "react-native": {
+        AppState: appState,
         ActivityIndicator: "Spinner",
         Text: "Text",
         View: "View",
@@ -1024,7 +1355,7 @@ async function targetedScreenFixture() {
           listeners.add(listener);
           return () => listeners.delete(listener);
         },
-        setActiveVaultId: async () => {},
+        setActiveVaultId: async (id: string) => seeds.push(`switch:${id}`),
       },
       "../../lib/db": { getLocalSelf: async () => ({}), setAppMeta: async () => {} },
       "../../lib/checkin-trigger": { requestImmediateCheckIn: () => {} },
@@ -1044,6 +1375,13 @@ async function targetedScreenFixture() {
         recoverJoinedVault: async () => true,
       },
       "../../lib/tabs/sync": { syncAllTabs: async () => {} },
+      "../../lib/member-readmission-guest": {
+        recoverMemberReadmission: async (_: any, before: any) => {
+          await guard(before, async () => {});
+          returnRecoveryCalls++;
+          return { ready: returnReady, archived: returnArchived };
+        },
+      },
       "../../lib/vault-api": {
         ApiError: class extends Error {},
         retryPendingVaultMaterialize: async () => {},
@@ -1063,9 +1401,9 @@ async function targetedScreenFixture() {
           previews.push({ session: before, reply });
           return reply.promise;
         },
-        acceptVaultInvite: async (_: string, before: any) => {
-          posts.push(before);
-          return acceptReply.promise;
+        acceptVaultInvite: async (_: string, before: any, kind: any) => {
+          posts.push({ ...before, kind });
+          return returnResponse ?? acceptReply.promise;
         },
         declineVaultInviteLocally: async (value: string, before: any) => {
           assert.equal(value, token);
@@ -1076,7 +1414,17 @@ async function targetedScreenFixture() {
         clearVaultMaterializePending: async () => {},
       },
     },
-    { setTimeout: () => 1, clearTimeout: () => {}, setInterval: () => 2, clearInterval: () => {} },
+    {
+      setTimeout: (fn: () => void, delay: number) => {
+        if (delay === 15000) returnTimer = fn;
+        return 1;
+      },
+      clearTimeout: () => {
+        returnTimer = undefined;
+      },
+      setInterval: () => 2,
+      clearInterval: () => {},
+    },
   ).default;
   const flush = async () => {
     for (let i = 0; i < 5; i++) {
@@ -1116,10 +1464,109 @@ async function targetedScreenFixture() {
     navigations,
     toasts,
     localLookups: () => localLookups,
+    returnResponse: (pending: boolean) => {
+      returnResponse = {
+        vault_id: "A-vault",
+        vault_name: "A Kaata",
+        role: "viewer",
+        member_readmission: true,
+        readmission_pending: pending,
+      };
+    },
+    returnReady: (archived = false) => {
+      returnReady = true;
+      returnArchived = archived;
+    },
+    returnRecoveryCalls: () => returnRecoveryCalls,
+    returnTimer: () => returnTimer,
+    focus: (value: boolean) => {
+      focused = value;
+    },
+    foreground: (value: boolean) => {
+      appState.currentState = value ? "active" : "background";
+      foregroundListener?.(appState.currentState);
+    },
   };
 }
 
 async function targetedScreenCases() {
+  const returning = await targetedScreenFixture();
+  returning.previews[0].reply.resolve({
+    ...returning.preview("A Kaata"),
+    kind: "member_readmission",
+  });
+  await returning.flush();
+  returning.returnResponse(true);
+  const acceptReturn = returning.button("inviteAccept.readmission.accept")!.props.onPress;
+  await Promise.all([acceptReturn(), acceptReturn()]);
+  await returning.flush();
+  assert.equal(returning.posts.length, 1);
+  assert.equal(returning.posts[0].kind, "member_readmission");
+  assert.deepEqual(returning.seeds, [], "pending return cannot seed or switch book");
+  assert.equal(returning.returnRecoveryCalls(), 0);
+  assert.equal(returning.toasts.length, 0);
+  assert.ok(
+    nodes(returning.hooks.tree).some(
+      (node) => node.props.children === "inviteAccept.readmission.waitingTitle",
+    ),
+  );
+  const oldTimer = returning.returnTimer();
+  returning.foreground(false);
+  oldTimer?.();
+  await returning.flush();
+  assert.equal(returning.posts.length, 1, "background timer cannot repeat consent");
+  returning.foreground(true);
+  await returning.flush();
+  returning.previews
+    .at(-1)!
+    .reply.resolve({ ...returning.preview("A Kaata"), kind: "member_readmission" });
+  await returning.flush();
+  returning.returnResponse(false);
+  await returning.button("inviteAccept.readmission.accept")!.props.onPress();
+  await returning.flush();
+  assert.deepEqual(
+    returning.navigations,
+    [],
+    "completed response without verified proof still waits",
+  );
+  returning.returnReady(true);
+  await returning.button("common.retry")!.props.onPress();
+  await returning.flush();
+  assert.deepEqual(
+    returning.seeds,
+    [],
+    "a user-archived returned book is never selected or unarchived",
+  );
+  assert.deepEqual(returning.navigations, ["/"]);
+  assert.equal(returning.toasts.length, 1);
+  returning.hooks.unmount();
+
+  const lateReturn = await targetedScreenFixture();
+  lateReturn.previews[0].reply.resolve({
+    ...lateReturn.preview("A Kaata"),
+    kind: "member_readmission",
+  });
+  await lateReturn.flush();
+  const lateAction = lateReturn.button("inviteAccept.readmission.accept")!.props.onPress();
+  await settleUI();
+  lateReturn.focus(false);
+  await lateReturn.flush();
+  lateReturn.acceptReply.resolve({
+    member_readmission: true,
+    readmission_pending: false,
+    vault_id: "A-vault",
+    vault_name: "A Kaata",
+    role: "viewer",
+  });
+  await lateAction;
+  assert.equal(
+    lateReturn.returnRecoveryCalls(),
+    0,
+    "covered route cannot recover or navigate on a late consent reply",
+  );
+  assert.deepEqual(lateReturn.navigations, []);
+  lateReturn.hooks.unmount();
+
   const late = await targetedScreenFixture();
   assert.equal(late.localLookups(), 0, "direct invitation cannot use an old share-link cache");
   late.switchAccount("B");

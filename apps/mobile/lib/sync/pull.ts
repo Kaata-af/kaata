@@ -81,7 +81,11 @@ type PullResponse = {
 
 export type PullResult = { pulled: number };
 
-export async function pullEvents(vaultId: string, session?: SessionSnapshot): Promise<PullResult> {
+export async function pullEvents(
+  vaultId: string,
+  session?: SessionSnapshot,
+  options?: { deferProjection?: boolean },
+): Promise<PullResult> {
   const jwt = session ? session.jwt : await getSessionJWT();
   if (!jwt) {
     return { pulled: 0 };
@@ -159,6 +163,10 @@ export async function pullEvents(vaultId: string, session?: SessionSnapshot): Pr
 
     if (!batch.has_more) break;
   }
+
+  // A returning member verifies its exact owner-approved pair against the
+  // downloaded signed chain before any visibility mirror is restored.
+  if (options?.deferProjection) return { pulled: totalPulled };
 
   // The drain completed without a vault_archived 403 — if this vault carried
   // a server-driven archive mirror, the owner has unarchived; lift it.
@@ -292,6 +300,12 @@ async function fetchOnePage(
         if (__DEV__) console.warn("[sync.pull] local archive mirror write failed", err);
       });
       throw new VaultNotRegisteredError("vault archived on server");
+    }
+    if (code === "device_removed") {
+      // The account may have returned on another approved phone. This
+      // install remains retired; do not revoke the whole account or alter
+      // its independent archive state because this device was denied.
+      throw new VaultNotRegisteredError("this device requires owner approval");
     }
     // vault_unknown / legacy bodyless 403: if we were probing a
     // server-archived vault, it has been purged — nothing left to probe.

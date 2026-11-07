@@ -1447,18 +1447,28 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 }
 
 type AcceptInviteInput struct {
-	Token     string
-	AccountID string
-	InstallID string
+	Token             string
+	AccountID         string
+	InstallID         string
+	MemberReadmission bool
+	// ReadmissionStatusOnly is set only by the protected GET status API. It
+	// cannot initialize consent or accept an ordinary invitation.
+	ReadmissionStatusOnly bool
 }
 
 type AcceptInviteResult struct {
-	VaultID              string `json:"vault_id"`
-	VaultName            string `json:"vault_name"`
-	Role                 string `json:"role"`
-	Currency             string `json:"currency"`
-	LegacyCurrency       string `json:"legacy_currency"`
-	DefaultEntryCurrency string `json:"default_entry_currency"`
+	VaultID                  string `json:"vault_id"`
+	VaultName                string `json:"vault_name"`
+	Role                     string `json:"role"`
+	Currency                 string `json:"currency"`
+	LegacyCurrency           string `json:"legacy_currency"`
+	DefaultEntryCurrency     string `json:"default_entry_currency"`
+	MemberReadmission        bool   `json:"member_readmission,omitempty"`
+	ReadmissionPending       bool   `json:"readmission_pending,omitempty"`
+	ReadmissionDeviceID      string `json:"readmission_device_id,omitempty"`
+	ReadmissionDevicePubkey  string `json:"readmission_device_pubkey,omitempty"`
+	ReadmissionMemberEventID string `json:"readmission_member_event_id,omitempty"`
+	ReadmissionDeviceEventID string `json:"readmission_device_event_id,omitempty"`
 }
 
 func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (AcceptInviteResult, error) {
@@ -1514,24 +1524,25 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	}
 
 	var (
-		memberID    int64
-		vaultID     string
-		role        string
-		inviteEmail string
-		expiresAt   time.Time
-		attempts    int
-		acceptedAt  *time.Time
-		revokedAt   *time.Time
-		acceptedBy  *string
-		invitedBy   string
+		memberID        int64
+		vaultID         string
+		role            string
+		inviteEmail     string
+		expiresAt       time.Time
+		attempts        int
+		acceptedAt      *time.Time
+		revokedAt       *time.Time
+		acceptedBy      *string
+		invitedBy       string
+		readmissionFrom *int64
 	)
 	err = tx.QueryRow(ctx, `
 		SELECT id, vault_id::text, role, COALESCE(invite_email, ''),
 		       invite_expires_at, invite_attempts, accepted_at, revoked_at,
-		       account_id::text, COALESCE(invited_by::text,'')
+		       account_id::text, COALESCE(invited_by::text,''),readmission_from_id
 		  FROM vault_members WHERE `+lookup+` FOR UPDATE
 	`, lookupArgs...).Scan(&memberID, &vaultID, &role, &inviteEmail,
-		&expiresAt, &attempts, &acceptedAt, &revokedAt, &acceptedBy, &invitedBy)
+		&expiresAt, &attempts, &acceptedAt, &revokedAt, &acceptedBy, &invitedBy, &readmissionFrom)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return AcceptInviteResult{}, ErrInviteNotFound
@@ -1539,6 +1550,9 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		return AcceptInviteResult{}, fmt.Errorf("lookup invite: %w", err)
 	}
 	if vaultID != inviteVaultID {
+		return AcceptInviteResult{}, ErrInviteNotFound
+	}
+	if in.ReadmissionStatusOnly && (!direct || readmissionFrom == nil) {
 		return AcceptInviteResult{}, ErrInviteNotFound
 	}
 	// Reject invites for an archived (or vanished) vault — a stale link
@@ -1564,6 +1578,9 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	// A DIFFERENT account still falls through to ErrInviteNotFound below, so
 	// we never reveal that the token was consumed by someone else.
 	if acceptedAt != nil && revokedAt == nil && acceptedBy != nil && *acceptedBy == in.AccountID {
+		if readmissionFrom != nil {
+			return readmissionAcceptResult(ctx, tx, memberID, in)
+		}
 		var vaultName, currency, legacyCurrency, defaultEntryCurrency string
 		if err := tx.QueryRow(ctx, `
 			SELECT name,currency,legacy_currency,default_entry_currency FROM vaults WHERE vault_id = $1::uuid
@@ -1591,6 +1608,9 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 				return AcceptInviteResult{}, ErrInviteNotFound
 			}
 			return AcceptInviteResult{}, err
+		}
+		if readmissionFrom != nil {
+			return consentMemberReadmission(ctx, tx, in, memberID, vaultID, invitedBy)
 		}
 		if err := accountInviteMembershipConflict(ctx, tx, vaultID, in.AccountID); err != nil && !errors.Is(err, ErrInviteAlreadyMember) {
 			return AcceptInviteResult{}, err
@@ -1632,6 +1652,14 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		}
 	}
 
+	// Link/email acceptance cannot authorize a removed device. It must use the
+	// explicit owner/recipient readmission flow rather than create a new ACL
+	// seat that the signed membership chain will reject.
+	if !direct {
+		if err := accountInviteMembershipConflict(ctx, tx, vaultID, in.AccountID); err != nil && !errors.Is(err, ErrInviteAlreadyMember) {
+			return AcceptInviteResult{}, err
+		}
+	}
 	// Already an active member (e.g. the OWNER opened their own link, or someone
 	// already in the vault tapped it): never create a duplicate membership row
 	// or silently change their role. Return their CURRENT role and leave the

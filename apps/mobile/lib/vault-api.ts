@@ -595,7 +595,7 @@ export async function lookupPendingInvite(token: string): Promise<PendingInvite 
 // (the server holds only the token hash post-migration, and the /pending
 // endpoint excludes link invites), so lookupPendingInvite always misses.
 export type InviteInfo = {
-  kind?: "ownership_transfer";
+  kind?: "ownership_transfer" | "member_readmission";
   vault_name: string;
   role: VaultRole;
   /** Redacted server-side (e.g. "a***@gmail.com"); null when absent. */
@@ -656,6 +656,14 @@ export type AcceptInviteResult = {
   role: VaultRole;
   ownership_transferred?: boolean;
   ownership_event_id?: string;
+  member_readmission?: boolean;
+  readmission_pending?: boolean;
+  readmission_member_event_id?: string;
+  readmission_device_event_id?: string;
+  readmission_device_id?: string;
+  readmission_device_pubkey?: string;
+  /** Bound locally to the authenticated private selector, never to server display data. */
+  readmission_invite_id?: string;
 };
 
 /** A returning Editor may already have a published device admission. That is
@@ -691,10 +699,58 @@ export async function isOwnershipTransferApplied(
 export async function acceptVaultInvite(
   token: string,
   expectedSession?: SessionSnapshot,
-  inviteKind?: "ownership_transfer",
+  inviteKind?: InviteInfo["kind"],
 ): Promise<AcceptInviteResult> {
   const session = expectedSession ?? (await captureCurrentSession());
   let kind = inviteKind;
+  let readmissionDevice: PendingInviteAccept["device"];
+  let confirmedReadmission = false;
+  let guardReadmissionDevice: (() => void) | undefined;
+  await applyForCurrentSession(session, async () => {
+    const item = (await loadInviteAcceptJournal(session.accountId!)).find(
+      (entry) => entry.token === token,
+    );
+    kind ??= item?.kind;
+    readmissionDevice = item?.device;
+    confirmedReadmission =
+      item?.kind === "member_readmission" && item.result?.member_readmission === true;
+  });
+  if (kind === "member_readmission") {
+    if (!/^v_[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token))
+      throw new Error("A return invitation must be account-bound");
+    const keys = await import("./mesh/device-key");
+    const key = await applyForCurrentSession(session, () => keys.ensureDeviceKey());
+    const device = { id: getInstallIdSync(), pubkey: key.pubkey_b64 };
+    const alreadyRegistered = !!readmissionDevice;
+    if (
+      readmissionDevice &&
+      (readmissionDevice.id !== device.id || readmissionDevice.pubkey !== device.pubkey)
+    )
+      throw new ApiError(
+        409,
+        "readmission_device_changed",
+        "Return approval belongs to another device key",
+      );
+    readmissionDevice = device;
+    guardReadmissionDevice = () => {
+      if (keys.getDevicePubkey() !== device.pubkey || getInstallIdSync() !== device.id)
+        throw new SessionChangedError();
+    };
+    // Register the key with the SAME session that owns the confirmation card.
+    if (!alreadyRegistered) {
+      await httpThrowing(
+        "POST",
+        "/v1/devices/register-key",
+        { ed25519_pubkey: device.pubkey },
+        session,
+        guardReadmissionDevice,
+      );
+    }
+    await applyForCurrentSession(session, async () => {
+      if (keys.getDevicePubkey() !== device.pubkey || getInstallIdSync() !== device.id)
+        throw new SessionChangedError();
+    });
+  }
   // Write intent BEFORE the consuming POST. Its same-account replay is
   // idempotent even if the response body is lost after the server commits.
   await applyForCurrentSession(session, async () => {
@@ -705,7 +761,13 @@ export async function acceptVaultInvite(
         const pending = await loadInviteAcceptJournal(session.accountId!);
         const existing = pending.find((item) => item.token === token);
         kind ??= existing?.kind;
-        if (!existing) pending.push({ token, result: null, ...(kind ? { kind } : {}) });
+        if (!existing)
+          pending.push({
+            token,
+            result: null,
+            ...(kind ? { kind } : {}),
+            ...(readmissionDevice ? { device: readmissionDevice } : {}),
+          });
         await setAppMetaInTx(
           db,
           inviteAcceptJournalKey(session.accountId!),
@@ -716,16 +778,23 @@ export async function acceptVaultInvite(
     );
   });
   const raw = (await httpThrowing(
-    "POST",
-    kind === "ownership_transfer"
-      ? `/v1/vaults/ownership-invites/accept`
-      : `/v1/vaults/invites/accept`,
-    {
-      token,
-      install_id: getInstallIdSync(),
-    },
+    confirmedReadmission ? "GET" : "POST",
+    confirmedReadmission
+      ? `/v1/vaults/invites/requests/${encodeURIComponent(token.slice(2))}/readmission`
+      : kind === "ownership_transfer"
+        ? `/v1/vaults/ownership-invites/accept`
+        : `/v1/vaults/invites/accept`,
+    confirmedReadmission
+      ? undefined
+      : {
+          token,
+          install_id: getInstallIdSync(),
+          ...(kind === "member_readmission" ? { member_readmission: true } : {}),
+        },
     session,
+    guardReadmissionDevice,
   )) as AcceptInviteResult;
+  await applyForCurrentSession(session, async () => guardReadmissionDevice?.());
   if (
     !raw ||
     typeof raw.vault_id !== "string" ||
@@ -740,6 +809,28 @@ export async function acceptVaultInvite(
     (raw.ownership_transferred !== true || !raw.ownership_event_id)
   )
     throw new Error("unconfirmed ownership transfer response");
+  if (kind === "member_readmission") {
+    if (
+      raw.member_readmission !== true ||
+      !(
+        raw.readmission_pending === true
+          ? ["editor", "clerk", "viewer"]
+          : ["owner", "manager", "editor", "clerk", "viewer"]
+      ).includes(raw.role) ||
+      (raw.readmission_pending !== undefined && typeof raw.readmission_pending !== "boolean") ||
+      raw.readmission_device_id !== readmissionDevice?.id ||
+      raw.readmission_device_pubkey !== readmissionDevice?.pubkey ||
+      (!raw.readmission_pending &&
+        (typeof raw.readmission_member_event_id !== "string" ||
+          !raw.readmission_member_event_id ||
+          typeof raw.readmission_device_event_id !== "string" ||
+          !raw.readmission_device_event_id ||
+          raw.readmission_member_event_id === raw.readmission_device_event_id))
+    )
+      throw new Error("unconfirmed member return response");
+    raw.readmission_pending = raw.readmission_pending === true;
+    raw.readmission_invite_id = token.slice(2);
+  } else if (raw.member_readmission) throw new Error("unexpected member return response");
   // Acceptance consumes a link. Persist BOTH unfinished obligations before any
   // listing/snapshot/navigation work can fail or the app can be backgrounded.
   // A single transaction prevents a half-recorded join; the original session
@@ -752,9 +843,17 @@ export async function acceptVaultInvite(
         const pending = new Set(
           parsePendingSet(await getAppMetaInTx(db, VAULT_MATERIALIZE_PENDING_KEY)),
         );
-        pending.add(raw.vault_id);
-        await setAppMetaInTx(db, VAULT_MATERIALIZE_PENDING_KEY, [...pending].join(","));
-        await setAppMetaInTx(db, `witness_emit_pending:${raw.vault_id}`, "1");
+        if (!raw.member_readmission) {
+          pending.add(raw.vault_id);
+          await setAppMetaInTx(db, VAULT_MATERIALIZE_PENDING_KEY, [...pending].join(","));
+          await setAppMetaInTx(db, `witness_emit_pending:${raw.vault_id}`, "1");
+        } else {
+          // Supersede any stranded obligation from the old, removed join.
+          // Only this return journal may now resume this phone's admission.
+          pending.delete(raw.vault_id);
+          await setAppMetaInTx(db, VAULT_MATERIALIZE_PENDING_KEY, [...pending].join(","));
+          await setAppMetaInTx(db, `witness_emit_pending:${raw.vault_id}`, "");
+        }
         const journal = await loadInviteAcceptJournal(session.accountId!);
         const item = journal.find((entry) => entry.token === token);
         if (item) item.result = raw;
@@ -776,7 +875,8 @@ export async function acceptVaultInvite(
 
 type PendingInviteAccept = {
   token: string;
-  kind?: "ownership_transfer";
+  kind?: InviteInfo["kind"];
+  device?: { id: string; pubkey: string };
   result: AcceptInviteResult | null;
 };
 function inviteAcceptJournalKey(accountId: string): string {
@@ -804,6 +904,7 @@ export async function resumePendingVaultInvite(
     (await loadInviteAcceptJournal(session.accountId!)).find((entry) => entry.token === token),
   );
   if (!item) return null;
+  if (item.kind === "member_readmission") return acceptVaultInvite(token, session, item.kind);
   return item.result ?? acceptVaultInvite(token, session, item.kind);
 }
 
@@ -892,6 +993,24 @@ export async function retryPendingVaultMaterialize(): Promise<void> {
     loadInviteAcceptJournal(session.accountId!),
   );
   for (const item of journal) {
+    if (item.kind === "member_readmission") {
+      try {
+        const result = await acceptVaultInvite(item.token, session, item.kind);
+        if (!result.readmission_pending) {
+          const { recoverMemberReadmission } = await import("./member-readmission-guest");
+          if ((await recoverMemberReadmission(result, session)).ready)
+            await clearPendingVaultInvite(item.token, session);
+        }
+      } catch (err) {
+        if (err instanceof SessionChangedError) throw err;
+        if (
+          err instanceof ApiError &&
+          (err.status === 403 || err.status === 404 || err.status === 410)
+        )
+          await clearPendingVaultInvite(item.token, session);
+      }
+      continue;
+    }
     if (item.result) {
       const pending = await applyForCurrentSession(
         session,

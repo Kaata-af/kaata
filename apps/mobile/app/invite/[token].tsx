@@ -28,9 +28,9 @@
 //      it would not see the joined vault and would revert the active pointer.
 
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { ScreenHeader } from "../../components/SettingsScreen";
@@ -76,6 +76,7 @@ type Stage =
   | "confirm"
   | "accepting"
   | "pending"
+  | "waiting_owner"
   | "blocked"
   | "error"
   | "done";
@@ -88,7 +89,7 @@ class InviteRouteChangedError extends Error {}
 // /info endpoint (link invitees, who never have a local row). The screen
 // doesn't need vault_id here: the accept response carries it.
 type InviteDetails = {
-  kind?: "ownership_transfer";
+  kind?: "ownership_transfer" | "member_readmission";
   vault_name: string;
   role: PendingInvite["role"];
   inviter_name: string | null;
@@ -100,6 +101,16 @@ export default function InviteAcceptScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
   const toast = useToast();
+  const focused = useIsFocused();
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  const [foreground, setForeground] = useState(AppState.currentState === "active");
+  useEffect(() => {
+    const listener = AppState.addEventListener("change", (state) =>
+      setForeground(state === "active"),
+    );
+    return () => listener.remove();
+  }, []);
   const { token: tokenParam } = useLocalSearchParams<{ token: string }>();
   const token = typeof tokenParam === "string" ? tokenParam : null;
 
@@ -120,10 +131,14 @@ export default function InviteAcceptScreen() {
   );
   const identity = useSyncExternalStore(subscribeIdentity, identitySnapshot, identitySnapshot);
   const [attempt, setAttempt] = useState(0);
-  const scope = JSON.stringify([token, identity, attempt]);
+  const scope = JSON.stringify([token, identity, attempt, focused, foreground]);
   const latestScope = useRef(scope);
   latestScope.current = scope;
-  const currentScope = () => latestScope.current === scope && identitySnapshot() === identity;
+  const currentScope = () =>
+    latestScope.current === scope &&
+    identitySnapshot() === identity &&
+    focusedRef.current &&
+    AppState.currentState === "active";
   const [viewScope, setViewScope] = useState<string | null>(null);
   const [storedStage, setStage] = useState<Stage>("loading");
   const [storedInvite, setInvite] = useState<InviteDetails | null>(null);
@@ -145,10 +160,11 @@ export default function InviteAcceptScreen() {
   // success, so a re-visit of this screen (e.g. re-tapping the link after the
   // "joined" toast but no visible kaata) re-seeds the row. Best-effort.
   useEffect(() => {
+    if (!focused || !foreground) return;
     retryPendingVaultMaterialize().catch((err) =>
       console.warn("[invite] pending materialize retry failed", err),
     );
-  }, []);
+  }, [focused, foreground]);
 
   useEffect(() => {
     const generation = ++routeGeneration.current;
@@ -160,6 +176,7 @@ export default function InviteAcceptScreen() {
     setInvite(null);
     setDeclining(false);
     setStage("loading");
+    if (!focused || !foreground) return;
     (async () => {
       if (!token) {
         toast.push(t("inviteAccept.invalidLink"), "error");
@@ -191,13 +208,14 @@ export default function InviteAcceptScreen() {
             acceptedRef.current = { result: resumed, session };
             setInvite({
               ...(resumed.ownership_transferred ? { kind: "ownership_transfer" as const } : {}),
+              ...(resumed.member_readmission ? { kind: "member_readmission" as const } : {}),
               vault_name: resumed.vault_name,
               role: resumed.role,
               inviter_name: null,
               inviter_email: null,
               expires_at: 0,
             });
-            setStage("pending");
+            setStage(resumed.member_readmission ? "waiting_owner" : "pending");
           });
           return;
         }
@@ -216,7 +234,7 @@ export default function InviteAcceptScreen() {
           if (!current()) return;
           if (info) {
             found = {
-              ...(info.kind === "ownership_transfer" ? { kind: info.kind } : {}),
+              ...(info.kind ? { kind: info.kind } : {}),
               vault_name: info.vault_name,
               role: info.role,
               inviter_name: info.inviter_name,
@@ -276,15 +294,45 @@ export default function InviteAcceptScreen() {
         throw new InviteRouteChangedError();
     };
     setStage("accepting");
+    setErrorMsg("");
     try {
       await applyForCurrentSession(session, async () => assertRoute());
       const result =
-        acceptedRef.current?.result ?? (await acceptVaultInvite(token, session, invite.kind));
+        invite.kind === "member_readmission"
+          ? await acceptVaultInvite(token, session, invite.kind)
+          : (acceptedRef.current?.result ?? (await acceptVaultInvite(token, session, invite.kind)));
       assertRoute();
       await applyForCurrentSession(session, async () => {
         assertRoute();
         acceptedRef.current = { result, session };
       });
+      if (result.member_readmission) {
+        if (result.readmission_pending) {
+          acceptingRef.current = false;
+          setStage("waiting_owner");
+          return;
+        }
+        const { recoverMemberReadmission } = await import("../../lib/member-readmission-guest");
+        const recovered = await recoverMemberReadmission(result, session);
+        assertRoute();
+        if (!recovered.ready) {
+          acceptingRef.current = false;
+          setStage("waiting_owner");
+          return;
+        }
+        await applyForCurrentSession(session, async () => {
+          assertRoute();
+          if (!recovered.archived) await setActiveVaultId(result.vault_id);
+          await setAppMeta(PENDING_TOKEN_KEY, "");
+        });
+        await clearPendingVaultInvite(token, session);
+        assertRoute();
+        setStage("done");
+        requestImmediateCheckIn();
+        toast.push(t("inviteAccept.joinedToast", { name: result.vault_name }), "success");
+        router.replace("/");
+        return;
+      }
       const publishedBeforeSetup = await isSelfAdmissionPublished(result.vault_id, session);
       assertRoute();
       if (!publishedBeforeSetup || result.ownership_transferred) {
@@ -434,6 +482,24 @@ export default function InviteAcceptScreen() {
       // localized message chosen from the backend's structured error_code.
       console.warn("[invite] accept failed", err);
       const code = err instanceof ApiError ? err.code : "";
+      if (
+        invite.kind === "member_readmission" &&
+        !(
+          err instanceof ApiError &&
+          err.status >= 400 &&
+          err.status < 500 &&
+          err.status !== 408 &&
+          err.status !== 429
+        )
+      ) {
+        setErrorMsg(t("inviteAccept.error.acceptFailed"));
+        // An uncertain first consent is kept in the durable journal, but it
+        // must not enter the fast status poll until a result is known.
+        const confirmed = acceptedRef.current?.result.member_readmission === true;
+        setRetryable(!confirmed);
+        setStage(confirmed ? "waiting_owner" : "error");
+        return;
+      }
       if (code === "invite_not_found") {
         // Link expired, revoked, or already used (collapsed code, by design).
         setErrorMsg(
@@ -488,6 +554,16 @@ export default function InviteAcceptScreen() {
       clearTimeout(timer);
       clearInterval(poll);
     };
+  }, [stage, scope]);
+
+  // A saved return consent uses read-only status for this exact phone. Never
+  // repeat registration/consent or run ordinary witness admission while waiting.
+  useEffect(() => {
+    if (stage !== "waiting_owner") return;
+    const timer = setTimeout(() => {
+      void onAccept();
+    }, 15_000);
+    return () => clearTimeout(timer);
   }, [stage, scope]);
 
   async function onDecline() {
@@ -609,7 +685,12 @@ export default function InviteAcceptScreen() {
             </Text>
             <View style={{ height: 8 }} />
             <Text style={[styles.body2, textDir(isRTL)]}>
-              {invite.kind === "ownership_transfer" ? (
+              {invite.kind === "member_readmission" ? (
+                t("inviteAccept.readmission.body", {
+                  inviter: inviterLabel,
+                  role: roleLabel(invite.role),
+                })
+              ) : invite.kind === "ownership_transfer" ? (
                 t("ownershipAccept.body", { inviter: inviterLabel })
               ) : (
                 <>
@@ -629,7 +710,9 @@ export default function InviteAcceptScreen() {
               label={t(
                 invite.kind === "ownership_transfer"
                   ? "ownershipAccept.accept"
-                  : "inviteAccept.confirm.accept",
+                  : invite.kind === "member_readmission"
+                    ? "inviteAccept.readmission.accept"
+                    : "inviteAccept.confirm.accept",
               )}
               onPress={onAccept}
               disabled={declining}
@@ -652,18 +735,33 @@ export default function InviteAcceptScreen() {
           </View>
         ) : null}
 
-        {stage === "pending" || stage === "blocked" ? (
+        {stage === "pending" || stage === "blocked" || stage === "waiting_owner" ? (
           <View style={styles.fillCenter}>
             <Ionicons name="time-outline" size={icon.hero} color={colors.textMuted} />
             <View style={{ height: 12 }} />
             <Text style={[styles.heading, textDir(isRTL)]}>
-              {t(stage === "blocked" ? "inviteAccept.blocked.title" : "inviteAccept.pending.title")}
+              {t(
+                stage === "waiting_owner"
+                  ? "inviteAccept.readmission.waitingTitle"
+                  : stage === "blocked"
+                    ? "inviteAccept.blocked.title"
+                    : "inviteAccept.pending.title",
+              )}
             </Text>
             <Text style={[styles.body2, textDir(isRTL)]}>
-              {t(stage === "blocked" ? "inviteAccept.blocked.body" : "inviteAccept.pending.body")}
+              {t(
+                stage === "waiting_owner"
+                  ? "inviteAccept.readmission.waitingBody"
+                  : stage === "blocked"
+                    ? "inviteAccept.blocked.body"
+                    : "inviteAccept.pending.body",
+              )}
             </Text>
+            {stage === "waiting_owner" && errorMsg ? (
+              <Text style={[styles.body2, textDir(isRTL)]}>{errorMsg}</Text>
+            ) : null}
             <View style={{ height: 20 }} />
-            {stage === "pending" ? <Button label={t("common.retry")} onPress={onAccept} /> : null}
+            {stage !== "blocked" ? <Button label={t("common.retry")} onPress={onAccept} /> : null}
             <View style={{ height: 12 }} />
             <Button
               label={t("common.backToKaata")}

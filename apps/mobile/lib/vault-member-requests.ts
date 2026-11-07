@@ -18,6 +18,7 @@ export type VaultMemberRequestResult = {
   invite_token: string;
   delivery: "in_app";
   expires_at: number;
+  member_readmission?: true;
 };
 export type VaultMemberRequest = {
   id: string;
@@ -89,10 +90,11 @@ export async function createVaultMemberRequest(
     invite_token: string;
     delivery: string;
     expires_at: string;
+    member_readmission?: unknown;
   }>(
     "POST",
     `/v1/vaults/${encodeURIComponent(vaultId)}/account-invites`,
-    { target_account_id: body.recipientAccountId, role: body.role },
+    { target_account_id: body.recipientAccountId, role: body.role, readmit_removed: true },
     session,
     guard,
   );
@@ -113,6 +115,7 @@ export async function createVaultMemberRequest(
       invite_token: raw.invite_token,
       delivery: "in_app",
       expires_at: expiresAt,
+      ...(raw.member_readmission === true ? { member_readmission: true as const } : {}),
     };
   });
 }
@@ -171,6 +174,7 @@ export async function fetchVaultMemberRequestInfo(
   const session = expectedSession ?? (await captureCurrentSession());
   try {
     const raw = await request<{
+      kind?: string;
       vault_name: string;
       role: string;
       inviter_name?: string;
@@ -192,6 +196,7 @@ export async function fetchVaultMemberRequestInfo(
     )
       throw new ApiError(502, "invalid_response", "Member invitation could not be loaded");
     return {
+      ...(raw.kind === "member_readmission" ? { kind: "member_readmission" as const } : {}),
       vault_name: raw.vault_name,
       role: raw.role as VaultRole,
       inviter_name: typeof raw.inviter_name === "string" ? raw.inviter_name : null,

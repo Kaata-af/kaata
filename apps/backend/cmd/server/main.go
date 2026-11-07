@@ -616,10 +616,12 @@ func main() {
 			Post("/v1/vaults/{vault_id}/invites", vaultsH.CreateInvite)
 		pr.With(httpx.RateLimitPerAccount(httpx.CreateInviteLimit, httpx.CreateInviteWindow)).
 			Post("/v1/vaults/{vault_id}/account-invites", vaultsH.CreateAccountInvite)
+		pr.Get("/v1/vaults/{vault_id}/member-readmissions", vaultsH.ListMemberReadmissions)
 		pr.With(httpx.RateLimitPerAccount(httpx.AcceptInviteLimit, httpx.AcceptInviteWindow)).
 			Post("/v1/vaults/invites/accept", vaultsH.AcceptInvite)
 		pr.Get("/v1/vaults/invites/pending", vaultsH.PendingInvites)
 		pr.Get("/v1/vaults/invites/requests/{invite_id}", vaultsH.AccountInviteInfo)
+		pr.Get("/v1/vaults/invites/requests/{invite_id}/readmission", vaultsH.MemberReadmissionStatus)
 		pr.With(httpx.RateLimitPerAccount(httpx.AcceptInviteLimit, httpx.AcceptInviteWindow)).
 			Delete("/v1/vaults/invites/requests/{invite_id}", vaultsH.DeclineAccountInvite)
 		// Mesh: device-key registration. Rare (per-install lifecycle) but
@@ -647,6 +649,8 @@ func main() {
 		// bounds work per request.
 		pr.With(httpx.RateLimitPerAccount(httpx.SyncPushLimit, httpx.SyncPushWindow)).
 			Post("/v1/sync/push", syncH.Push)
+		pr.With(httpx.RateLimitPerAccount(120, time.Hour)).
+			Post("/v1/sync/member-readmission", syncH.PushMemberReadmission)
 		pr.Get("/v1/sync/pull", syncH.Pull)
 		pr.Get("/v1/sync/capabilities", syncH.CurrencyCapabilities)
 		pr.With(httpx.RateLimitPerAccount(600, time.Hour)).Get("/v1/sync/person-notes", syncH.PersonNotes)

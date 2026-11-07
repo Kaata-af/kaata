@@ -520,6 +520,63 @@ export async function seedJoinedVaultMinimal(
   );
 }
 
+/** Metadata only for an explicitly accepted, owner-approved return. Never
+ * clears a prior removal, changes an existing anchor, or unarchives a book. */
+export async function prepareMemberReadmissionVault(
+  vaultId: string,
+  session: SessionSnapshot,
+): Promise<boolean> {
+  const listing = (await listVaults(session)).find(
+    (item) => item.vault_id === vaultId && item.archived_at_ms == null,
+  );
+  if (!listing?.vault_trust_anchor_pubkey) return false;
+  const anchor = listing.vault_trust_anchor_pubkey;
+  return applyForCurrentSession(session, async () => {
+    await ensureLocalSelfForRestore();
+    const db = await getDb();
+    const { applyEventMutex } = await import("./projection");
+    return applyEventMutex.runExclusive(async () => {
+      let ready = false;
+      await db.withTransactionAsync(async () => {
+        const existed = await db.getFirstAsync<{ id: string }>(
+          "SELECT id FROM vaults WHERE id = ?",
+          vaultId,
+        );
+        await insertVaultFromListing(db, listing, session.accountId!);
+        if (!existed) {
+          await db.runAsync(
+            "UPDATE sync_state SET last_pulled_server_seq = 0, last_pull_at = NULL WHERE vault_id = ?",
+            vaultId,
+          );
+        }
+        // No membership row is interpreted as implicit solo ownership.
+        // This tombstone keeps the book hidden until owner proof projects.
+        await db.runAsync(
+          `INSERT OR IGNORE INTO vault_members_mirror
+          (vault_id,account_id,role,accepted_at,revoked_at) VALUES (?,?,'viewer',NULL,?)`,
+          vaultId,
+          session.accountId!,
+          Date.now(),
+        );
+        const row = await db.getFirstAsync<{ vault_trust_anchor_pubkey: string | null }>(
+          "SELECT vault_trust_anchor_pubkey FROM vaults WHERE id = ?",
+          vaultId,
+        );
+        if (row?.vault_trust_anchor_pubkey && row.vault_trust_anchor_pubkey !== anchor)
+          throw new Error("Return invitation cannot replace the Kaata trust anchor");
+        if (!row?.vault_trust_anchor_pubkey)
+          await db.runAsync(
+            "UPDATE vaults SET vault_trust_anchor_pubkey = ? WHERE id = ? AND vault_trust_anchor_pubkey IS NULL",
+            anchor,
+            vaultId,
+          );
+        ready = true;
+      });
+      return ready;
+    });
+  });
+}
+
 export async function recoverJoinedVault(
   vaultId: string,
   expectedSession?: SessionSnapshot,

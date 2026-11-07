@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/memberreadmission"
 )
 
 var (
@@ -25,13 +26,15 @@ const maxAccountInviteInbox = 50
 
 type CreateAccountInviteInput struct {
 	VaultID, InviterAccID, TargetAccountID, Role string
+	ReadmitRemoved                               bool
 }
 
 type AccountInviteResult struct {
-	InviteID    string    `json:"invite_id"`
-	InviteToken string    `json:"invite_token"`
-	Delivery    string    `json:"delivery"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	InviteID          string    `json:"invite_id"`
+	InviteToken       string    `json:"invite_token"`
+	Delivery          string    `json:"delivery"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	MemberReadmission bool      `json:"member_readmission,omitempty"`
 }
 
 func accountInviteResult(id string, expiry time.Time) AccountInviteResult {
@@ -124,7 +127,8 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 	if !states[in.InviterAccID].active {
 		return AccountInviteResult{}, ErrNotMember
 	}
-	if _, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID); err != nil {
+	inviterRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID)
+	if err != nil {
 		return AccountInviteResult{}, err
 	}
 	available, err := accountInviteVaultAvailable(ctx, tx, in.VaultID)
@@ -137,8 +141,25 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 	if !states[in.TargetAccountID].active {
 		return AccountInviteResult{}, ErrInviteRecipientUnavailable
 	}
-	if err := accountInviteMembershipConflict(ctx, tx, in.VaultID, in.TargetAccountID); err != nil {
-		return AccountInviteResult{}, err
+	var readmissionFrom, readmissionOwner, readmissionOwnerChange *int64
+	if conflict := accountInviteMembershipConflict(ctx, tx, in.VaultID, in.TargetAccountID); conflict != nil {
+		if !errors.Is(conflict, ErrMemberReadmissionRequired) || !in.ReadmitRemoved {
+			return AccountInviteResult{}, conflict
+		}
+		if inviterRole != "owner" {
+			return AccountInviteResult{}, ErrNotOwner
+		}
+		var sourceID, ownerID, ownerChange int64
+		if err := tx.QueryRow(ctx, `SELECT id FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid
+ AND accepted_at IS NOT NULL AND revoked_at IS NOT NULL ORDER BY revoked_at DESC,id DESC LIMIT 1`, in.VaultID, in.TargetAccountID).Scan(&sourceID); err != nil {
+			return AccountInviteResult{}, err
+		}
+		if err := tx.QueryRow(ctx, `SELECT id,COALESCE(last_change_hlc_ms,0) FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid
+ AND role='owner' AND accepted_at IS NOT NULL AND revoked_at IS NULL`, in.VaultID, in.InviterAccID).Scan(&ownerID, &ownerChange); err != nil {
+			return AccountInviteResult{}, err
+		}
+		readmissionFrom, readmissionOwner = &sourceID, &ownerID
+		readmissionOwnerChange = &ownerChange
 	}
 	// A request whose original inviter lost authority must not trap a new
 	// authorized inviter behind an unusable pending row. This and expiration
@@ -146,23 +167,29 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 	// the old row if creating a replacement is not permitted.
 	if _, err := tx.Exec(ctx, `UPDATE vault_members vm SET revoked_at=NOW(),revoked_reason='invite_no_longer_valid',updated_at=NOW()
  WHERE vm.vault_id=$1::uuid AND vm.invite_account_id=$2::uuid AND vm.accepted_at IS NULL AND vm.revoked_at IS NULL
- AND (vm.invite_expires_at<=NOW() OR NOT EXISTS(SELECT 1 FROM vault_members authority JOIN accounts a ON a.id=authority.account_id
+	AND (vm.invite_expires_at<=NOW() OR (vm.readmission_from_id IS NOT NULL AND NOT (`+memberreadmission.PendingSQL+`)) OR NOT EXISTS(SELECT 1 FROM vault_members authority JOIN accounts a ON a.id=authority.account_id
  WHERE authority.vault_id=vm.vault_id AND authority.account_id=vm.invited_by AND authority.accepted_at IS NOT NULL
  AND authority.revoked_at IS NULL AND authority.role IN ('owner','manager') AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL))`, in.VaultID, in.TargetAccountID); err != nil {
 		return AccountInviteResult{}, err
 	}
 	var id, role string
+	var pendingSource *int64
 	var expiry time.Time
-	err = tx.QueryRow(ctx, `SELECT invite_request_id::text,role,invite_expires_at FROM vault_members
+	err = tx.QueryRow(ctx, `SELECT invite_request_id::text,role,invite_expires_at,readmission_from_id FROM vault_members
  WHERE vault_id=$1::uuid AND invite_account_id=$2::uuid AND accepted_at IS NULL AND revoked_at IS NULL
- AND invite_expires_at>NOW() FOR UPDATE`, in.VaultID, in.TargetAccountID).Scan(&id, &role, &expiry)
+	AND invite_expires_at>NOW() FOR UPDATE`, in.VaultID, in.TargetAccountID).Scan(&id, &role, &expiry, &pendingSource)
 	if err == nil {
 		if role != in.Role {
 			return AccountInviteResult{}, ErrInviteRoleConflict
 		}
+		if (pendingSource == nil) != (readmissionFrom == nil) || (pendingSource != nil && *pendingSource != *readmissionFrom) {
+			return AccountInviteResult{}, ErrMemberReadmissionRequired
+		}
 		// A lost create reply retries the same invitation without resetting its
 		// expiry or changing the grant, even if discovery was turned off later.
-		return accountInviteResult(id, expiry), nil
+		result := accountInviteResult(id, expiry)
+		result.MemberReadmission = pendingSource != nil
+		return result, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return AccountInviteResult{}, err
@@ -194,8 +221,8 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 		return AccountInviteResult{}, ErrTooManyPendingInvites
 	}
 	id, expiry = uuid.NewString(), time.Now().UTC().Truncate(time.Microsecond).Add(inviteTTL)
-	if _, err := tx.Exec(ctx, `INSERT INTO vault_members(vault_id,role,invited_by,invite_account_id,invite_request_id,invite_expires_at)
- VALUES($1::uuid,$2,$3::uuid,$4::uuid,$5::uuid,$6)`, in.VaultID, in.Role, in.InviterAccID, in.TargetAccountID, id, expiry); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO vault_members(vault_id,role,invited_by,invite_account_id,invite_request_id,invite_expires_at,readmission_from_id,readmission_owner_member_id,readmission_owner_change_ms)
+	VALUES($1::uuid,$2,$3::uuid,$4::uuid,$5::uuid,$6,$7,$8,$9)`, in.VaultID, in.Role, in.InviterAccID, in.TargetAccountID, id, expiry, readmissionFrom, readmissionOwner, readmissionOwnerChange); err != nil {
 		return AccountInviteResult{}, err
 	}
 	if _, err := writeAudit(ctx, tx, in.VaultID, &in.InviterAccID, "invite_issued", &in.TargetAccountID,
@@ -208,7 +235,9 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 	if err := tx.Commit(ctx); err != nil {
 		return AccountInviteResult{}, err
 	}
-	return accountInviteResult(id, expiry), nil
+	result := accountInviteResult(id, expiry)
+	result.MemberReadmission = readmissionFrom != nil
+	return result, nil
 }
 
 // Shared by authenticated preview and inbox reads. Discovery itself is not
@@ -224,8 +253,9 @@ const liveAccountInviteStateSQL = `vm.invite_request_id IS NOT NULL
  AND EXISTS(SELECT 1 FROM vault_members authority WHERE authority.vault_id=vm.vault_id
   AND authority.account_id=vm.invited_by AND authority.accepted_at IS NOT NULL
   AND authority.revoked_at IS NULL AND authority.role IN ('owner','manager'))
- AND NOT EXISTS(SELECT 1 FROM vault_members existing WHERE existing.vault_id=vm.vault_id
-  AND existing.account_id=vm.invite_account_id AND existing.accepted_at IS NOT NULL)`
+ AND ((vm.readmission_from_id IS NULL AND NOT EXISTS(SELECT 1 FROM vault_members existing WHERE existing.vault_id=vm.vault_id
+  AND existing.account_id=vm.invite_account_id AND existing.accepted_at IS NOT NULL))
+ OR (` + memberreadmission.PendingSQL + `))`
 
 func (s *Service) AccountInviteInfo(ctx context.Context, accountID, inviteID string) (InviteInfoResult, error) {
 	if _, ok := accountInviteSelector("v_" + inviteID); !ok {
@@ -234,13 +264,14 @@ func (s *Service) AccountInviteInfo(ctx context.Context, accountID, inviteID str
 	var out InviteInfoResult
 	var email string
 	var expiry time.Time
-	err := s.pool.QueryRow(ctx, `SELECT v.name,vm.role,`+inviterNameSQL("inviter")+`,COALESCE(inviter.email,''),vm.invite_expires_at
+	err := s.pool.QueryRow(ctx, `SELECT v.name,vm.role,`+inviterNameSQL("inviter")+`,COALESCE(inviter.email,''),vm.invite_expires_at,
+ CASE WHEN vm.readmission_from_id IS NOT NULL THEN 'member_readmission' ELSE '' END
  FROM vault_members vm JOIN vaults v ON v.vault_id=vm.vault_id
  JOIN accounts inviter ON inviter.id=vm.invited_by
  JOIN accounts recipient ON recipient.id=vm.invite_account_id
  JOIN accounts vault_owner ON vault_owner.id=v.owner_account_id
  WHERE `+liveAccountInviteSQL+` AND vm.invite_request_id=$2::uuid`, accountID, inviteID).
-		Scan(&out.VaultName, &out.Role, &out.InviterName, &email, &expiry)
+		Scan(&out.VaultName, &out.Role, &out.InviterName, &email, &expiry, &out.Kind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return InviteInfoResult{}, ErrInviteNotFound
 	}
