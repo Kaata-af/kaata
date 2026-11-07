@@ -15,7 +15,13 @@ import { Button } from "../../components/ui/button";
 import { useI18n, type Lang } from "../../lib/i18n";
 import { createWebLive, type WebLiveState } from "../../lib/web-live";
 import { createWebRefresh } from "../../lib/web-refresh";
-import { signOut, WebApiError, type WebSession } from "../../lib/web-auth";
+import {
+  getWebSession,
+  isSameWebSession,
+  signOut,
+  WebApiError,
+  type WebSession,
+} from "../../lib/web-auth";
 import {
   createWebEntry,
   createWebPerson,
@@ -26,6 +32,7 @@ import {
   hasPendingWebWrite,
   retryPendingWebWrite,
   listWebVaults,
+  renameWebVault,
   updateWebEntry,
   updateWebPerson,
   type WebEntry,
@@ -45,6 +52,11 @@ import { WebProfilePanel } from "./WebProfile";
 import { webProfileCopy } from "./web-profile-copy";
 import { SharedAccountStart, SharedTallies } from "./SharedTallies";
 import { SharedInvitation, sharedInvitationTitle } from "./SharedInvitation";
+import { CustomerGroupsDialog, customerGroupCopy } from "./CustomerGroups";
+import { PersonLifecycle } from "./PersonLifecycle";
+import { WebBillShare } from "./WebBillShare";
+import { WebVaultSettings } from "./WebVaultSettings";
+import { canRenameWebVault, renameLegacyWebVault } from "../../lib/web-vault-settings";
 import { clearSharedInvitation, pendingSharedInvitation } from "../../lib/web-shared-invite";
 import {
   amountInput,
@@ -60,6 +72,7 @@ import {
   statementCSV,
   totals,
   type BalanceFilter,
+  type PeopleSort,
 } from "./model";
 import "./workspace.css";
 
@@ -72,12 +85,22 @@ type Modal =
 export default function LedgerWorkspace({ session }: { session: WebSession }) {
   const { lang, setLang } = useI18n();
   const c = workspaceCopy[lang];
+  const groupsCopy = customerGroupCopy[lang];
+  const vaultSettingsLabel = { en: "Kaata settings", fa: "تنظیمات کاتا", ps: "د کاتا امستنې" }[
+    lang
+  ];
   const toast = useToast();
   const [vaults, setVaults] = useState<WebVault[]>([]);
   const [vaultID, setVaultID] = useState("");
   const [ledger, setLedger] = useState<WebLedger | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<BalanceFilter>("all");
+  const [sort, setSort] = useState<PeopleSort>("recent");
+  const [groupFilter, setGroupFilter] = useState("");
+  const [archivedPeople, setArchivedPeople] = useState(false);
+  const [toolsDialog, setToolsDialog] = useState<
+    "groups" | "assign-group" | "vault-settings" | null
+  >(null);
   const [personID, setPersonID] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -112,6 +135,9 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
     setRefreshing(false);
     setLoading(!!id);
     setModal((current) => (background && current?.kind === "vault" ? current : null));
+    setToolsDialog(null);
+    setArchivedPeople(false);
+    setGroupFilter("");
     setPersonID(null);
     setVaultID(id);
   }, []);
@@ -179,11 +205,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
       setError(false);
       setErrorCode("");
       setPersonID((current) =>
-        next.people.some(
-          (person) => person.relationship_id === current && person.archived_at == null,
-        )
-          ? current
-          : null,
+        next.people.some((person) => person.relationship_id === current) ? current : null,
       );
     } catch (cause) {
       if (version !== requestVersion.current || id !== activeVault.current) return;
@@ -198,6 +220,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
       if (cause instanceof WebApiError && [401, 403, 404, 410, 422].includes(cause.status)) {
         setLedger(null);
         setModal(null);
+        setToolsDialog(null);
       }
     } finally {
       if (version === requestVersion.current && id === activeVault.current) {
@@ -281,10 +304,22 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
     () => totals(ledger?.people ?? [], balances, defaultCurrency),
     [ledger, balances, defaultCurrency],
   );
+  const currentGroup = groupFilter.startsWith("group:")
+    ? ledger?.customer_groups?.find((group) => group.id === groupFilter.slice(6))
+    : undefined;
+  const group =
+    groupFilter === "ungrouped" && ledger?.customer_groups?.length ? null : currentGroup?.id;
   const people = useMemo(
-    () => peopleInView(ledger?.people ?? [], balances, query, filter, lang),
-    [ledger, balances, query, filter, lang],
+    () =>
+      peopleInView(ledger?.people ?? [], balances, query, archivedPeople ? "all" : filter, lang, {
+        archived: archivedPeople,
+        group: archivedPeople ? undefined : group,
+        sort,
+      }),
+    [ledger, balances, query, filter, lang, archivedPeople, group, sort],
   );
+  const removedPeopleCount = ledger?.people.filter((row) => row.archived_at != null).length ?? 0;
+  const selectedVault = vaults.find((book) => book.vault_id === vaultID);
   const person = ledger?.people.find((row) => row.relationship_id === personID) ?? null;
   const canWrite =
     !!ledger &&
@@ -295,9 +330,13 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
     !error &&
     !pending;
   const canWritePerson =
-    canWrite && !!person && (!person.read_only || !!person.shared?.private_writable);
+    canWrite &&
+    !!person &&
+    person.archived_at == null &&
+    (!person.read_only || !!person.shared?.private_writable);
   const canAmendPerson = canWritePerson && ledger?.role !== "clerk";
   const canConfigure = canWrite && !!ledger && ["owner", "manager"].includes(ledger.role);
+  const canEditPeople = canWrite && ledger?.role !== "clerk";
   const canEditNote =
     canWrite && !!person && person.archived_at == null && ledger?.role !== "clerk";
   const visibleEntries = useMemo(
@@ -393,6 +432,14 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
               {c.currencySettings}
             </button>
             <CreditPanel ledger={ledger} canConfigure={canConfigure} />
+            <button
+              type="button"
+              className="workspace-button"
+              disabled={!selectedVault || !!modal || currencySettings}
+              onClick={() => setToolsDialog("vault-settings")}
+            >
+              {vaultSettingsLabel}
+            </button>
           </div>
         )}
         <div className="workspace-nav-active">
@@ -600,12 +647,12 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
               <section className="workspace-people" aria-label={c.people}>
                 <div className="workspace-section-heading">
                   <h2>
-                    {c.people} <span>{people.length}</span>
+                    {archivedPeople ? groupsCopy.archived : c.people} <span>{people.length}</span>
                   </h2>
                   <button
                     type="button"
                     className="workspace-button primary"
-                    disabled={!canWrite}
+                    disabled={!canWrite || archivedPeople}
                     onClick={() => setModal({ kind: "person" })}
                   >
                     <Icon name="plus" />
@@ -625,30 +672,97 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
                     onChange={(event) => setQuery(event.target.value)}
                   />
                 </div>
-                <div className="workspace-filters" aria-label={c.balance}>
-                  {(["all", "collect", "pay", "settled"] as const).map((item) => (
-                    <button
-                      key={item}
+                {!archivedPeople && (
+                  <div className="workspace-filters" aria-label={c.balance}>
+                    {(["all", "collect", "pay", "settled"] as const).map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        aria-pressed={filter === item}
+                        className={filter === item ? "active" : ""}
+                        onClick={() => setFilter(item)}
+                      >
+                        {c[item]}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="workspace-people-tools">
+                  {!archivedPeople && (
+                    <>
+                      <SelectField
+                        aria-label={groupsCopy.sort}
+                        dir={lang === "en" ? "ltr" : "rtl"}
+                        value={sort}
+                        options={(["recent", "name_asc", "name_desc", "oldest"] as const).map(
+                          (value) => ({ value, label: groupsCopy[value] }),
+                        )}
+                        onValueChange={(value) => setSort(value as PeopleSort)}
+                      />
+                      {!!ledger.customer_groups?.length && (
+                        <SelectField
+                          aria-label={groupsCopy.title}
+                          dir={lang === "en" ? "ltr" : "rtl"}
+                          value={currentGroup ? groupFilter : group === null ? "ungrouped" : ""}
+                          options={[
+                            { value: "", label: groupsCopy.all },
+                            { value: "ungrouped", label: groupsCopy.ungrouped },
+                            ...ledger.customer_groups.map((row) => ({
+                              value: `group:${row.id}`,
+                              label: row.name,
+                            })),
+                          ]}
+                          onValueChange={setGroupFilter}
+                        />
+                      )}
+                      {ledger.customer_groups && canEditPeople && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setToolsDialog("groups")}
+                        >
+                          {groupsCopy.manage}
+                        </Button>
+                      )}
+                    </>
+                  )}
+                  {(removedPeopleCount > 0 || archivedPeople) && (
+                    <Button
                       type="button"
-                      aria-pressed={filter === item}
-                      className={filter === item ? "active" : ""}
-                      onClick={() => setFilter(item)}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setArchivedPeople(!archivedPeople);
+                        setPersonID(null);
+                        setQuery("");
+                      }}
                     >
-                      {c[item]}
-                    </button>
-                  ))}
+                      {archivedPeople
+                        ? groupsCopy.active
+                        : `${groupsCopy.archived} (${removedPeopleCount})`}
+                    </Button>
+                  )}
                 </div>
                 <div className="workspace-people-list">
                   {!people.length ? (
                     <Empty
                       icon="people"
                       title={
-                        ledger.people.some((p) => p.archived_at == null) ? c.noResults : c.noPeople
+                        archivedPeople
+                          ? removedPeopleCount
+                            ? c.noResults
+                            : groupsCopy.emptyArchived
+                          : ledger.people.some((p) => p.archived_at == null)
+                            ? c.noResults
+                            : c.noPeople
                       }
                       body={
-                        ledger.people.some((p) => p.archived_at == null)
-                          ? c.noResultsText
-                          : c.noPeopleText
+                        archivedPeople && !removedPeopleCount
+                          ? ""
+                          : ledger.people.some((p) => (p.archived_at != null) === archivedPeople)
+                            ? c.noResultsText
+                            : c.noPeopleText
                       }
                     />
                   ) : (
@@ -745,6 +859,46 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
                       >
                         <Icon name="edit" />
                       </button>
+                    </div>
+                    <div className="workspace-person-tools">
+                      <WebBillShare
+                        key={`bill:${ledger.vault_id}:${person.relationship_id}`}
+                        ledger={ledger}
+                        person={person}
+                        online={online && !error && !pending}
+                      />
+                      <PersonLifecycle
+                        key={`lifecycle:${ledger.vault_id}:${person.relationship_id}`}
+                        ledger={ledger}
+                        person={person}
+                        canChange={canEditPeople}
+                        onPendingChange={setPending}
+                        onChanged={async () => {
+                          if (activeVault.current !== ledger.vault_id) return;
+                          await refresh(ledger.vault_id);
+                          if (person.archived_at != null && activeVault.current === ledger.vault_id)
+                            setArchivedPeople(false);
+                        }}
+                      />
+                      {person.archived_at == null &&
+                        !!ledger.customer_groups?.length &&
+                        canEditPeople && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setToolsDialog("assign-group")}
+                          >
+                            {groupsCopy.assign}
+                          </Button>
+                        )}
+                      {ledger.customer_groups
+                        ?.filter((group) => person.group_ids?.includes(group.id))
+                        .map((group) => (
+                          <span className="workspace-group-label" key={group.id} dir="auto">
+                            {group.name}
+                          </span>
+                        ))}
                     </div>
                     <PersonNotePanel
                       key={`${session.install_id}:${ledger.vault_id}:${person.relationship_id}`}
@@ -920,6 +1074,63 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
             await loadVaults();
             if (activeVault.current === ledger.vault_id) await refresh(ledger.vault_id);
             toast.push(c.saved, "success");
+          }}
+        />
+      )}
+      {toolsDialog === "vault-settings" && ledger && selectedVault && (
+        <WebVaultSettings
+          key={selectedVault.vault_id}
+          vault={selectedVault}
+          online={online && !error && !pending}
+          onClose={() => {
+            setToolsDialog(null);
+            setPending(hasPendingWebWrite());
+          }}
+          onRename={async (name, expectedName) => {
+            const current = () =>
+              activeVault.current === ledger.vault_id && isSameWebSession(getWebSession(), session);
+            const refreshBook = async () => {
+              if (!current()) return;
+              await loadVaults();
+              if (current()) await refresh(ledger.vault_id);
+            };
+            try {
+              if (!current())
+                throw new WebApiError("The selected kaata changed.", 409, "vault_name_changed");
+              const latest = (await listWebVaults()).find(
+                (book) => book.vault_id === ledger.vault_id,
+              );
+              if (!current() || !latest || !canRenameWebVault(latest))
+                throw new WebApiError("This kaata cannot be renamed.", 403, "permission_denied");
+              if (latest.name !== name) {
+                if (latest.name !== expectedName)
+                  throw new WebApiError("The kaata name changed.", 409, "vault_name_changed");
+                if (latest.vault_trust_anchor_pubkey)
+                  await renameWebVault(ledger, name, expectedName);
+                else await renameLegacyWebVault(latest.vault_id, name);
+              }
+              await refreshBook();
+            } catch (cause) {
+              if (cause instanceof Error && "code" in cause && cause.code === "vault_name_changed")
+                await refreshBook();
+              throw cause;
+            } finally {
+              if (current()) setPending(hasPendingWebWrite());
+            }
+          }}
+        />
+      )}
+      {ledger && (toolsDialog === "groups" || (toolsDialog === "assign-group" && person)) && (
+        <CustomerGroupsDialog
+          key={`${ledger.vault_id}:${toolsDialog === "groups" ? "manage" : person?.relationship_id}`}
+          ledger={ledger}
+          person={toolsDialog === "assign-group" ? (person ?? undefined) : undefined}
+          canChange={canEditPeople && (toolsDialog === "groups" || person?.archived_at == null)}
+          onClose={() => setToolsDialog(null)}
+          onWriteSettled={() => setPending(hasPendingWebWrite())}
+          onChanged={async () => {
+            if (activeVault.current === ledger.vault_id) await refresh(ledger.vault_id);
+            if (activeVault.current === ledger.vault_id) toast.push(c.saved, "success");
           }}
         />
       )}

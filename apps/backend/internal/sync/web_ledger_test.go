@@ -90,6 +90,40 @@ func TestWebLedgerProjectionMoneySharedHistoryAndSettlement(t *testing.T) {
 	}
 }
 
+func TestWebLedgerReturnsActiveCustomerGroupsAndBillPreference(t *testing.T) {
+	p := NewProjection()
+	old := "wholesale"
+	removedAt := int64(10)
+	p.CustomerGroups = map[string]*CustomerGroupProjection{
+		old:       {ID: old, VaultID: "vault", Name: "Wholesale"},
+		"retail":  {ID: "retail", VaultID: "vault", Name: "Retail"},
+		"removed": {ID: "removed", VaultID: "vault", Name: "Old group", ArchivedAt: &removedAt},
+		"foreign": {ID: "foreign", VaultID: "elsewhere", Name: "Other book"},
+	}
+	for _, id := range []string{"legacy", "multi"} {
+		p.Users[id] = &UserProjection{ID: id, DisplayName: id}
+		p.Relationships[id] = &RelationshipProjection{ID: id, UserBID: id, GroupID: &old}
+	}
+	p.Relationships["multi"].GroupIDs = []string{"retail", "wholesale", "removed", "foreign"}
+	p.VaultSettings["share_bill_links"] = "false"
+	view := &WebLedger{VaultID: "vault", LegacyCurrency: "AFN", DefaultEntryCurrency: "AFN"}
+	if err := populateWebLedger(view, &p, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if view.BillLinksEnabled || len(view.CustomerGroups) != 2 || view.CustomerGroups[0].ID != "retail" {
+		t.Fatalf("incorrect groups or link preference: %+v", view)
+	}
+	for _, person := range view.People {
+		want := old
+		if person.RelationshipID == "multi" {
+			want = "retail,wholesale"
+		}
+		if strings.Join(person.GroupIDs, ",") != want {
+			t.Fatalf("incorrect membership for %s: %v", person.RelationshipID, person.GroupIDs)
+		}
+	}
+}
+
 func TestWebLedgerRejectsInexactAmountsInsteadOfRounding(t *testing.T) {
 	p := NewProjection()
 	p.Users["person"] = &UserProjection{ID: "person"}

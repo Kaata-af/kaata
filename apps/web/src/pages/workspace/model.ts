@@ -1,6 +1,7 @@
 import type { WebEntry, WebLedger, WebPerson } from "../../lib/web-ledger";
 
 export type BalanceFilter = "all" | "collect" | "pay" | "settled";
+export type PeopleSort = "recent" | "name_asc" | "name_desc" | "oldest";
 export type PersonBalanceMap = Map<string, Map<string, bigint>>;
 export type CurrencyBalance = { currency: string; balance: bigint };
 export type CurrencyTotal = { currency: string; collect: bigint; pay: bigint };
@@ -108,11 +109,15 @@ export function peopleInView(
   query: string,
   filter: BalanceFilter,
   locale = "en",
+  options: { archived?: boolean; group?: string | null; sort?: PeopleSort } = {},
 ): WebPerson[] {
   const needle = asciiDigits(query).trim().toLocaleLowerCase(locale);
   return people
     .filter((person) => {
-      if (person.archived_at != null) return false;
+      if ((person.archived_at != null) !== !!options.archived) return false;
+      if (options.group === null && person.group_ids?.length) return false;
+      if (typeof options.group === "string" && !person.group_ids?.includes(options.group))
+        return false;
       if (
         needle &&
         !asciiDigits(`${person.name} ${person.phone_e164 ?? ""}`)
@@ -129,14 +134,24 @@ export function peopleInView(
           ? values.some((balance) => balance < 0n)
           : values.every((balance) => balance === 0n);
     })
-    .sort(
-      (a, b) =>
+    .sort((a, b) => {
+      const activity =
+        (b.last_entry_at ?? b.created_at ?? 0) - (a.last_entry_at ?? a.created_at ?? 0);
+      const names = () => compareNames(a.name, b.name, locale);
+      const identity = () =>
+        a.user_id.localeCompare(b.user_id) || a.relationship_id.localeCompare(b.relationship_id);
+      if (options.archived)
+        return (b.archived_at ?? 0) - (a.archived_at ?? 0) || names() || identity();
+      if (options.sort === "name_asc") return names() || identity();
+      if (options.sort === "name_desc") return -names() || identity();
+      if (options.sort === "oldest") return -activity || names() || identity();
+      return (
         Number(a.is_settled === true) - Number(b.is_settled === true) ||
-        (b.last_entry_at ?? b.created_at ?? 0) - (a.last_entry_at ?? a.created_at ?? 0) ||
-        compareNames(a.name, b.name, locale) ||
-        a.user_id.localeCompare(b.user_id) ||
-        a.relationship_id.localeCompare(b.relationship_id),
-    );
+        activity ||
+        names() ||
+        identity()
+      );
+    });
 }
 
 export function totals(

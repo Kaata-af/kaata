@@ -13,6 +13,7 @@ import {
   writeWebBrowserValue,
 } from "./web-browser-storage";
 import { WEB_SYNC_HEADERS } from "./web-sync-headers";
+import { canonicalGroupIds, isValidGroupName, normalizeGroupName } from "./mobile-domain";
 import {
   bytesToWebBase64,
   canonicalWebEvent,
@@ -42,7 +43,9 @@ export type WebVault = {
   default_entry_currency: string;
   archived_at_ms?: number | null;
   members_count: number;
+  vault_trust_anchor_pubkey?: string | null;
 };
+export type WebCustomerGroup = { id: string; name: string };
 export type WebPerson = {
   relationship_id: string;
   user_id: string;
@@ -60,6 +63,7 @@ export type WebPerson = {
   read_only: boolean;
   read_only_reason: "shared_tab" | "archived" | null;
   settled_through?: Record<string, number>;
+  group_ids?: string[];
   shared?: {
     tabs: WebSharedBinding[];
     balances: {
@@ -118,7 +122,10 @@ export type WebLedger = {
   entries: WebEntry[];
   incomplete_people: number;
   credit_balances_complete?: boolean;
+  observed_lifecycle?: boolean;
   shared_private_entries?: WebEntry[];
+  customer_groups?: WebCustomerGroup[];
+  bill_links_enabled?: boolean;
 };
 export type WebEntryInput = {
   type: "debt" | "payment";
@@ -624,10 +631,23 @@ function entryPayload(input: WebEntryInput, allowedCurrencies: string[]) {
   };
 }
 
-async function replayPending(session: WebSession, pending: PendingWrite): Promise<string> {
+async function replayPending(
+  session: WebSession,
+  pending: PendingWrite,
+  retry = false,
+): Promise<string> {
   assertSession(session);
   if (pending.installID !== session.install_id || pending.accountID !== session.account_id)
     throw new WebLedgerError("Your account changed. Sign in again.", "session_expired");
+  if (
+    retry &&
+    pending.events.some((event) =>
+      ["person_archived", "person_unarchived", "entry_settled"].includes(event.event_type),
+    )
+  ) {
+    assertObservedLifecycle(await getWebLedger(pending.vaultID));
+    assertSession(session);
+  }
   try {
     if (pending.create) {
       await webRequest("/v1/vaults", {
@@ -706,7 +726,7 @@ export function retryPendingWebWrite(): Promise<string | null> {
     assertSession(session);
     const pending = readPending(session);
     if (!pending) return null;
-    await replayPending(session, pending);
+    await replayPending(session, pending, true);
     return pending.vaultID;
   });
 }
@@ -728,7 +748,7 @@ async function write(
           "A previous save still needs confirmation. Retry that save before making another change.",
           "pending_write",
         );
-      return replayPending(session, pending);
+      return replayPending(session, pending, true);
     }
     let fresh = await getWebLedger(ledger.vault_id);
     assertSession(session);
@@ -813,6 +833,154 @@ export async function updateWebPerson(
           payload: { phone_e164: values.phone_e164 },
         });
       return { result: person.relationship_id, drafts };
+    },
+  );
+}
+
+export function canArchiveWebPerson(person: WebPerson): boolean {
+  if (person.archived_at != null) return false;
+  if (person.read_only_reason === "shared_tab" && !person.shared) return false;
+  return !person.shared?.tabs.some((tab) => tab.closed_at_ms == null);
+}
+
+function assertObservedLifecycle(ledger: WebLedger) {
+  if (ledger.observed_lifecycle !== true)
+    throw new WebLedgerError(
+      "Refresh when Kaata has finished updating.",
+      "lifecycle_upgrade_required",
+    );
+}
+
+async function setWebPersonArchived(ledger: WebLedger, original: WebPerson, archived: boolean) {
+  await write(
+    ledger,
+    {
+      action: archived ? "person-archive" : "person-restore",
+      relationship: original.relationship_id,
+    },
+    true,
+    (fresh) => {
+      assertObservedLifecycle(fresh);
+      const person = fresh.people.find((item) => item.relationship_id === original.relationship_id);
+      if (!person || person.user_id !== original.user_id)
+        throw new WebLedgerError(
+          "Refresh this person's account before changing it.",
+          "person_changed",
+        );
+      if ((person.archived_at != null) === archived)
+        return { result: person.relationship_id, drafts: [] };
+      if (archived && !canArchiveWebPerson(person))
+        throw new WebLedgerError(
+          "Close the shared account and resolve pending tallies first.",
+          "person_shared_active",
+        );
+      return {
+        result: person.relationship_id,
+        drafts: [
+          {
+            type: archived ? "person_archived" : "person_unarchived",
+            target: person.user_id,
+            relationship: person.relationship_id,
+            payload: { expected_server_seq: fresh.server_seq },
+          },
+        ],
+      };
+    },
+  );
+}
+
+export function archiveWebPerson(ledger: WebLedger, person: WebPerson): Promise<void> {
+  return setWebPersonArchived(ledger, person, true);
+}
+
+export function restoreWebPerson(ledger: WebLedger, person: WebPerson): Promise<void> {
+  return setWebPersonArchived(ledger, person, false);
+}
+
+function privateSettlementBoundary(ledger: WebLedger, person: WebPerson, currency: string): number {
+  if (person.read_only_reason === "shared_tab" || person.shared)
+    throw new WebLedgerError(
+      "Settle this account from its shared history.",
+      "shared_tally_required",
+    );
+  let balance = 0n;
+  let newest = 0;
+  const previous = person.settled_through?.[currency] ?? 0;
+  for (const row of ledger.entries) {
+    if (
+      row.relationship_id !== person.relationship_id ||
+      row.currency !== currency ||
+      row.is_deleted
+    )
+      continue;
+    const amount = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(String(row.amount_afn));
+    if (!amount || row.disputed_at != null)
+      throw new WebLedgerError(
+        "Resolve outstanding tallies before settling.",
+        "settlement_changed",
+      );
+    const minor = BigInt(amount[2]) * 100n + BigInt((amount[3] ?? "").padEnd(2, "0"));
+    const negative = (amount[1] === "-") !== (row.type === "payment");
+    balance += negative ? -minor : minor;
+    const recorded = row.recorded_at_ms ?? row.created_at;
+    if (!row.read_only && row.settled_at == null && recorded > previous)
+      newest = Math.max(newest, recorded);
+  }
+  if (balance !== 0n)
+    throw new WebLedgerError("Only a zero balance can be settled.", "settlement_not_zero");
+  if (!newest) throw new WebLedgerError("There are no new tallies to settle.", "settlement_empty");
+  return newest;
+}
+
+export function privateWebSettlementCurrencies(ledger: WebLedger, person: WebPerson): string[] {
+  if (ledger.observed_lifecycle !== true || person.archived_at != null || person.read_only)
+    return [];
+  const currencies = new Set(
+    ledger.entries
+      .filter((row) => row.relationship_id === person.relationship_id && !row.is_deleted)
+      .map((row) => row.currency),
+  );
+  return [...currencies]
+    .filter((currency) => {
+      try {
+        privateSettlementBoundary(ledger, person, currency);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .sort();
+}
+
+export async function settleWebPerson(
+  ledger: WebLedger,
+  original: WebPerson,
+  currency: string,
+): Promise<void> {
+  await write(
+    ledger,
+    { action: "person-settle", relationship: original.relationship_id, currency },
+    true,
+    (fresh) => {
+      assertObservedLifecycle(fresh);
+      const person = writablePerson(fresh, original.relationship_id);
+      if (!/^[A-Z]{3}$/.test(currency) || person.user_id !== original.user_id)
+        throw new WebLedgerError(
+          "Refresh this person's account before settling.",
+          "settlement_changed",
+        );
+      const boundary = privateSettlementBoundary(fresh, person, currency);
+      return {
+        result: person.relationship_id,
+        drafts: [
+          {
+            type: "entry_settled",
+            target: person.relationship_id,
+            relationship: person.relationship_id,
+            payload: { currency, settled_at_ms: boundary, expected_server_seq: fresh.server_seq },
+          },
+        ],
+      };
     },
   );
 }
@@ -1019,6 +1187,127 @@ export async function deleteWebEntry(ledger: WebLedger, original: WebEntry): Pro
             payload: {},
           },
         ],
+      };
+    },
+  );
+}
+
+export async function renameWebVault(ledger: WebLedger, input: string, expectedName: string) {
+  const name = input.trim();
+  if (!name || Array.from(name).length > 120)
+    throw new WebLedgerError("Enter a valid kaata name.", "invalid_vault");
+  await write(ledger, { action: "vault-rename", name, expectedName }, true, (fresh) => {
+    if (!["owner", "manager"].includes(fresh.role))
+      throw new WebLedgerError("Only an owner or manager can rename a kaata.", "permission_denied");
+    if (fresh.name === name) return { result: fresh.vault_id, drafts: [] };
+    if (fresh.name !== expectedName)
+      throw new WebLedgerError(
+        "The kaata name changed. Reload it before saving.",
+        "vault_name_changed",
+      );
+    return {
+      result: fresh.vault_id,
+      drafts: [
+        {
+          type: "vault_setting_set",
+          target: fresh.vault_id,
+          payload: { key: "name", value: name },
+        },
+      ],
+    };
+  });
+}
+
+function groupChanged(): never {
+  throw new WebLedgerError("Customer groups changed. Refresh and try again.", "group_changed");
+}
+
+export function saveWebCustomerGroup(
+  ledger: WebLedger,
+  original: WebCustomerGroup | null,
+  input: string,
+) {
+  const name = normalizeGroupName(input);
+  if (!isValidGroupName(name))
+    throw new WebLedgerError("Enter a group name of up to 40 characters.", "invalid_group_name");
+  return write(ledger, { action: "group-save", original, name }, true, (fresh) => {
+    const groups = fresh.customer_groups;
+    if (
+      !groups ||
+      (original && groups.find((group) => group.id === original.id)?.name !== original.name)
+    )
+      groupChanged();
+    if (
+      groups.some(
+        (group) =>
+          group.id !== original?.id && group.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+      )
+    )
+      throw new WebLedgerError("A group with this name already exists.", "duplicate_group_name");
+    const result = original?.id ?? crypto.randomUUID();
+    return {
+      result,
+      drafts:
+        original?.name === name
+          ? []
+          : [
+              {
+                type: original ? "group_renamed" : "group_created",
+                target: result,
+                payload: { name },
+              },
+            ],
+    };
+  });
+}
+
+export async function archiveWebCustomerGroup(ledger: WebLedger, original: WebCustomerGroup) {
+  await write(ledger, { action: "group-archive", original }, true, (fresh) => {
+    if (fresh.customer_groups?.find((group) => group.id === original.id)?.name !== original.name)
+      groupChanged();
+    return {
+      result: original.id,
+      drafts: [{ type: "group_archived", target: original.id, payload: {} }],
+    };
+  });
+}
+
+export async function updateWebPersonGroups(
+  ledger: WebLedger,
+  original: WebPerson,
+  ids: readonly string[],
+) {
+  const groupIDs = canonicalGroupIds(ids);
+  const previous = canonicalWebJSON(canonicalGroupIds(original.group_ids ?? []));
+  const relationship = original.relationship_id;
+  await write(
+    ledger,
+    { action: "person-groups", relationship, previous, groupIDs },
+    true,
+    (fresh) => {
+      const person = fresh.people.find((row) => row.relationship_id === relationship);
+      const groups = fresh.customer_groups;
+      if (
+        !person ||
+        person.archived_at != null ||
+        !groups ||
+        groupIDs.some((id) => !groups.some((group) => group.id === id)) ||
+        canonicalWebJSON(canonicalGroupIds(person.group_ids ?? [])) !== previous
+      )
+        groupChanged();
+      return {
+        result: relationship,
+        drafts:
+          canonicalWebJSON(groupIDs) === previous
+            ? []
+            : [
+                {
+                  type: "person_group_set",
+                  target: relationship,
+                  relationship,
+                  payload: { group_id: groupIDs[0] ?? null, group_ids: groupIDs },
+                },
+              ],
       };
     },
   );

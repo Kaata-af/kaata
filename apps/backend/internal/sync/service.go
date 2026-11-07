@@ -604,6 +604,12 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: RejectReasonSharedTallyRequired})
 			continue
 		}
+		if reason, err := admitObservedLedgerMutation(ctx, tx, in.VaultID, ev, role, archived, sharedScopes[derefStr(ev.RelationshipID)]); err != nil {
+			return nil, fmt.Errorf("observed ledger admission: %w", err)
+		} else if reason != "" {
+			rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: reason})
+			continue
+		}
 		if err := creditAdmit(ctx, tx, in.VaultID, ev, eventRole, eventActor, creditState); err != nil {
 			if errors.Is(err, credit.ErrLimit) {
 				// The signed author is the member; the pusher only relays.

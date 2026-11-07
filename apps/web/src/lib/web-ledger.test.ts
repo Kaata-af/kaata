@@ -64,6 +64,7 @@ test("browser keeps its signing identity across reopen and safely retries a lost
     people: [],
     entries: [],
     incomplete_people: 0,
+    observed_lifecycle: true,
   };
   const respond = (value: unknown) =>
     new Response(JSON.stringify(value), {
@@ -182,6 +183,33 @@ test("browser keeps its signing identity across reopen and safely retries a lost
             read_only: false,
             read_only_reason: null,
           });
+        if (["person_archived", "person_unarchived", "entry_settled"].includes(event.event_type)) {
+          assert.equal(event.payload.expected_server_seq, ledger.server_seq - 1);
+          const person = ledger.people.find(
+            (row) => row.relationship_id === event.relationship_id,
+          )!;
+          if (event.event_type === "entry_settled") {
+            assert.equal(event.target_id, person.relationship_id);
+            (person.settled_through ??= {})[event.payload.currency] = event.payload.settled_at_ms;
+            for (const row of ledger.entries) {
+              if (
+                row.relationship_id === person.relationship_id &&
+                row.currency === event.payload.currency &&
+                (row.recorded_at_ms ?? row.created_at) <= event.payload.settled_at_ms
+              ) {
+                row.settled_at = event.payload.settled_at_ms;
+                row.read_only = true;
+              }
+            }
+          } else {
+            assert.equal(event.target_id, person.user_id);
+            const archived = event.event_type === "person_archived";
+            person.archived_at = archived ? event.hlc.physical_ms : null;
+            person.read_only = archived;
+            person.read_only_reason = archived ? "archived" : null;
+            if (archived) person.phone_e164 = null;
+          }
+        }
         if (event.event_type === "entry_created") {
           const person = ledger.people.find((row) => row.relationship_id === event.relationship_id);
           const entryRows =
@@ -617,6 +645,7 @@ test("browser keeps its signing identity across reopen and safely retries a lost
       occurred_at_ms: Date.now() - 100,
     };
     const beforeActiveSharedWrite = events.size;
+    await assert.rejects(client.archiveWebPerson(ledger, linked), { code: "person_shared_active" });
     await assert.rejects(client.createWebEntry(ledger, linked, privateInput), {
       code: "person_read_only",
     });
@@ -688,6 +717,41 @@ test("browser keeps its signing identity across reopen and safely retries a lost
       events.size,
       beforeRevokedRelease,
       "a stale release flag cannot bypass the fresh ledger read",
+    );
+    const lifecycleID = await client.createWebPerson(ledger, { name: "Lifecycle test" });
+    const lifecycle = ledger.people.find((item) => item.relationship_id === lifecycleID)!;
+    const lifecycleEntry = {
+      amount: "7.13",
+      currency: "AFN",
+      note: null,
+      occurred_at_ms: Date.now() - 5000,
+    };
+    await client.createWebEntry(ledger, lifecycle, { ...lifecycleEntry, type: "debt" });
+    await assert.rejects(client.settleWebPerson(ledger, lifecycle, "AFN"), {
+      code: "settlement_not_zero",
+    });
+    await client.createWebEntry(ledger, lifecycle, { ...lifecycleEntry, type: "payment" });
+    assert.deepEqual(client.privateWebSettlementCurrencies(ledger, lifecycle), ["AFN"]);
+    const latestRecord = Math.max(
+      ...ledger.entries
+        .filter((row) => row.relationship_id === lifecycleID)
+        .map((row) => row.recorded_at_ms!),
+    );
+    await client.settleWebPerson(ledger, lifecycle, "AFN");
+    assert.equal(lifecycle.settled_through?.AFN, latestRecord);
+    assert.deepEqual(client.privateWebSettlementCurrencies(ledger, lifecycle), []);
+    await assert.rejects(client.settleWebPerson(ledger, lifecycle, "AFN"), {
+      code: "settlement_empty",
+    });
+    await client.archiveWebPerson(ledger, lifecycle);
+    assert.ok(lifecycle.archived_at);
+    await client.restoreWebPerson(ledger, lifecycle);
+    assert.equal(lifecycle.archived_at, null);
+    assert.equal(
+      ledger.entries.filter(
+        (row) => row.relationship_id === lifecycleID && row.settled_at === latestRecord,
+      ).length,
+      2,
     );
     ledger.role = "viewer";
     await assert.rejects(client.createWebPerson(ledger, { name: "Blocked" }), /permission/);

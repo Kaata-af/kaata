@@ -53,6 +53,21 @@ function entry(
   };
 }
 
+test("group filters preserve multi-group membership and removed people stay in their own list", () => {
+  const rows = [
+    person("B", { group_ids: ["first", "second"], last_entry_at: 30 }),
+    person("A", { group_ids: ["first"], last_entry_at: 10 }),
+    person("C", { last_entry_at: 20 }),
+    person("D", { group_ids: ["second"], archived_at: 40 }),
+  ];
+  const list = (options: Parameters<typeof peopleInView>[5]) =>
+    peopleInView(rows, new Map(), "", "all", "en", options).map((row) => row.name);
+  assert.deepEqual(list({ group: "first", sort: "name_asc" }), ["A", "B"]);
+  assert.deepEqual(list({ group: "second" }), ["B"]);
+  assert.deepEqual(list({ group: null }), ["C"]);
+  assert.deepEqual(list({ archived: true }), ["D"]);
+});
+
 test("disputed tallies stay in history but never inflate balances or credit exposure", () => {
   const rows = [
     entry("normal", "A", "12.34"),

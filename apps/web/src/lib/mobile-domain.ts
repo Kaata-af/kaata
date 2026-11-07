@@ -20,3 +20,5 @@ export {
   recallCalculationValue,
   rememberCalculation,
 } from "../../../mobile/lib/calculator-input";
+export { isValidGroupName, normalizeGroupName } from "../../../mobile/lib/group-name";
+export { canonicalGroupIds } from "../../../mobile/lib/group-memberships";

@@ -69,23 +69,26 @@ func canonicalWebMoney(amount json.Number) (string, error) {
 // Browser writes still use signed events through Push, including its role and
 // credit admission checks. There is no second browser ledger or write authority.
 type WebLedger struct {
-	VaultID                string            `json:"vault_id"`
-	Name                   string            `json:"name"`
-	Role                   string            `json:"role"`
-	Currency               string            `json:"currency"`
-	LegacyCurrency         string            `json:"legacy_currency"`
-	DefaultEntryCurrency   string            `json:"default_entry_currency"`
-	EnabledCurrencies      []string          `json:"enabled_currencies"`
-	ArchivedAtMS           *int64            `json:"archived_at_ms"`
-	ServerSeq              int64             `json:"server_seq"`
-	HLCLast                HLC               `json:"hlc_last"`
-	DeviceRegistered       bool              `json:"device_registered"`
-	DevicePubkey           *string           `json:"device_pubkey"`
-	People                 []WebLedgerPerson `json:"people"`
-	Entries                []WebLedgerEntry  `json:"entries"`
-	SharedPrivateEntries   []WebLedgerEntry  `json:"shared_private_entries"`
-	IncompletePeople       int               `json:"incomplete_people"`
-	CreditBalancesComplete bool              `json:"credit_balances_complete"`
+	VaultID                string             `json:"vault_id"`
+	Name                   string             `json:"name"`
+	Role                   string             `json:"role"`
+	Currency               string             `json:"currency"`
+	LegacyCurrency         string             `json:"legacy_currency"`
+	DefaultEntryCurrency   string             `json:"default_entry_currency"`
+	EnabledCurrencies      []string           `json:"enabled_currencies"`
+	ArchivedAtMS           *int64             `json:"archived_at_ms"`
+	ServerSeq              int64              `json:"server_seq"`
+	HLCLast                HLC                `json:"hlc_last"`
+	DeviceRegistered       bool               `json:"device_registered"`
+	DevicePubkey           *string            `json:"device_pubkey"`
+	People                 []WebLedgerPerson  `json:"people"`
+	CustomerGroups         []WebCustomerGroup `json:"customer_groups"`
+	BillLinksEnabled       bool               `json:"bill_links_enabled"`
+	Entries                []WebLedgerEntry   `json:"entries"`
+	SharedPrivateEntries   []WebLedgerEntry   `json:"shared_private_entries"`
+	IncompletePeople       int                `json:"incomplete_people"`
+	CreditBalancesComplete bool               `json:"credit_balances_complete"`
+	ObservedLifecycle      bool               `json:"observed_lifecycle"`
 }
 
 type WebLedgerPerson struct {
@@ -104,7 +107,13 @@ type WebLedgerPerson struct {
 	ReadOnly             bool             `json:"read_only"`
 	ReadOnlyReason       *string          `json:"read_only_reason"`
 	SettledThrough       map[string]int64 `json:"settled_through"`
+	GroupIDs             []string         `json:"group_ids"`
 	Shared               *WebSharedPerson `json:"shared"`
+}
+
+type WebCustomerGroup struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type WebLedgerEntry struct {
@@ -173,7 +182,7 @@ func (s *Service) WebLedger(ctx context.Context, accountID, installID, vaultID s
 	if !active {
 		return nil, errLedgerAccountUnavailable
 	}
-	view := &WebLedger{VaultID: vaultID, People: []WebLedgerPerson{}, Entries: []WebLedgerEntry{}}
+	view := &WebLedger{VaultID: vaultID, People: []WebLedgerPerson{}, Entries: []WebLedgerEntry{}, ObservedLifecycle: true}
 	var archivedAt *time.Time
 	err = tx.QueryRow(ctx, `
 		SELECT name, currency, legacy_currency, default_entry_currency, archived_at
@@ -249,6 +258,22 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 	// Private rows include every field needed for exact credit exposure. Linked
 	// accounts still explicitly carry shared_tab and must not be treated as zero.
 	view.CreditBalancesComplete = true
+	view.BillLinksEnabled = p.VaultSettings["share_bill_links"] != "false"
+	view.CustomerGroups = []WebCustomerGroup{}
+	activeGroups := make(map[string]bool, len(p.CustomerGroups))
+	for _, group := range p.CustomerGroups {
+		if group.ArchivedAt == nil && group.VaultID == view.VaultID {
+			activeGroups[group.ID] = true
+			view.CustomerGroups = append(view.CustomerGroups, WebCustomerGroup{ID: group.ID, Name: group.Name})
+		}
+	}
+	sort.Slice(view.CustomerGroups, func(i, j int) bool {
+		a, b := view.CustomerGroups[i], view.CustomerGroups[j]
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.ID < b.ID
+	})
 	view.EnabledCurrencies = []string{view.DefaultEntryCurrency}
 	if raw := p.VaultSettings["enabled_currencies"]; validateEnabledCurrencies(raw) == nil {
 		_ = json.Unmarshal([]byte(raw), &view.EnabledCurrencies)
@@ -309,7 +334,12 @@ func populateWebLedger(view *WebLedger, p *Projection, events []LedgerEvent, lin
 			Note:           rel.Note,
 			NoteHLC:        rel.NoteFieldHLC,
 			NoteEventID:    noteWinners[rel.ID],
-			SettledThrough: map[string]int64{}}
+			SettledThrough: map[string]int64{}, GroupIDs: []string{}}
+		for _, id := range relationshipGroupIDs(rel) {
+			if activeGroups[id] {
+				person.GroupIDs = append(person.GroupIDs, id)
+			}
+		}
 		for _, closed := range settlements[rel.ID] {
 			if closed.at > person.SettledThrough[closed.currency] {
 				person.SettledThrough[closed.currency] = closed.at

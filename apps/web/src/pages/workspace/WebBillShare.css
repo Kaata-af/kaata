@@ -1,0 +1,56 @@
+.workspace-dialog.workspace-bill-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.workspace-bill-paper {
+  background: #f8f9f5;
+  border: 1px solid #e0e8df;
+  border-radius: 14px;
+  margin-bottom: 17px;
+  max-height: min(54dvh, 650px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 15px;
+}
+
+.workspace-bill-paper a {
+  display: none;
+}
+
+.workspace-bill-dialog .workspace-dialog-footer,
+.workspace-bill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workspace-bill-actions {
+  margin-top: 10px;
+}
+
+.workspace-bill-link [role="status"] {
+  color: #40634e;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.workspace-bill-print {
+  display: none;
+}
+
+@media print {
+  body:has(> .workspace-bill-print) > :not(.workspace-bill-print),
+  .workspace-bill-dialog::backdrop,
+  .workspace-bill-print :is(button, a) {
+    display: none !important;
+  }
+
+  .workspace-bill-print {
+    display: block;
+    color: #182b20;
+  }
+
+  .workspace-bill-print .overflow-hidden {
+    overflow: visible;
+  }
+}

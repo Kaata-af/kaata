@@ -535,6 +535,54 @@
   color: #31563d;
   font-weight: 600;
 }
+.workspace-people-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-bottom: 1px solid #ededed;
+}
+.workspace-people-tools [data-slot="select-trigger"] {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 12px;
+}
+.workspace-person-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 24px 18px;
+}
+.workspace-group-label {
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid #dce8df;
+  border-radius: 12px;
+  background: #edf5ef;
+  color: #34503c;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.workspace-group-membership legend {
+  margin-bottom: 14px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.workspace-dialog .workspace-group-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+.workspace-dialog .workspace-group-check > input {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: #171717;
+}
 .workspace-people-list {
   min-height: 320px;
   max-height: 550px;
@@ -1426,6 +1474,7 @@
   .workspace-settings-actions {
     grid-column: 1 / -1;
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin: 0;
   }
@@ -1436,6 +1485,9 @@
   .workspace-person-note {
     margin-inline: 20px;
     padding: 13px;
+  }
+  .workspace-person-tools {
+    margin-inline: 20px;
   }
   .workspace-detail > .web-credit-panel {
     margin-inline: 20px;
