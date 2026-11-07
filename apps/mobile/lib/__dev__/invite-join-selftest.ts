@@ -33,13 +33,13 @@ async function fixture() {
   const store = new Database(":memory:");
   store.exec(`
     CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT);
-    CREATE TABLE pending_invitations(token TEXT,accepted_at INTEGER);
+    CREATE TABLE pending_invitations(token TEXT,accepted_at INTEGER,declined_at INTEGER);
     CREATE TABLE vaults(id TEXT PRIMARY KEY,vault_trust_anchor_pubkey TEXT,archived_at INTEGER);
     CREATE TABLE event_log(event_id TEXT PRIMARY KEY,event_type TEXT,vault_id TEXT,target_id TEXT,
       relationship_id TEXT,hlc_physical_ms INTEGER,hlc_logical INTEGER,hlc_device_id TEXT,
       device_id TEXT,actor_account_id TEXT,payload_json TEXT,payload_schema INTEGER,event_sig_b64 TEXT,
       signer_device_pubkey TEXT,author_seq INTEGER,tombstone_reason TEXT,rejected_at INTEGER,server_acked_at INTEGER);
-    INSERT INTO pending_invitations VALUES('invite',NULL);
+    INSERT INTO pending_invitations VALUES('invite',NULL,NULL);
   `);
   store.prepare("INSERT INTO vaults VALUES('vault',?,NULL)").run(ownerKey);
   let account = "peer",
@@ -204,6 +204,7 @@ async function fixture() {
     "./money-sql": {},
     "./entry-date": require("../entry-date"),
     "./currency-scope": require("../currency-scope"),
+    "./customer-note": require("../customer-note"),
     "./tabs/errors": { TabLinkedEntryError: class extends Error {} },
     "./tabs/history": require("../tabs/history"),
   });
@@ -299,6 +300,8 @@ async function fixture() {
   let timeoutCallback: (() => void) | undefined;
   const requestGate = deferred<any>();
   const requestStarted = deferred<void>();
+  const memberRequests: Record<string, any> = {};
+  const directCalls: { method: string; path: string; session: any }[] = [];
   const api = compileUI(
     "../vault-api",
     {
@@ -306,6 +309,7 @@ async function fixture() {
       "./auth": auth,
       "./db": dbModule,
       "./db-tx": dbTx,
+      "./vault-member-requests": memberRequests,
       "./projection": { applyEventMutex: { runExclusive: (work: any) => work() } },
       "./recovery": {
         recoverJoinedVault: async () => {
@@ -341,6 +345,30 @@ async function fixture() {
       },
     },
   );
+  Object.assign(
+    memberRequests,
+    compileUI("../vault-member-requests", {
+      "./auth": auth,
+      "./db-tx": dbTx,
+      "./vault-api": api,
+      "./tabs/errors": require("../tabs/errors"),
+      "./people-connections": {
+        peopleRequest: async (method: string, path: string, _body: any, before: any) => {
+          await auth.applyForCurrentSession(before, async () => {});
+          directCalls.push({ method, path, session: before });
+          if (responseMode === "lost") throw new Error("offline before server decline");
+          return method === "GET"
+            ? {
+                vault_name: "Private Shop",
+                role: "viewer",
+                inviter_name: "Owner",
+                expires_at: new Date(Date.now() + 86400000).toISOString(),
+              }
+            : undefined;
+        },
+      },
+    }),
+  );
   return {
     store,
     proof,
@@ -349,6 +377,7 @@ async function fixture() {
     getMeta,
     setMeta,
     calls,
+    directCalls,
     session,
     SessionChangedError,
     append,
@@ -573,8 +602,67 @@ async function main() {
     "body timeout retains replayable intent",
   );
   await screenCases();
+  await targetedScreenCases();
+  const direct = await fixture();
+  const directId = "11111111-1111-4111-8111-111111111111";
+  const directToken = `v_${directId}`;
+  direct.store.prepare("INSERT INTO pending_invitations VALUES(?,NULL,NULL)").run(directToken);
+  const preview = await direct.api.fetchInviteInfo(directToken, direct.session());
+  assert.equal(preview.vault_name, "Private Shop");
+  direct.response("lost");
+  await assert.rejects(
+    direct.api.declineVaultInviteLocally(directToken, direct.session()),
+    /offline/,
+  );
+  assert.equal(
+    (
+      direct.store
+        .prepare("SELECT declined_at FROM pending_invitations WHERE token=?")
+        .get(directToken) as any
+    ).declined_at,
+    null,
+    "failed server decline cannot hide the local invitation",
+  );
+  direct.response("ok");
+  await direct.api.declineVaultInviteLocally(directToken, direct.session());
+  assert.ok(
+    (
+      direct.store
+        .prepare("SELECT declined_at FROM pending_invitations WHERE token=?")
+        .get(directToken) as any
+    ).declined_at,
+  );
+  assert.deepEqual(
+    direct.directCalls.map(({ method, path }) => ({ method, path })),
+    ["GET", "DELETE", "DELETE"].map((method) => ({
+      method,
+      path: `/v1/vaults/invites/requests/${directId}`,
+    })),
+  );
+  assert.ok(direct.directCalls.every((call) => call.session.accountId === "peer"));
+  assert.equal(
+    direct.calls.length,
+    0,
+    "direct references never call a public bearer-token endpoint",
+  );
+  const staleSession = direct.session();
+  direct.switchAccount();
+  await assert.rejects(
+    direct.api.fetchInviteInfo(directToken, staleSession),
+    direct.SessionChangedError,
+  );
+  await assert.rejects(
+    direct.api.declineVaultInviteLocally(directToken, staleSession),
+    direct.SessionChangedError,
+  );
+  assert.equal(
+    direct.directCalls.length,
+    3,
+    "stale sessions cannot dispatch direct invitation operations",
+  );
+  direct.store.close();
   console.log(
-    "invite join: 18 regression scenarios passed (real append/signatures/fold + SQLite journal + route reuse)",
+    "invite join: membership proof, journal, route reuse and account-targeted regression scenarios passed (real append/signatures/fold + SQLite journal + route reuse)",
   );
 }
 
@@ -596,7 +684,7 @@ async function screenCases() {
     const screen = compileUI(
       "../../app/invite/[token]",
       {
-        react: hooks.react,
+        react: sessionReact(hooks),
         "react/jsx-runtime": { jsx, jsxs: jsx },
         "@expo/vector-icons": { Ionicons: "Icon" },
         "expo-router": { useRouter: () => router, useLocalSearchParams: () => ({ token }) },
@@ -618,7 +706,11 @@ async function screenCases() {
         },
         "../../lib/checkin-trigger": { requestImmediateCheckIn: () => {} },
         "../../lib/colors": { colors },
-        "../../lib/db-tx": { setActiveVaultId: async () => {} },
+        "../../lib/db-tx": {
+          setActiveVaultId: async () => {},
+          getSessionAccountIdSync: () => session.accountId,
+          onAccountIdentityChanged: () => () => {},
+        },
         "../../lib/db": {
           getLocalSelf: async () => ({ name: "Ahmad" }),
           setAppMeta: async () => {},
@@ -719,6 +811,286 @@ async function screenCases() {
     hooks.unmount();
   }
 }
+function sessionReact(hooks: ReturnType<typeof uiHooks>) {
+  return {
+    ...hooks.react,
+    useSyncExternalStore(subscribe: any, getSnapshot: any) {
+      const [, update] = hooks.react.useState(getSnapshot);
+      hooks.react.useEffect(() => subscribe(() => update(getSnapshot())), [subscribe, getSnapshot]);
+      return getSnapshot();
+    },
+  };
+}
+
+async function targetedScreenFixture() {
+  const hooks = uiHooks();
+  const token = "v_11111111-1111-4111-8111-111111111111";
+  let account: string | null = "A",
+    bindingVersion = 0,
+    localLookups = 0;
+  const listeners = new Set<() => void>();
+  const previews: { session: any; reply: ReturnType<typeof deferred<any>> }[] = [];
+  const posts: any[] = [],
+    declines: any[] = [],
+    seeds: string[] = [],
+    navigations: string[] = [],
+    toasts: string[] = [];
+  const acceptReply = deferred<any>(),
+    declineReply = deferred<void>();
+  class SessionChangedError extends Error {}
+  const session = () => ({
+    accountId: account,
+    jwt: account ? `jwt-${account}-${bindingVersion}` : null,
+    bindingVersion,
+  });
+  const guard = async (before: any, work: any) => {
+    if (before.accountId !== account || before.bindingVersion !== bindingVersion)
+      throw new SessionChangedError();
+    return work();
+  };
+  const router = { replace: (path: string) => navigations.push(path) };
+  const toast = { push: (text: string) => toasts.push(text) };
+  const screen = compileUI(
+    "../../app/invite/[token]",
+    {
+      react: sessionReact(hooks),
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "@expo/vector-icons": { Ionicons: "Icon" },
+      "expo-router": { useRouter: () => router, useLocalSearchParams: () => ({ token }) },
+      "react-native": {
+        ActivityIndicator: "Spinner",
+        Text: "Text",
+        View: "View",
+        StyleSheet: { create: (v: any) => v },
+      },
+      "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
+      "../../components/Button": { Button: "Button" },
+      "../../components/SettingsScreen": { ScreenHeader: "Header" },
+      "../../components/Toast": { useToast: () => toast },
+      "../../lib/auth": {
+        captureCurrentSession: async () => session(),
+        applyForCurrentSession: guard,
+        applyForUnchangedLocalSession: guard,
+        SessionChangedError,
+      },
+      "../../lib/db-tx": {
+        getSessionAccountIdSync: () => account,
+        onAccountIdentityChanged: (listener: () => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+        setActiveVaultId: async () => {},
+      },
+      "../../lib/db": { getLocalSelf: async () => ({}), setAppMeta: async () => {} },
+      "../../lib/checkin-trigger": { requestImmediateCheckIn: () => {} },
+      "../../lib/colors": { colors: {} },
+      "../../lib/direction": { textDir: () => ({}), useIsRTL: () => false },
+      "../../lib/fonts": { fonts: {} },
+      "../../lib/i18n": { t: (key: string, params?: any) => params?.name ?? key },
+      "../../lib/tokens": { gutter: 16, icon: { hero: 40 }, typography: {} },
+      "../../lib/trust/backfill": {
+        JoinAdmissionBlockedError: class extends Error {},
+        isSelfAdmissionPublished: async () => false,
+        witnessEmitPendingKey: (id: string) => id,
+        emitWitnessedSelfAdmission: async () => {},
+      },
+      "../../lib/recovery": {
+        seedJoinedVaultMinimal: async (id: string) => seeds.push(`${account}:${id}`),
+        recoverJoinedVault: async () => true,
+      },
+      "../../lib/tabs/sync": { syncAllTabs: async () => {} },
+      "../../lib/vault-api": {
+        ApiError: class extends Error {},
+        retryPendingVaultMaterialize: async () => {},
+        resumePendingVaultInvite: async () => null,
+        lookupPendingInvite: async () => {
+          localLookups++;
+          return {
+            vault_name: "Untrusted cached card",
+            role: "owner",
+            expires_at: Date.now() + 100000,
+          };
+        },
+        fetchInviteInfo: async (value: string, before: any) => {
+          assert.equal(value, token);
+          assert.ok(before, "private preview receives its captured session");
+          const reply = deferred<any>();
+          previews.push({ session: before, reply });
+          return reply.promise;
+        },
+        acceptVaultInvite: async (_: string, before: any) => {
+          posts.push(before);
+          return acceptReply.promise;
+        },
+        declineVaultInviteLocally: async (value: string, before: any) => {
+          assert.equal(value, token);
+          declines.push(before);
+          return declineReply.promise;
+        },
+        clearPendingVaultInvite: async () => {},
+        clearVaultMaterializePending: async () => {},
+      },
+    },
+    { setTimeout: () => 1, clearTimeout: () => {}, setInterval: () => 2, clearInterval: () => {} },
+  ).default;
+  const flush = async () => {
+    for (let i = 0; i < 5; i++) {
+      await settleUI();
+      hooks.render(screen);
+    }
+  };
+  const button = (label: string) =>
+    nodes(hooks.tree).find((node) => node.type === "Button" && node.props.label === label);
+  const switchAccount = (next: string | null, notify = true) => {
+    account = next;
+    bindingVersion++;
+    if (notify) listeners.forEach((listener) => listener());
+  };
+  const preview = (name: string) => ({
+    vault_name: name,
+    role: "viewer",
+    inviter_name: "Owner",
+    inviter_email_redacted: null,
+    expires_at: Date.now() + 100000,
+  });
+  hooks.render(screen);
+  await flush();
+  return {
+    hooks,
+    screen,
+    flush,
+    button,
+    switchAccount,
+    previews,
+    preview,
+    posts,
+    declines,
+    acceptReply,
+    declineReply,
+    seeds,
+    navigations,
+    toasts,
+    localLookups: () => localLookups,
+  };
+}
+
+async function targetedScreenCases() {
+  const late = await targetedScreenFixture();
+  assert.equal(late.localLookups(), 0, "direct invitation cannot use an old share-link cache");
+  late.switchAccount("B");
+  await late.flush();
+  late.previews[0].reply.resolve(late.preview("Private A Kaata"));
+  await late.flush();
+  assert.ok(!late.button("inviteAccept.confirm.accept"), "late A preview is not actionable for B");
+  assert.ok(!nodes(late.hooks.tree).some((node) => node.props.children === "Private A Kaata"));
+  late.previews[1].reply.resolve(null);
+  await late.flush();
+  assert.ok(!late.button("inviteAccept.confirm.accept"));
+  late.hooks.unmount();
+
+  const stale = await targetedScreenFixture();
+  stale.previews[0].reply.resolve(stale.preview("A Kaata"));
+  await stale.flush();
+  const oldAccept = stale.button("inviteAccept.confirm.accept")!.props.onPress;
+  const oldDecline = stale.button("inviteAccept.confirm.decline")!.props.onPress;
+  // Dispatch a stale press before React has painted the account change.
+  stale.switchAccount("B");
+  await oldAccept();
+  await oldDecline();
+  assert.equal(stale.posts.length + stale.declines.length, 0);
+  await stale.flush();
+  assert.ok(!nodes(stale.hooks.tree).some((node) => node.props.children === "A Kaata"));
+  stale.hooks.unmount();
+
+  const batched = await targetedScreenFixture();
+  batched.previews[0].reply.resolve(batched.preview("Old A Kaata"));
+  await batched.flush();
+  const old = batched.button("inviteAccept.confirm.accept")!.props.onPress;
+  batched.switchAccount(null);
+  batched.switchAccount("A");
+  await old();
+  await batched.flush();
+  assert.equal(
+    batched.posts.length,
+    0,
+    "A-to-signed-out-to-A invalidates the old session even in one frame",
+  );
+  assert.equal(batched.previews.length, 2);
+  batched.hooks.unmount();
+
+  const changedSession = await targetedScreenFixture();
+  changedSession.previews[0].reply.resolve(changedSession.preview("A Kaata"));
+  await changedSession.flush();
+  changedSession.switchAccount("A", false);
+  await changedSession.button("inviteAccept.confirm.accept")!.props.onPress();
+  await changedSession.flush();
+  assert.equal(
+    changedSession.posts.length,
+    0,
+    "same account reauthentication cannot reuse an old preview session",
+  );
+  assert.equal(changedSession.previews.length, 2, "a new session must reauthorize the preview");
+  changedSession.hooks.unmount();
+
+  const accepting = await targetedScreenFixture();
+  accepting.previews[0].reply.resolve(accepting.preview("A Kaata"));
+  await accepting.flush();
+  const action = accepting.button("inviteAccept.confirm.accept")!.props.onPress;
+  const first = action();
+  const second = action();
+  await settleUI();
+  assert.equal(accepting.posts.length, 1, "same-frame duplicate acceptance is blocked");
+  accepting.switchAccount("B");
+  await accepting.flush();
+  accepting.acceptReply.resolve({ vault_id: "A-vault", vault_name: "A Kaata", role: "viewer" });
+  await Promise.all([first, second]);
+  await accepting.flush();
+  assert.deepEqual(accepting.seeds, [], "late A acceptance cannot materialize into B");
+  assert.deepEqual(accepting.navigations, []);
+  assert.deepEqual(accepting.toasts, []);
+  accepting.hooks.unmount();
+
+  for (const failure of [false, true]) {
+    const declining = await targetedScreenFixture();
+    declining.previews[0].reply.resolve(declining.preview("A Kaata"));
+    await declining.flush();
+    const decline = declining.button("inviteAccept.confirm.decline")!.props.onPress;
+    const first = decline(),
+      duplicate = decline();
+    await settleUI();
+    assert.equal(declining.declines.length, 1);
+    assert.equal(declining.declines[0].accountId, "A");
+    assert.deepEqual(
+      declining.navigations,
+      [],
+      "do not hide the invitation before server decline succeeds",
+    );
+    if (failure) declining.declineReply.reject(Error("offline"));
+    else declining.declineReply.resolve();
+    await Promise.all([first, duplicate]);
+    await declining.flush();
+    assert.deepEqual(declining.navigations, failure ? [] : ["/"]);
+    assert.deepEqual(declining.toasts, failure ? ["inbox.failed"] : []);
+    if (failure)
+      assert.ok(declining.button("inviteAccept.confirm.decline"), "failed decline stays retryable");
+    declining.hooks.unmount();
+  }
+  const leaving = await targetedScreenFixture();
+  leaving.switchAccount(null);
+  await leaving.flush();
+  const signingIn = leaving.button("inviteAccept.signin.cta")!.props.onPress();
+  leaving.hooks.unmount();
+  await signingIn;
+  leaving.previews[0].reply.resolve(leaving.preview("Old private card"));
+  await settleUI();
+  assert.deepEqual(leaving.navigations, [], "an unmounted sign-in action cannot navigate later");
+  assert.equal(
+    leaving.hooks.lateWrites,
+    0,
+    "an unmounted route never paints the old private preview",
+  );
+}
+
 void main().catch((err) => {
   console.error(err);
   process.exitCode = 1;

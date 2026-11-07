@@ -28,6 +28,8 @@ import { useToast } from "./Toast";
 import { useCustomerReminders } from "../lib/use-customer-reminders";
 import { usePeopleRequests } from "../lib/use-people-requests";
 import type { PeopleRequest } from "../lib/people-connections";
+import { useVaultMemberRequests } from "../lib/use-vault-member-requests";
+import type { VaultMemberRequest } from "../lib/vault-member-requests";
 
 type Inbox = ReturnType<typeof useInbox>;
 
@@ -72,6 +74,8 @@ function InboxContent({
   hasReminders,
   requests,
   openRequest,
+  memberRequests,
+  openMemberRequest,
 }: {
   inbox: Inbox;
   compact?: boolean;
@@ -83,6 +87,8 @@ function InboxContent({
   hasReminders?: boolean;
   requests: ReturnType<typeof usePeopleRequests>;
   openRequest: (item: PeopleRequest) => void;
+  memberRequests: ReturnType<typeof useVaultMemberRequests>;
+  openMemberRequest: (item: VaultMemberRequest) => void;
 }) {
   const rtl = useIsRTL();
   const toast = useToast();
@@ -131,6 +137,67 @@ function InboxContent({
         </Pressable>
       ) : null}
       <ScrollView showsVerticalScrollIndicator={!compact} contentContainerStyle={styles.content}>
+        {memberRequests.failed ? (
+          <Pressable
+            accessibilityRole="button"
+            style={styles.message}
+            onPress={() => void memberRequests.reload()}
+          >
+            <Text style={[styles.time, textDir(rtl)]}>{t("invite.people.requestsFailed")}</Text>
+          </Pressable>
+        ) : null}
+        {memberRequests.rows.length > 0 ? (
+          <Text style={[styles.title, textDir(rtl), { padding: 16 }]}>
+            {t("invite.people.requestsTitle")}
+          </Text>
+        ) : null}
+        {(compact ? memberRequests.rows.slice(0, 3) : memberRequests.rows).map((item) => (
+          <View
+            key={`member-${item.id}`}
+            style={[styles.notice, { alignItems: rtl ? "flex-end" : "flex-start" }]}
+          >
+            <Text style={[styles.body, textDir(rtl)]}>
+              {t("invite.people.requestBody", {
+                name: item.inviter_name || t("inviteAccept.confirm.someone"),
+                kaata: item.vault_name,
+                role: t(`invite.role.${item.role}`),
+              })}
+            </Text>
+            <View style={[rowDir(rtl), { gap: 16 }]}>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.control}
+                disabled={declining !== null}
+                onPress={() => openMemberRequest(item)}
+              >
+                <Text style={styles.controlText}>{t("peopleSearch.review")}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.control}
+                disabled={declining !== null}
+                onPress={() => {
+                  if (decliningRef.current) return;
+                  decliningRef.current = true;
+                  setDeclining(item.id);
+                  void memberRequests
+                    .decline(item.id)
+                    .catch(() => toast.push(t("inbox.failed"), "error"))
+                    .finally(() => {
+                      decliningRef.current = false;
+                      setDeclining(null);
+                    });
+                }}
+              >
+                {declining === item.id ? (
+                  <ActivityIndicator color={colors.textSubtle} />
+                ) : (
+                  <Text style={styles.controlText}>{t("peopleSearch.decline")}</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        ))}
         {requests.failed ? (
           <Pressable
             accessibilityRole="button"
@@ -195,7 +262,9 @@ function InboxContent({
             </View>
           </View>
         ))}
-        {page.items.length === 0 && requests.rows.length === 0 ? (
+        {page.items.length === 0 &&
+        requests.rows.length === 0 &&
+        memberRequests.rows.length === 0 ? (
           <View style={styles.empty}>
             {loading ? (
               <ActivityIndicator color={colors.textSubtle} />
@@ -289,13 +358,15 @@ export function NotificationBell({
 } = {}) {
   const inbox = useInbox();
   const requests = usePeopleRequests();
+  const memberRequests = useVaultMemberRequests();
   // Due reminders count on the bell too: they used to be invisible until the
   // dropdown was opened. Loaded here, not by the dropdown, so the row stays
   // put through opening and closing.
   const reminders = useCustomerReminders(undefined, undefined, true);
   const dueReminders = reminders.due.length;
   const hasReminders = reminders.rows.length > 0;
-  const badge = inbox.page.unread + requests.rows.length + dueReminders;
+  const badge =
+    inbox.page.unread + requests.rows.length + memberRequests.rows.length + dueReminders;
   const toast = useToast();
   const anchor = useRef<ViewInstance>(null);
   const [position, setPosition] = useState<{ y: number } | null>(null);
@@ -402,8 +473,9 @@ export function NotificationBell({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            t("inbox.bell", { count: inbox.page.unread + requests.rows.length }) +
-            (dueReminders ? `. ${t("reminders.dueShortcut", { count: dueReminders })}` : "")
+            t("inbox.bell", {
+              count: inbox.page.unread + requests.rows.length + memberRequests.rows.length,
+            }) + (dueReminders ? `. ${t("reminders.dueShortcut", { count: dueReminders })}` : "")
           }
           accessibilityState={{ expanded: visible && !closing }}
           style={styles.bell}
@@ -417,6 +489,7 @@ export function NotificationBell({
             timer.current = null;
             void inbox.reload();
             void requests.reload();
+            void memberRequests.reload();
             anchor.current?.measureInWindow((_x, y, _w, h) => {
               if (
                 !mounted.current ||
@@ -487,6 +560,12 @@ export function NotificationBell({
             <InboxContent
               inbox={inbox}
               requests={requests}
+              memberRequests={memberRequests}
+              openMemberRequest={(item) =>
+                close(() =>
+                  router.push({ pathname: "/invite/[token]", params: { token: item.token } }),
+                )
+              }
               openRequest={(item) =>
                 close(() => router.push({ pathname: "/t/[token]", params: { token: item.token } }))
               }
@@ -521,6 +600,7 @@ export function NotificationBell({
 export function FullNotificationInbox() {
   const inbox = useInbox();
   const requests = usePeopleRequests();
+  const memberRequests = useVaultMemberRequests();
   const toast = useToast();
   const busy = useRef(false);
   const open = (item: InboxItem) => {
@@ -544,6 +624,10 @@ export function FullNotificationInbox() {
       inbox={inbox}
       open={open}
       requests={requests}
+      memberRequests={memberRequests}
+      openMemberRequest={(item) =>
+        router.push({ pathname: "/invite/[token]", params: { token: item.token } })
+      }
       openRequest={(item) => router.push({ pathname: "/t/[token]", params: { token: item.token } })}
     />
   );

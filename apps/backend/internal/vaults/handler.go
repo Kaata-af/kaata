@@ -115,6 +115,18 @@ func writeServiceError(w http.ResponseWriter, err error) {
 // error_code is the client's branch key — keep it stable even if messages change.
 func mapServiceError(err error) (int, string, string) {
 	switch {
+	case errors.Is(err, ErrInviteRecipientUnavailable):
+		return http.StatusNotFound, "recipient_unavailable", err.Error()
+	case errors.Is(err, ErrInviteAlreadyMember):
+		return http.StatusConflict, "already_member", err.Error()
+	case errors.Is(err, ErrMemberReadmissionRequired):
+		return http.StatusConflict, "member_readmission_required", err.Error()
+	case errors.Is(err, ErrInviteRoleConflict):
+		return http.StatusConflict, "invite_role_conflict", err.Error()
+	case errors.Is(err, ErrInvalidInviteAccount):
+		return http.StatusBadRequest, "invalid_account_id", err.Error()
+	case errors.Is(err, ErrInviteSelf):
+		return http.StatusBadRequest, "self_invite", err.Error()
 	case errors.Is(err, ErrInvalidOwnershipAuthorization):
 		return http.StatusBadRequest, "invalid_ownership_authorization", err.Error()
 	case errors.Is(err, ErrOwnershipSigningUnavailable):
@@ -540,6 +552,13 @@ func (h *Handler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "token is required")
 		return
 	}
+	if _, direct := accountInviteSelector(req.Token); direct {
+		if req.InstallID != "" && req.InstallID != claims.InstallID {
+			httpx.Error(w, http.StatusBadRequest, "install_id must match the current session")
+			return
+		}
+		req.InstallID = claims.InstallID
+	}
 
 	res, err := h.svc.AcceptInvite(r.Context(), AcceptInviteInput{
 		Token: req.Token, AccountID: claims.AccountID, InstallID: req.InstallID,
@@ -556,12 +575,11 @@ func (h *Handler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusOK, res)
 }
 
-// pendingInviteRow intentionally omits invite_token after the Phase 4.1
-// hash migration. The device already stores the plaintext locally in
-// pending_invitations.invite_token (received via the inviter's share-link
-// side channel); the server can no longer regenerate it. To accept, the
-// device sends its locally-stored plaintext to POST /v1/vaults/invites/accept.
+// Secret link/email tokens are omitted; direct invitations carry only their
+// account-bound, nonsecret selector. They never reveal the inviter's raw email.
 type pendingInviteRow struct {
+	InviteID     string `json:"invite_id,omitempty"`
+	InviteToken  string `json:"invite_token,omitempty"`
 	VaultID      string `json:"vault_id"`
 	VaultName    string `json:"vault_name"`
 	InviterEmail string `json:"inviter_email"`
@@ -573,6 +591,7 @@ type pendingInviteRow struct {
 
 // PendingInvites — GET /v1/vaults/invites/pending
 func (h *Handler) PendingInvites(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	claims := claimsOrUnauthorized(w, r)
 	if claims == nil {
 		return
@@ -583,8 +602,17 @@ func (h *Handler) PendingInvites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := make([]pendingInviteRow, 0, len(invites))
+	// Older clients mirror every row into a legacy cache keyed only by vault.
+	// Account requests must be explicitly requested so their role/identity
+	// cannot overwrite an unrelated email/link invitation in that cache.
+	includeAccountInvites := r.URL.Query().Get("include_account_invites") == "1"
 	for _, p := range invites {
+		if p.InviteID != "" && !includeAccountInvites {
+			continue
+		}
 		out = append(out, pendingInviteRow{
+			InviteID:     p.InviteID,
+			InviteToken:  p.InviteToken,
 			VaultID:      p.VaultID,
 			VaultName:    p.VaultName,
 			InviterEmail: p.InviterEmail,

@@ -12,29 +12,31 @@
 // affordance; it is PARKED with the rest of the offline mesh — which is why
 // no copy on this screen points at it any more.)
 //
-// Owner-only modal screen. Collects an email + a role (editor / viewer),
-// POSTs to /v1/vaults/:vault_id/invites, and shows the resulting share URL
-// with Copy / Share rows. Email normalization (trim + lowercase + gmail
-// dot-strip) happens on the backend; we only do a coarse pre-flight here so
-// the user sees inline feedback before the round-trip.
+// Owners and admins can find a Kaata account and send an account-bound
+// invitation, or create the existing shareable link. Selecting an account
+// stages a recipient; only confirming their role sends the invitation.
 
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Network from "expo-network";
-import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useIsFocused, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { PeopleSearchSection } from "../../components/PeopleSearchSection";
 import { OptionSheet, SHEET_EXIT_MS } from "../../components/OptionSheet";
 import {
   EmptyHint,
@@ -45,14 +47,26 @@ import {
 } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import { colors } from "../../lib/colors";
-import { getSessionJWT } from "../../lib/auth";
-import { getActiveVaultId } from "../../lib/db-tx";
-import { getAppMeta } from "../../lib/db";
-import { rowDir, textDir, useIsRTL } from "../../lib/direction";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  SessionChangedError,
+  type SessionSnapshot,
+} from "../../lib/auth";
+import {
+  getSessionAccountIdSync,
+  getActiveVaultId,
+  getActiveVaultIdSyncMaybe,
+  onAccountIdentityChanged,
+} from "../../lib/db-tx";
+import { ltrIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { getShareLangPref, resolveShareLang, t, tIn, type LocaleCode } from "../../lib/i18n";
 import { icon, radius } from "../../lib/tokens";
 import { useVaultPermission } from "../../lib/use-vault-role";
+import { useLedgerRefresh } from "../../lib/ledger-events";
+import { usePeopleSearch, type DiscoveredPerson } from "../../lib/people-search";
+import { createVaultMemberRequest } from "../../lib/vault-member-requests";
 import { ApiError, createVaultInvite, listVaults } from "../../lib/vault-api";
 import type { VaultRole } from "../../lib/events";
 
@@ -61,6 +75,15 @@ type InviteResult = {
   invite_email: string;
   expires_at: number;
 };
+type RecipientChoice = {
+  person: DiscoveredPerson;
+  role: "editor" | "clerk" | "viewer";
+  vaultId: string;
+  accountId: string;
+  identity: string;
+  generation: number;
+};
+type SentInvitation = { person: DiscoveredPerson; role: VaultRole; expires_at: number };
 
 /** Result-row avatar well. Named so its radius is size/2 rather than a
  *  literal 22 that can drift from the diameter (lib/tokens rule 3). */
@@ -71,8 +94,36 @@ export default function VaultInviteScreen() {
   const isRTL = useIsRTL();
   const toast = useToast();
 
-  const [vaultId, setVaultId] = useState<string>("");
-  const [accountId, setAccountId] = useState<string | null>(null);
+  const focused = useIsFocused();
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  const mountedRef = useRef(true);
+  const scopeGeneration = useRef(0);
+  const screenSession = useRef<SessionSnapshot | null>(null);
+  const [vaultId, setVaultId] = useState<string>(getActiveVaultIdSyncMaybe() ?? "");
+  // Signing out retains the local ledger's account ID. Use the live signed-in
+  // identity and count notifications so a batched A -> out -> A also resets.
+  const identityRevision = useRef(0);
+  const subscribeIdentity = useCallback(
+    (notify: () => void) =>
+      onAccountIdentityChanged(() => {
+        identityRevision.current++;
+        notify();
+      }),
+    [],
+  );
+  const identitySnapshot = useCallback(
+    () => `${identityRevision.current}:${getSessionAccountIdSync() ?? ""}`,
+    [],
+  );
+  const identity = useSyncExternalStore(subscribeIdentity, identitySnapshot, identitySnapshot);
+  const accountId = getSessionAccountIdSync();
+  const [attempt, setAttempt] = useState(0);
+  const viewIdentity = JSON.stringify([vaultId, identity, focused, attempt]);
+  const latestViewIdentity = useRef(viewIdentity);
+  latestViewIdentity.current = viewIdentity;
+  const [loadedViewIdentity, setLoadedViewIdentity] = useState<string | null>(null);
+  const viewCurrent = loadedViewIdentity === viewIdentity;
   // The actual "can call the API" gate: do we hold a valid JWT? Cached
   // app_meta.account_id can be stale (e.g. legacy install written it but
   // never bound, or a sign-in race where vault loaded before account_id
@@ -80,19 +131,32 @@ export default function VaultInviteScreen() {
   // checks via requireJwt(), so we mirror that contract in the UI gate.
   // `null` = unknown until the effect resolves.
   const [hasJwt, setHasJwt] = useState<boolean | null>(null);
-  const [role, setRole] = useState<VaultRole>("editor");
+  const [role, setRole] = useState<"editor" | "clerk" | "viewer">("editor");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<InviteResult | null>(null);
+  const [storedResult, setResult] = useState<InviteResult | null>(null);
+  const [storedQuery, setQuery] = useState("");
+  const [storedRecipient, setRecipient] = useState<DiscoveredPerson | null>(null);
+  const [storedConfirmation, setConfirmation] = useState<RecipientChoice | null>(null);
+  const [storedSent, setSent] = useState<SentInvitation | null>(null);
+  // Hide old account/vault content during render, before effect cleanup runs.
+  const result = viewCurrent ? storedResult : null;
+  const query = viewCurrent ? storedQuery : "";
+  const recipient = viewCurrent ? storedRecipient : null;
+  const confirmation = viewCurrent ? storedConfirmation : null;
+  const sent = viewCurrent ? storedSent : null;
+  const [sendError, setSendError] = useState<string | null>(null);
   // Message-language picker for the invite share, when share_lang_pref = 'ask'.
   const [askLangVisible, setAskLangVisible] = useState(false);
   // Re-entry guard: the ask-sheet rows stay tappable through the 220ms exit
   // animation, so a double-tap would otherwise fire Share.share twice.
   const shareBusyRef = useRef(false);
-  // D-UI-UNIFICATION: online gate. We snapshot connectivity once at
-  // mount; the create CTA is also gated by the live state so a user
-  // who goes offline gets a clear disabled CTA instead of an opaque API
-  // error. `null` = unknown (initial state), treated as online until resolved.
-  const [online, setOnline] = useState<boolean | null>(null);
+  // Live connectivity keeps both invitation actions disabled while offline.
+  // Unknown connectivity waits for the first network result.
+  const network = Network.useNetworkState();
+  const online =
+    network.isConnected === undefined || network.isInternetReachable === undefined
+      ? null
+      : !!network.isConnected && !!network.isInternetReachable;
   // Pre-flight: is this kaata registered on the server yet? A local-CA kaata
   // that hasn't synced can't be shared (the API 404s). null = checking/unknown
   // (optimistic — allow, the 404 toast is the backstop); false = confirmed not
@@ -104,6 +168,55 @@ export default function VaultInviteScreen() {
   const submittingRef = useRef(false);
 
   const canInvite = useVaultPermission(vaultId, accountId, "vault.invite_member");
+  const canInviteRef = useRef(canInvite);
+  canInviteRef.current = canInvite;
+  const currentScope = !!vaultId && getActiveVaultIdSyncMaybe() === vaultId;
+  const canSend =
+    canInvite &&
+    viewCurrent &&
+    focused &&
+    !!accountId &&
+    currentScope &&
+    hasJwt === true &&
+    online === true &&
+    vaultOnServer !== false;
+  const canSendRef = useRef(canSend);
+  canSendRef.current = canSend;
+  const peopleSearch = usePeopleSearch(query, canSend && !busy && !recipient && !result && !sent);
+  const viewSession = screenSession.current;
+  const currentView = () =>
+    mountedRef.current &&
+    focusedRef.current &&
+    latestViewIdentity.current === viewIdentity &&
+    getActiveVaultIdSyncMaybe() === vaultId &&
+    identitySnapshot() === identity;
+
+  const scopeCurrent = (target: {
+    vaultId: string;
+    accountId: string;
+    identity: string;
+    generation: number;
+  }) =>
+    mountedRef.current &&
+    focusedRef.current &&
+    canInviteRef.current &&
+    target.generation === scopeGeneration.current &&
+    getActiveVaultIdSyncMaybe() === target.vaultId &&
+    getSessionAccountIdSync() === target.accountId &&
+    identitySnapshot() === target.identity;
+  const refreshVault = useCallback(() => {
+    setVaultId(getActiveVaultIdSyncMaybe() ?? "");
+  }, []);
+  useFocusEffect(refreshVault);
+  useLedgerRefresh(null, refreshVault);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      scopeGeneration.current++;
+    };
+  }, []);
 
   // What (if anything) stops a link from being created right now. Checked in
   // the order the user can act on: sign in, then get online, then wait for the
@@ -119,80 +232,199 @@ export default function VaultInviteScreen() {
           : null;
 
   useEffect(() => {
+    const generation = ++scopeGeneration.current;
+    let alive = true;
+    screenSession.current = null;
+    setLoadedViewIdentity(viewIdentity);
+    setQuery("");
+    setRecipient(null);
+    setConfirmation(null);
+    setSent(null);
+    setSendError(null);
+    setResult(null);
+    setAskLangVisible(false);
+    setHasJwt(null);
+    setVaultOnServer(null);
+    if (!focused)
+      return () => {
+        alive = false;
+      };
     (async () => {
       const vid = await getActiveVaultId();
+      if (!alive || generation !== scopeGeneration.current) return;
       if (!vid) {
         toast.push(t("invite.toast.noActive"), "error");
         router.back();
         return;
       }
       setVaultId(vid);
-      const [accId, jwt] = await Promise.all([
-        getAppMeta("account_id"),
-        getSessionJWT().catch(() => null),
-      ]);
-      setAccountId(accId);
-      setHasJwt(!!jwt);
-    })();
-  }, [router, toast]);
+      const session = await captureCurrentSession();
+      if (
+        alive &&
+        generation === scopeGeneration.current &&
+        getActiveVaultIdSyncMaybe() === vid &&
+        getSessionAccountIdSync() === accountId &&
+        identitySnapshot() === identity
+      ) {
+        screenSession.current = session;
+        setHasJwt(!!session.jwt && session.accountId === accountId);
+      }
+    })().catch(() => {
+      if (alive && generation === scopeGeneration.current) setHasJwt(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [viewIdentity, router, toast]);
+
+  useEffect(() => {
+    if (!canInvite) {
+      setRecipient(null);
+      setConfirmation(null);
+    }
+  }, [canInvite]);
 
   // Pre-flight vault-on-server check: once we have a vault + JWT + connectivity,
   // confirm the kaata is registered server-side so we can disable Create + warn
   // BEFORE the owner picks a role and taps (instead of a post-submit 404 toast).
   // Best-effort — on any error we leave it null (optimistic, 404 is the backstop).
   useEffect(() => {
-    if (!vaultId || !hasJwt || online === false) return;
+    if (!vaultId || !hasJwt || online === false || !focused) return;
     let alive = true;
+    const generation = scopeGeneration.current;
     (async () => {
       try {
         const vaults = await listVaults();
-        if (alive) setVaultOnServer(vaults.some((v) => v.vault_id === vaultId));
+        if (
+          alive &&
+          generation === scopeGeneration.current &&
+          getActiveVaultIdSyncMaybe() === vaultId
+        )
+          setVaultOnServer(vaults.some((v) => v.vault_id === vaultId));
       } catch {
-        if (alive) setVaultOnServer(null);
+        if (alive && generation === scopeGeneration.current) setVaultOnServer(null);
       }
     })();
     return () => {
       alive = false;
     };
-  }, [vaultId, hasJwt, online]);
+  }, [vaultId, accountId, hasJwt, online, focused]);
 
-  // Snapshot network state on mount. Best-effort: if expo-network throws
-  // (rare, but defensively) we treat the user as offline so the form
-  // gates safely.
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const st = await Network.getNetworkStateAsync();
-        if (alive) setOnline(!!st.isConnected && !!st.isInternetReachable);
-      } catch {
-        if (alive) setOnline(false);
+  function changeQuery(value: string) {
+    if (submittingRef.current) return;
+    setQuery(value);
+    setRecipient(null);
+    setConfirmation(null);
+    setSent(null);
+    setSendError(null);
+  }
+
+  function selectRecipient(person: DiscoveredPerson) {
+    if (!canSendRef.current || submittingRef.current || !currentView()) return;
+    Keyboard.dismiss();
+    setRecipient(person);
+    setConfirmation(null);
+    setSendError(null);
+  }
+
+  function confirmRecipient() {
+    if (!recipient || !accountId || !canSendRef.current || submittingRef.current || !currentView())
+      return;
+    setConfirmation({
+      person: recipient,
+      role,
+      vaultId,
+      accountId,
+      identity,
+      generation: scopeGeneration.current,
+    });
+  }
+
+  async function sendToRecipient() {
+    const choice = confirmation;
+    const session = screenSession.current;
+    if (
+      !choice ||
+      !session ||
+      submittingRef.current ||
+      !canSendRef.current ||
+      !scopeCurrent(choice)
+    )
+      return;
+    submittingRef.current = true;
+    setConfirmation(null);
+    setBusy(true);
+    setSendError(null);
+    try {
+      await applyForCurrentSession(session, async () => {});
+      if (!scopeCurrent(choice) || !canSendRef.current) return;
+      const response = await createVaultMemberRequest(
+        choice.vaultId,
+        {
+          recipientAccountId: choice.person.account_id,
+          role: choice.role,
+        },
+        session,
+      );
+      await applyForCurrentSession(session, async () => {
+        if (!scopeCurrent(choice)) return;
+        setSent({ person: choice.person, role: choice.role, expires_at: response.expires_at });
+        setRecipient(null);
+        setQuery("");
+      });
+    } catch (error) {
+      if (!scopeCurrent(choice)) return;
+      if (error instanceof SessionChangedError) {
+        setAttempt((value) => value + 1);
+        return;
       }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+      // Keep the chosen account and role available for an explicit retry.
+      // A transient response failure must never create or share a wildcard link.
+      const code = error instanceof ApiError ? error.code : "";
+      const status = error instanceof ApiError ? error.status : 0;
+      const key =
+        code === "already_member"
+          ? "invite.people.alreadyMember"
+          : code === "recipient_unavailable"
+            ? "invite.people.unavailable"
+            : code === "member_readmission_required"
+              ? "invite.people.readmission"
+              : code === "invite_role_conflict"
+                ? "invite.people.roleConflict"
+                : code === "rate_limited" || code === "too_many_invites" || status === 429
+                  ? "invite.tooMany"
+                  : "invite.people.failed";
+      setSendError(t(key));
+    } finally {
+      submittingRef.current = false;
+      if (mountedRef.current) setBusy(false);
+    }
+  }
 
   async function onSubmit() {
-    if (!canInvite) return;
-    if (busy || submittingRef.current) return;
-    if (!hasJwt) {
-      // Link invites are server-mediated (the server holds the token until the
-      // recipient signs in to claim it) and the API requires a Bearer JWT. A
-      // local-only user can't reach those endpoints — route them to QR pair.
-      toast.push(t("invite.signInRequired"), "error");
+    const session = screenSession.current;
+    if (!session || !accountId || !canSendRef.current || busy || submittingRef.current || recipient)
       return;
-    }
+    const target = { vaultId, accountId, identity, generation: scopeGeneration.current };
     submittingRef.current = true;
     setBusy(true);
     try {
+      await applyForCurrentSession(session, async () => {});
+      if (!scopeCurrent(target) || !canSendRef.current) return;
       // Empty email mints a LINK invite: the token is the secret, and whoever
       // opens the link + signs in (with any Google account) claims this role.
-      const r = await createVaultInvite(vaultId, { email: "", role });
-      setResult(r);
-      toast.push(t("invite.created"), "success");
+      const r = await createVaultInvite(vaultId, { email: "", role }, session);
+      await applyForCurrentSession(session, async () => {
+        if (!scopeCurrent(target)) return;
+        setResult(r);
+        toast.push(t("invite.created"), "success");
+      });
     } catch (e) {
+      if (!scopeCurrent(target)) return;
+      if (e instanceof SessionChangedError) {
+        setAttempt((value) => value + 1);
+        return;
+      }
       // Branch on the backend's structured error_code / status, not prose.
       const code = e instanceof ApiError ? e.code : "";
       const status = e instanceof ApiError ? e.status : 0;
@@ -217,24 +449,29 @@ export default function VaultInviteScreen() {
       }
     } finally {
       submittingRef.current = false;
-      setBusy(false);
+      if (mountedRef.current) setBusy(false);
     }
   }
 
   async function onCopy() {
-    if (!result) return;
+    if (!result || !viewSession || !currentView()) return;
     try {
-      await Clipboard.setStringAsync(result.invite_url);
-      toast.push(t("invite.copy.done"), "success");
+      await applyForCurrentSession(viewSession, async () => {
+        if (!currentView()) return;
+        await Clipboard.setStringAsync(result.invite_url);
+        if (currentView()) toast.push(t("invite.copy.done"), "success");
+      });
     } catch {
-      toast.push(t("invite.copy.unavailable"), "error");
+      if (currentView()) toast.push(t("invite.copy.unavailable"), "error");
     }
   }
 
   async function shareInvite(lang: LocaleCode) {
-    if (!result || shareBusyRef.current) return;
+    if (!result || !viewSession || !currentView() || shareBusyRef.current) return;
     shareBusyRef.current = true;
     try {
+      await applyForCurrentSession(viewSession, async () => {});
+      if (!currentView()) return;
       await Share.share({
         message: tIn(lang, "invite.shareMessage", { url: result.invite_url }),
       });
@@ -246,13 +483,18 @@ export default function VaultInviteScreen() {
   }
 
   async function onShare() {
-    if (!result) return;
-    const pref = await getShareLangPref();
-    if (pref === "ask") {
-      setAskLangVisible(true);
-      return;
+    if (!result || !viewSession || !currentView()) return;
+    try {
+      const pref = await getShareLangPref();
+      await applyForCurrentSession(viewSession, async () => {
+        if (currentView() && pref === "ask") setAskLangVisible(true);
+      });
+      if (!currentView() || pref === "ask") return;
+      await shareInvite(resolveShareLang(pref));
+    } catch (error) {
+      if (!(error instanceof SessionChangedError) && currentView())
+        toast.push(t("invite.failed"), "error");
     }
-    await shareInvite(resolveShareLang(pref));
   }
 
   return (
@@ -284,7 +526,7 @@ export default function VaultInviteScreen() {
               that was parked with the offline mesh and is commented out on
               every screen. Every variant of this banner pointed at it, so the
               copy has been rewritten to describe only the blocker itself. */}
-          {!result && blocker ? (
+          {!result && !sent && blocker ? (
             <View style={styles.disclosure}>
               <Ionicons
                 name={
@@ -308,11 +550,95 @@ export default function VaultInviteScreen() {
             </View>
           ) : null}
 
-          {!result ? (
+          {sent ? (
+            <>
+              <View style={[styles.identityRow, rowDir(isRTL)]}>
+                <View
+                  style={[styles.identityAvatar, isRTL ? { marginLeft: 14 } : { marginRight: 14 }]}
+                >
+                  <Ionicons name="checkmark" size={icon.row} color={colors.textEmphasis} />
+                </View>
+                <View style={{ flex: 1 }} accessibilityLiveRegion="polite">
+                  <Text style={[styles.identityName, textDir(isRTL)]}>
+                    {t("invite.people.sent")}
+                  </Text>
+                  <Text style={[styles.identitySub, textDir(isRTL)]}>
+                    {t("invite.people.sentHint", {
+                      name: sent.person.name,
+                      role: roleLabel(sent.role),
+                      when: formatExpires(sent.expires_at),
+                    })}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.formInset}>
+                <Button
+                  label={t("invite.people.sendAnother")}
+                  variant="secondary"
+                  onPress={() => {
+                    setSent(null);
+                    setRole("editor");
+                    changeQuery("");
+                  }}
+                />
+              </View>
+            </>
+          ) : !result ? (
             <>
               <View style={styles.formInset}>
-                <Text style={[styles.intro, textDir(isRTL)]}>{t("invite.link.intro")}</Text>
+                <Text style={[styles.intro, textDir(isRTL)]}>{t("invite.people.intro")}</Text>
+                <View style={[styles.searchField, rowDir(isRTL)]}>
+                  <Ionicons name="search" size={icon.row} color={colors.textMuted} />
+                  <TextInput
+                    testID="member-invite-search"
+                    value={query}
+                    onChangeText={changeQuery}
+                    placeholder={t("peopleSearch.placeholder")}
+                    placeholderTextColor={colors.textMuted}
+                    accessibilityLabel={t("invite.people.searchLabel")}
+                    style={[styles.searchInput, textDir(isRTL)]}
+                    maxLength={80}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                    editable={canSend && !busy}
+                  />
+                </View>
               </View>
+
+              {recipient ? (
+                <View style={[styles.identityRow, rowDir(isRTL)]} testID="member-invite-recipient">
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.identityName, textDir(isRTL)]} numberOfLines={2}>
+                      {recipient.name}
+                    </Text>
+                    {recipient.username ? (
+                      <Text style={[styles.identitySub, textDir(isRTL)]}>
+                        {ltrIsolate(`@${recipient.username}`)}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t("invite.people.change")}
+                    disabled={busy}
+                    onPress={() => changeQuery(query)}
+                    style={styles.changeButton}
+                  >
+                    <Text style={styles.changeLabel}>{t("invite.people.change")}</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <PeopleSearchSection
+                  search={peopleSearch}
+                  onSelect={selectRecipient}
+                  disabled={!canSend || busy}
+                  actionLabel={t("invite.people.action")}
+                  localPeople={[]}
+                  visiblePeople={[]}
+                />
+              )}
 
               <SectionGap />
               <SectionHeader label={t("invite.section.role")} isRTL={isRTL} />
@@ -328,6 +654,7 @@ export default function VaultInviteScreen() {
                   selected={role === "editor"}
                   isRTL={isRTL}
                   onSelect={setRole}
+                  disabled={busy}
                 />
                 <RoleOption
                   value="clerk"
@@ -336,6 +663,7 @@ export default function VaultInviteScreen() {
                   selected={role === "clerk"}
                   isRTL={isRTL}
                   onSelect={setRole}
+                  disabled={busy}
                 />
                 <RoleOption
                   value="viewer"
@@ -344,6 +672,7 @@ export default function VaultInviteScreen() {
                   selected={role === "viewer"}
                   isRTL={isRTL}
                   onSelect={setRole}
+                  disabled={busy}
                   isLast
                 />
               </View>
@@ -363,20 +692,22 @@ export default function VaultInviteScreen() {
                     say where that role is granted instead of leaving it hidden. */}
                 <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("invite.managerNote")}</Text>
 
+                {sendError ? (
+                  <Text accessibilityRole="alert" style={[styles.sendError, textDir(isRTL)]}>
+                    {sendError}
+                  </Text>
+                ) : null}
+
                 <View style={{ height: 24 }} />
                 <Button
-                  label={t("invite.link.create")}
-                  onPress={onSubmit}
+                  label={t(recipient ? "invite.people.send" : "invite.link.create")}
+                  onPress={recipient ? confirmRecipient : onSubmit}
                   loading={busy}
-                  disabled={
-                    !canInvite ||
-                    online === false ||
-                    online === null ||
-                    hasJwt === false ||
-                    hasJwt === null ||
-                    vaultOnServer === false
-                  }
+                  disabled={!canSend || busy}
                 />
+                {!recipient ? (
+                  <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("invite.link.intro")}</Text>
+                ) : null}
               </View>
             </>
           ) : (
@@ -447,9 +778,25 @@ export default function VaultInviteScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      <ConfirmDialog
+        visible={confirmation !== null}
+        title={t("invite.people.confirmTitle")}
+        description={
+          confirmation
+            ? t("invite.people.confirmBody", {
+                name: confirmation.person.name,
+                role: roleLabel(confirmation.role),
+              })
+            : undefined
+        }
+        confirmLabel={t("invite.people.send")}
+        onConfirm={sendToRecipient}
+        onCancel={() => setConfirmation(null)}
+      />
+
       {/* Per-send message-language picker (share_lang_pref = 'ask'). */}
       <OptionSheet
-        visible={askLangVisible}
+        visible={viewCurrent && askLangVisible}
         title={t("share.askLang.title")}
         options={[
           { key: "fa", label: t("settings.language.option.fa") },
@@ -472,19 +819,21 @@ export default function VaultInviteScreen() {
 }
 
 function RoleOption(props: {
-  value: VaultRole;
+  value: "editor" | "clerk" | "viewer";
   label: string;
   hint: string;
   selected: boolean;
   isRTL: boolean;
   isLast?: boolean;
-  onSelect: (r: VaultRole) => void;
+  disabled?: boolean;
+  onSelect: (r: "editor" | "clerk" | "viewer") => void;
 }) {
   return (
     <Pressable
       onPress={() => props.onSelect(props.value)}
+      disabled={props.disabled}
       accessibilityRole="radio"
-      accessibilityState={{ selected: props.selected }}
+      accessibilityState={{ selected: props.selected, disabled: props.disabled }}
       style={({ pressed }) => [
         styles.roleOption,
         rowDir(props.isRTL),
@@ -514,6 +863,16 @@ function RoleOption(props: {
   );
 }
 
+function roleLabel(role: VaultRole): string {
+  return t(
+    role === "viewer"
+      ? "invite.role.viewer"
+      : role === "clerk"
+        ? "invite.role.clerk"
+        : "invite.role.editor",
+  );
+}
+
 function formatExpires(epochMs: number): string {
   const diff = epochMs - Date.now();
   if (diff <= 0) return t("invite.expiresIn.soon");
@@ -527,6 +886,26 @@ const styles = StyleSheet.create({
 
   scrollContent: { paddingBottom: 48 },
   formInset: { paddingHorizontal: 20, paddingTop: 4 },
+  searchField: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 16,
+    paddingHorizontal: 12,
+    minHeight: 48,
+    backgroundColor: colors.bgMuted,
+    borderRadius: radius.sm,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: 48,
+    fontSize: 15,
+    fontFamily: fonts.sansRegular,
+    color: colors.textDefault,
+  },
+  changeButton: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center" },
+  changeLabel: { color: colors.actionPrimary, fontFamily: fonts.sansMedium, fontSize: 14 },
+  sendError: { color: colors.danger, fontFamily: fonts.sansRegular, fontSize: 13, marginTop: 16 },
 
   intro: {
     fontSize: 14,

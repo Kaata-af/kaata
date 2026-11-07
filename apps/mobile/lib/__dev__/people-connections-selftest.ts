@@ -640,7 +640,10 @@ function requestHookFixture() {
       "react-native": {
         AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
       },
-      "./db-tx": { getAccountIdSync: () => account, onAccountIdentityChanged: () => () => {} },
+      "./db-tx": {
+        getSessionAccountIdSync: () => account,
+        onAccountIdentityChanged: () => () => {},
+      },
       "./people-connections": {
         listPeopleRequests: async () => {
           listCalls++;

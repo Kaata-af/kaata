@@ -6,7 +6,7 @@
 //
 // Lifecycle:
 //   1. Extract token from route param. Bail to home with toast if missing.
-//   2. Require Google sign-in. If no JWT, route to onboarding/auth with
+//   2. Require sign-in. If no JWT, route to onboarding/auth with
 //      pending_invite_token stashed so the post-sign-in flow returns here.
 //   3. Look up the invite details (vault name, role, inviter) via
 //      lookupPendingInvite(token) — the local pending_invitations cache —
@@ -16,6 +16,8 @@
 //      token this device first sees via the deep link. A 404 there means
 //      expired / revoked / already used (collapsed by design); network
 //      failures land on a retryable error state.
+//      Account-targeted v_ selectors bypass that cache and use an
+//      authenticated preview bound to the recipient's current session.
 //   4. User confirms → POST /v1/vaults/invites/accept with {token,
 //      install_id}. The accept response carries ONLY {vault_id, vault_name,
 //      role} — it does NOT seed any local state — so we then materialize the
@@ -27,7 +29,7 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
@@ -35,14 +37,18 @@ import { ScreenHeader } from "../../components/SettingsScreen";
 import { useToast } from "../../components/Toast";
 import {
   applyForCurrentSession,
+  applyForUnchangedLocalSession,
   captureCurrentSession,
-  getSessionJWT,
   SessionChangedError,
   type SessionSnapshot,
 } from "../../lib/auth";
 import { requestImmediateCheckIn } from "../../lib/checkin-trigger";
 import { colors } from "../../lib/colors";
-import { setActiveVaultId } from "../../lib/db-tx";
+import {
+  getSessionAccountIdSync,
+  onAccountIdentityChanged,
+  setActiveVaultId,
+} from "../../lib/db-tx";
 import { getLocalSelf, setAppMeta } from "../../lib/db";
 import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
@@ -97,18 +103,42 @@ export default function InviteAcceptScreen() {
   const { token: tokenParam } = useLocalSearchParams<{ token: string }>();
   const token = typeof tokenParam === "string" ? tokenParam : null;
 
-  const [stage, setStage] = useState<Stage>("loading");
-  const [invite, setInvite] = useState<InviteDetails | null>(null);
+  // Count notifications as well as account IDs: A -> signed out -> A may be
+  // batched into one render, but it must still discard A's old session work.
+  const identityRevision = useRef(0);
+  const subscribeIdentity = useCallback(
+    (notify: () => void) =>
+      onAccountIdentityChanged(() => {
+        identityRevision.current++;
+        notify();
+      }),
+    [],
+  );
+  const identitySnapshot = useCallback(
+    () => `${identityRevision.current}:${getSessionAccountIdSync() ?? ""}`,
+    [],
+  );
+  const identity = useSyncExternalStore(subscribeIdentity, identitySnapshot, identitySnapshot);
+  const [attempt, setAttempt] = useState(0);
+  const scope = JSON.stringify([token, identity, attempt]);
+  const latestScope = useRef(scope);
+  latestScope.current = scope;
+  const currentScope = () => latestScope.current === scope && identitySnapshot() === identity;
+  const [viewScope, setViewScope] = useState<string | null>(null);
+  const [storedStage, setStage] = useState<Stage>("loading");
+  const [storedInvite, setInvite] = useState<InviteDetails | null>(null);
+  // Hide the previous card during render, before the new scope's effect runs.
+  const stage = viewScope === scope ? storedStage : "loading";
+  const invite = viewScope === scope ? storedInvite : null;
+  const previewSession = useRef<{ scope: string; session: SessionSnapshot } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [retryable, setRetryable] = useState(false);
+  const [declining, setDeclining] = useState(false);
   // L15: synchronous re-entry guard for onAccept (single-use token).
   const acceptingRef = useRef(false);
   // A consumed link must never be posted again just to finish its local setup.
   const acceptedRef = useRef<{ result: AcceptInviteResult; session: SessionSnapshot } | null>(null);
   const routeGeneration = useRef(0);
-  // Bumped by the Retry button to re-run the lookup effect after a network
-  // failure (the /info fallback is the only throwing step in it).
-  const [attempt, setAttempt] = useState(0);
 
   // Heal a prior accept whose local materialization failed: onAccept stamps
   // VAULT_MATERIALIZE_PENDING before recoverJoinedVault and clears it only on
@@ -122,9 +152,13 @@ export default function InviteAcceptScreen() {
 
   useEffect(() => {
     const generation = ++routeGeneration.current;
-    const current = () => generation === routeGeneration.current;
+    const current = () => generation === routeGeneration.current && currentScope();
     acceptedRef.current = null;
+    previewSession.current = null;
     acceptingRef.current = false;
+    setViewScope(scope);
+    setInvite(null);
+    setDeclining(false);
     setStage("loading");
     (async () => {
       if (!token) {
@@ -137,39 +171,48 @@ export default function InviteAcceptScreen() {
         // Sign-in gate. Accepting needs a session JWT (and so does the
         // authed /info fallback below). Stash the token so the auth flow
         // returns here after sign-in.
-        const jwt = await getSessionJWT();
+        const session = await captureCurrentSession();
         if (!current()) return;
-        if (!jwt) {
-          await setAppMeta(PENDING_TOKEN_KEY, token);
-          setStage("needs_signin");
+        if (!session.jwt || !session.accountId || !getSessionAccountIdSync()) {
+          await applyForUnchangedLocalSession(session, async () => {
+            if (!current()) return;
+            await setAppMeta(PENDING_TOKEN_KEY, token);
+            if (current()) setStage("needs_signin");
+          });
           return;
         }
 
-        const session = await captureCurrentSession();
         const resumed = await resumePendingVaultInvite(token, session);
         if (!current()) return;
         if (resumed) {
-          acceptedRef.current = { result: resumed, session };
-          setInvite({
-            ...(resumed.ownership_transferred ? { kind: "ownership_transfer" as const } : {}),
-            vault_name: resumed.vault_name,
-            role: resumed.role,
-            inviter_name: null,
-            inviter_email: null,
-            expires_at: 0,
+          await applyForCurrentSession(session, async () => {
+            if (!current()) return;
+            previewSession.current = { scope, session };
+            acceptedRef.current = { result: resumed, session };
+            setInvite({
+              ...(resumed.ownership_transferred ? { kind: "ownership_transfer" as const } : {}),
+              vault_name: resumed.vault_name,
+              role: resumed.role,
+              inviter_name: null,
+              inviter_email: null,
+              expires_at: 0,
+            });
+            setStage("pending");
           });
-          setStage("pending");
           return;
         }
 
-        let found: InviteDetails | null = await lookupPendingInvite(token);
+        // Account-targeted selectors are not share-link secrets. Their preview
+        // must always be authorized by the server, never a local token cache.
+        let found: InviteDetails | null = token.startsWith("v_")
+          ? null
+          : await lookupPendingInvite(token);
         if (!current()) return;
         if (!found) {
-          // No local row — the normal case for a link invitee (see the
-          // lifecycle comment above). Ask the public /info endpoint; null
-          // means 404 (expired / revoked / already used), network failures
-          // throw into the retryable catch below.
-          const info = await fetchInviteInfo(token);
+          // The API chooses the authenticated request preview for v_ selectors
+          // or ordinary link info otherwise. Null means unavailable; network
+          // failures remain retryable instead of looking like expiry.
+          const info = await fetchInviteInfo(token, session);
           if (!current()) return;
           if (info) {
             found = {
@@ -182,20 +225,28 @@ export default function InviteAcceptScreen() {
             };
           }
         }
-        if (!found) {
-          setErrorMsg(t("inviteAccept.error.expired"));
-          setStage("error");
-          return;
-        }
-        if (found.expires_at <= Date.now()) {
-          setErrorMsg(t("inviteAccept.error.expired"));
-          setStage("error");
-          return;
-        }
-        setInvite(found);
-        setStage("confirm");
+        await applyForCurrentSession(session, async () => {
+          if (!current()) return;
+          previewSession.current = { scope, session };
+          if (!found) {
+            setErrorMsg(t("inviteAccept.error.expired"));
+            setStage("error");
+            return;
+          }
+          if (found.expires_at <= Date.now()) {
+            setErrorMsg(t("inviteAccept.error.expired"));
+            setStage("error");
+            return;
+          }
+          setInvite(found);
+          setStage("confirm");
+        });
       } catch (err) {
         if (!current()) return;
+        if (err instanceof SessionChangedError) {
+          setAttempt((value) => value + 1);
+          return;
+        }
         // Raw err.message stays in the console for debugging; the user
         // sees the localized fallback only.
         console.warn("[invite] lookup failed", err);
@@ -207,26 +258,33 @@ export default function InviteAcceptScreen() {
     return () => {
       routeGeneration.current++;
     };
-  }, [token, router, toast, attempt]);
+  }, [scope, router, toast]);
 
   async function onAccept() {
     // L15: synchronous re-entry guard. setStage is async, so without this two
     // rapid taps both call acceptVaultInvite (a single-use token) — the second
     // 404s and shows an "invite expired" error for a join that actually
     // succeeded, plus races two recoverJoinedVault materializations.
-    if (!invite || !token || acceptingRef.current) return;
+    const owner = previewSession.current;
+    if (!invite || !token || acceptingRef.current || owner?.scope !== scope || !currentScope())
+      return;
+    const session = owner.session;
     acceptingRef.current = true;
     const generation = routeGeneration.current;
     const assertRoute = () => {
-      if (generation !== routeGeneration.current) throw new InviteRouteChangedError();
+      if (generation !== routeGeneration.current || !currentScope())
+        throw new InviteRouteChangedError();
     };
     setStage("accepting");
     try {
-      const session = acceptedRef.current?.session ?? (await captureCurrentSession());
+      await applyForCurrentSession(session, async () => assertRoute());
       const result =
         acceptedRef.current?.result ?? (await acceptVaultInvite(token, session, invite.kind));
       assertRoute();
-      acceptedRef.current = { result, session };
+      await applyForCurrentSession(session, async () => {
+        assertRoute();
+        acceptedRef.current = { result, session };
+      });
       const publishedBeforeSetup = await isSelfAdmissionPublished(result.vault_id, session);
       assertRoute();
       if (!publishedBeforeSetup || result.ownership_transferred) {
@@ -295,9 +353,8 @@ export default function InviteAcceptScreen() {
       try {
         const { emitWitnessedSelfAdmission, witnessEmitPendingKey } =
           await import("../../lib/trust/backfill");
-        // inviterName: the invite-info card's inviter (an owner — CreateInvite
-        // is owner-only) gets their real name stamped on the joiner's Members
-        // tab instead of the "Owner" role label.
+        // The invite-info card's inviter gets their real name stamped on the
+        // joiner's Members tab instead of a generic role label.
         await emitWitnessedSelfAdmission(result.vault_id, {
           inviterName: invite.inviter_name ?? null,
           session,
@@ -342,6 +399,7 @@ export default function InviteAcceptScreen() {
         if (result.ownership_transferred) await setAppMeta(PENDING_TOKEN_KEY, "");
         setStage("done");
       });
+      assertRoute();
       // Push the joined-vault membership + onboarded state to the backend now.
       // recoverJoinedVault created the local-self; without an immediate check-in
       // this signed-in user could still read as "not onboarded" on the admin
@@ -356,7 +414,19 @@ export default function InviteAcceptScreen() {
       );
       router.replace("/");
     } catch (err) {
-      if (generation !== routeGeneration.current || err instanceof InviteRouteChangedError) return;
+      if (
+        generation !== routeGeneration.current ||
+        !currentScope() ||
+        err instanceof InviteRouteChangedError
+      )
+        return;
+      if (err instanceof SessionChangedError) {
+        previewSession.current = null;
+        acceptedRef.current = null;
+        setInvite(null);
+        setAttempt((value) => value + 1);
+        return;
+      }
       // Reset the guard so the user can retry after a transient failure (on
       // success we've already navigated home, so it stays locked).
       acceptingRef.current = false;
@@ -418,33 +488,54 @@ export default function InviteAcceptScreen() {
       clearTimeout(timer);
       clearInterval(poll);
     };
-  }, [stage]);
+  }, [stage, scope]);
 
   async function onDecline() {
-    if (!token) return;
+    const owner = previewSession.current;
+    if (!token || !invite || acceptingRef.current || owner?.scope !== scope || !currentScope())
+      return;
+    const session = owner.session;
+    acceptingRef.current = true;
+    setDeclining(true);
     const generation = routeGeneration.current;
+    const current = () => generation === routeGeneration.current && currentScope();
     try {
-      const session = await captureCurrentSession();
-      if (generation !== routeGeneration.current) return;
+      await applyForCurrentSession(session, async () => {
+        if (!current()) throw new InviteRouteChangedError();
+      });
       await declineVaultInviteLocally(token, session);
       await applyForCurrentSession(session, async () => {
-        if (generation !== routeGeneration.current) throw new InviteRouteChangedError();
+        if (!current()) throw new InviteRouteChangedError();
         await setAppMeta(PENDING_TOKEN_KEY, "");
       });
-      if (generation === routeGeneration.current) router.replace("/");
+      if (current()) router.replace("/");
     } catch (err) {
-      if (err instanceof SessionChangedError || err instanceof InviteRouteChangedError) return;
+      if (!current() || err instanceof InviteRouteChangedError) return;
+      if (err instanceof SessionChangedError) {
+        previewSession.current = null;
+        setInvite(null);
+        setAttempt((value) => value + 1);
+        return;
+      }
       console.warn("[invite] decline failed", err);
+      toast.push(t("inbox.failed"), "error");
+    } finally {
+      if (current()) {
+        acceptingRef.current = false;
+        setDeclining(false);
+      }
     }
   }
 
   async function onSignIn() {
+    const generation = routeGeneration.current;
     // The auth screen reads pending_invite_token from app_meta after
     // sign-in completes and routes back to this screen with the token.
     // A phone that was never set up goes through onboarding instead, so the
     // invitee still chooses language and date format; its sign-in step
     // consumes the same stash (audit #22).
     const set = await getLocalSelf().catch(() => null);
+    if (generation !== routeGeneration.current || !currentScope()) return;
     router.replace(set ? "/sign-in" : "/onboarding");
   }
 
@@ -541,12 +632,14 @@ export default function InviteAcceptScreen() {
                   : "inviteAccept.confirm.accept",
               )}
               onPress={onAccept}
+              disabled={declining}
             />
             <View style={{ height: 12 }} />
             <Button
               label={t("inviteAccept.confirm.decline")}
               variant="secondary"
               onPress={onDecline}
+              loading={declining}
             />
           </View>
         ) : null}

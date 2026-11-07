@@ -1465,6 +1465,11 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	// Hash before touching the DB. The plaintext lives only in this
 	// request scope; we never log it and never persist it.
 	tokenHash := hashInviteToken(in.Token)
+	requestID, direct := accountInviteSelector(in.Token)
+	lookup, lookupArgs := "invite_token_hash=$1", []any{tokenHash}
+	if direct {
+		lookup, lookupArgs = "invite_request_id=$1::uuid AND invite_account_id=$2::uuid", []any{requestID, in.AccountID}
+	}
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
@@ -1472,7 +1477,13 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := lockActiveAccounts(ctx, tx, in.AccountID); err != nil {
+	var lockedInviter string
+	if direct {
+		lockedInviter, err = lockAccountInviteForAccept(ctx, tx, requestID, in.AccountID)
+	} else {
+		err = lockActiveAccounts(ctx, tx, in.AccountID)
+	}
+	if err != nil {
 		return AcceptInviteResult{}, err
 	}
 
@@ -1480,8 +1491,7 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	// before its membership row, matching all owner/member mutations. Recheck
 	// the token below under both locks; a purge can remove it while we wait.
 	var inviteVaultID string
-	if err := tx.QueryRow(ctx, `SELECT vault_id::text FROM vault_members
-	 WHERE invite_token_hash=$1`, tokenHash).Scan(&inviteVaultID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT vault_id::text FROM vault_members WHERE `+lookup, lookupArgs...).Scan(&inviteVaultID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return AcceptInviteResult{}, ErrInviteNotFound
 		}
@@ -1505,19 +1515,23 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		acceptedAt  *time.Time
 		revokedAt   *time.Time
 		acceptedBy  *string
+		invitedBy   string
 	)
 	err = tx.QueryRow(ctx, `
 		SELECT id, vault_id::text, role, COALESCE(invite_email, ''),
 		       invite_expires_at, invite_attempts, accepted_at, revoked_at,
-		       account_id::text
-		  FROM vault_members WHERE invite_token_hash = $1 AND vault_id=$2::uuid FOR UPDATE
-	`, tokenHash, inviteVaultID).Scan(&memberID, &vaultID, &role, &inviteEmail,
-		&expiresAt, &attempts, &acceptedAt, &revokedAt, &acceptedBy)
+		       account_id::text, COALESCE(invited_by::text,'')
+		  FROM vault_members WHERE `+lookup+` FOR UPDATE
+	`, lookupArgs...).Scan(&memberID, &vaultID, &role, &inviteEmail,
+		&expiresAt, &attempts, &acceptedAt, &revokedAt, &acceptedBy, &invitedBy)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return AcceptInviteResult{}, ErrInviteNotFound
 	case err != nil:
 		return AcceptInviteResult{}, fmt.Errorf("lookup invite: %w", err)
+	}
+	if vaultID != inviteVaultID {
+		return AcceptInviteResult{}, ErrInviteNotFound
 	}
 	// Reject invites for an archived (or vanished) vault — a stale link
 	// forwarded after the owner archived. Uniform ErrInviteNotFound, matching
@@ -1552,6 +1566,27 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	}
 	if acceptedAt != nil || revokedAt != nil || time.Now().After(expiresAt) {
 		return AcceptInviteResult{}, ErrInviteNotFound
+	}
+	if direct {
+		if lockedInviter == "" || invitedBy != lockedInviter || (role != "editor" && role != "clerk" && role != "viewer") {
+			return AcceptInviteResult{}, ErrInviteNotFound
+		}
+		available, err := accountInviteVaultAvailable(ctx, tx, vaultID)
+		if err != nil {
+			return AcceptInviteResult{}, err
+		}
+		if !available {
+			return AcceptInviteResult{}, ErrInviteNotFound
+		}
+		if _, err := requireOwnerOrManager(ctx, tx, vaultID, invitedBy); err != nil {
+			if errors.Is(err, ErrNotMember) || errors.Is(err, ErrNotOwner) {
+				return AcceptInviteResult{}, ErrInviteNotFound
+			}
+			return AcceptInviteResult{}, err
+		}
+		if err := accountInviteMembershipConflict(ctx, tx, vaultID, in.AccountID); err != nil && !errors.Is(err, ErrInviteAlreadyMember) {
+			return AcceptInviteResult{}, err
+		}
 	}
 
 	// SECURITY (ENG #2 / SEC #3): the attempts counter is bumped only
@@ -1688,12 +1723,11 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role, Currency: currency, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}, nil
 }
 
-// PendingInvite intentionally omits the plaintext invite_token: after the
-// Phase 4.1 hash migration the server only stores the hash, and the device
-// already learned the plaintext via the inviter's share-link side channel.
-// To accept, the device sends the token it stored locally in
-// pending_invitations.invite_token.
+// Link/email invitations never return their secret token. Account invitations
+// return only a nonsecret locator, which is useful solely to their recipient.
 type PendingInvite struct {
+	InviteID     string    `json:"invite_id,omitempty"`
+	InviteToken  string    `json:"invite_token,omitempty"`
 	VaultID      string    `json:"vault_id"`
 	VaultName    string    `json:"vault_name"`
 	InviterEmail string    `json:"inviter_email"`
@@ -1710,7 +1744,7 @@ func (s *Service) ListPendingInvites(ctx context.Context, accountID string) ([]P
 
 	var rawNormalized string
 	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(email_normalized, LOWER(email))
+		SELECT COALESCE(email_normalized, LOWER(email), '')
 		  FROM accounts WHERE id = $1::uuid
 	`, accountID).Scan(&rawNormalized)
 	if err != nil {
@@ -1752,7 +1786,12 @@ func (s *Service) ListPendingInvites(ctx context.Context, accountID string) ([]P
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows err: %w", err)
 	}
-	return out, nil
+	rows.Close()
+	directInvites, err := s.listPendingAccountInvites(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, directInvites...), nil
 }
 
 // PurgeExpiredInvites hard-deletes never-accepted, never-revoked invite rows
@@ -1772,7 +1811,7 @@ func (s *Service) PurgeExpiredInvites(ctx context.Context) (int64, error) {
 		DELETE FROM vault_members
 		 WHERE accepted_at IS NULL
 		   AND revoked_at IS NULL
-		   AND invite_token_hash IS NOT NULL
+		   AND (invite_token_hash IS NOT NULL OR invite_request_id IS NOT NULL)
 		   AND invite_expires_at < NOW() - INTERVAL '7 days'
 	`)
 	if err != nil {
@@ -1796,6 +1835,9 @@ type InviteInfoResult struct {
 
 func (s *Service) InviteInfo(ctx context.Context, token string) (InviteInfoResult, error) {
 	token = strings.TrimSpace(token)
+	if _, direct := accountInviteSelector(token); direct {
+		return InviteInfoResult{}, ErrInviteNotFound
+	}
 	// 512-char ceiling bounds CPU on sha256() for absurd inputs before
 	// we touch the DB. Legitimate tokens base64url-encode 32 bytes
 	// (~43 chars), so this is far above any honest caller.

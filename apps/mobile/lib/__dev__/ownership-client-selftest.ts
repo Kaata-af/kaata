@@ -318,7 +318,10 @@ async function screenCase() {
   const screen = compileUI(
     "../../app/invite/[token]",
     {
-      react: hooks.react,
+      react: {
+        ...hooks.react,
+        useSyncExternalStore: (_subscribe: any, getSnapshot: any) => getSnapshot(),
+      },
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "@expo/vector-icons": { Ionicons: "Icon" },
       "expo-router": { useRouter: () => router, useLocalSearchParams: () => ({ token: "offer" }) },
@@ -340,7 +343,11 @@ async function screenCase() {
       },
       "../../lib/checkin-trigger": { requestImmediateCheckIn: () => {} },
       "../../lib/colors": { colors: {} },
-      "../../lib/db-tx": { setActiveVaultId: async () => {} },
+      "../../lib/db-tx": {
+        setActiveVaultId: async () => {},
+        getSessionAccountIdSync: () => session.accountId,
+        onAccountIdentityChanged: () => () => {},
+      },
       "../../lib/db": { getLocalSelf: async () => ({}), setAppMeta: async () => {} },
       "../../lib/direction": { useIsRTL: () => false, textDir: () => ({}) },
       "../../lib/fonts": { fonts: {} },

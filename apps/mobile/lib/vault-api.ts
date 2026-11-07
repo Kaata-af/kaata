@@ -12,10 +12,17 @@ import {
   applyForCurrentSession,
   captureCurrentSession,
   getSessionJWT,
+  SessionChangedError,
   type SessionSnapshot,
 } from "./auth";
 import { getAppMeta, setAppMeta } from "./db";
-import { getAppMetaInTx, getDb, getInstallIdSync, setAppMetaInTx } from "./db-tx";
+import {
+  getActiveVaultIdSyncMaybe,
+  getAppMetaInTx,
+  getDb,
+  getInstallIdSync,
+  setAppMetaInTx,
+} from "./db-tx";
 import type { VaultRole } from "./events";
 
 const TIMEOUT_MS = 15_000;
@@ -418,15 +425,25 @@ export async function cancelOwnershipTransferInvite(
 export async function createVaultInvite(
   vaultId: string,
   body: { email: string; role: VaultRole },
+  expectedSession?: SessionSnapshot,
 ): Promise<CreateInviteResult> {
+  const session = expectedSession ?? (await captureCurrentSession());
+  const guard = () => {
+    if (getActiveVaultIdSyncMaybe() !== vaultId) throw new SessionChangedError();
+  };
+  await applyForCurrentSession(session, async () => guard());
   // Publish any local-only limits before granting a clerk cloud admission.
   const { uploadPendingCreditPolicies } = await import("./credit-limits");
-  await uploadPendingCreditPolicies(vaultId);
+  await uploadPendingCreditPolicies(vaultId, session);
+  await applyForCurrentSession(session, async () => guard());
   const raw = (await httpThrowing(
     "POST",
     `/v1/vaults/${encodeURIComponent(vaultId)}/invites`,
     body,
+    session,
+    guard,
   )) as { invite_url: string; invite_email: string; expires_at: string };
+  await applyForCurrentSession(session, async () => guard());
   return {
     invite_url: raw.invite_url,
     invite_email: raw.invite_email,
@@ -591,11 +608,20 @@ export type InviteInfo = {
  * design. Network failures and non-404 errors throw so the caller can offer
  * a retry.
  */
-export async function fetchInviteInfo(token: string): Promise<InviteInfo | null> {
+export async function fetchInviteInfo(
+  token: string,
+  expectedSession?: SessionSnapshot,
+): Promise<InviteInfo | null> {
+  if (/^v_[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token)) {
+    const { fetchVaultMemberRequestInfo } = await import("./vault-member-requests");
+    return fetchVaultMemberRequestInfo(token, expectedSession);
+  }
   try {
     const raw = (await httpThrowing(
       "GET",
       `/v1/vaults/invites/${encodeURIComponent(token)}/info`,
+      undefined,
+      expectedSession,
     )) as {
       kind?: "ownership_transfer";
       vault_name: string;
@@ -796,6 +822,10 @@ export async function declineVaultInviteLocally(
   token: string,
   expectedSession?: SessionSnapshot,
 ): Promise<void> {
+  if (/^v_[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token)) {
+    const { declineVaultMemberRequest } = await import("./vault-member-requests");
+    await declineVaultMemberRequest(token.slice(2), expectedSession);
+  }
   const work = async () => {
     try {
       const db = await getDb();

@@ -13,6 +13,8 @@ export function PeopleSearchSection(props: {
   search: ReturnType<typeof usePeopleSearch>;
   onSelect: (person: DiscoveredPerson) => void;
   disabled?: boolean;
+  /** Different callers may invite an account without creating a contact. */
+  actionLabel?: string;
   localPeople: readonly { id: string }[];
   visiblePeople: readonly { id: string }[];
 }) {
@@ -63,7 +65,7 @@ export function PeopleSearchSection(props: {
               onPress={() => props.onSelect(person)}
               disabled={props.disabled}
               accessibilityRole="button"
-              accessibilityLabel={`${person.name}${person.username ? `, @${person.username}` : ""}, ${t(existingId(person) ? "peopleSearch.existing" : "peopleSearch.add")}`}
+              accessibilityLabel={`${person.name}${person.username ? `, @${person.username}` : ""}, ${props.actionLabel ?? t(existingId(person) ? "peopleSearch.existing" : "peopleSearch.add")}`}
               accessibilityState={{ disabled: props.disabled }}
               style={({ pressed }) => [
                 styles.row,

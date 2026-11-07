@@ -1,5 +1,10 @@
 import { getBackendUrl } from "./api";
-import { applyForCurrentSession, captureCurrentSession, type SessionSnapshot } from "./auth";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  SessionChangedError,
+  type SessionSnapshot,
+} from "./auth";
 import { getActiveVaultArchivedState, getPerson, setAppMeta } from "./db";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb } from "./db-tx";
 import { appendPersonAdded } from "./event-log";
@@ -51,11 +56,13 @@ export async function peopleRequest<T>(
   path: string,
   body?: unknown,
   expectedSession?: SessionSnapshot,
+  beforeDispatch?: () => void,
 ): Promise<T> {
   const session = expectedSession ?? (await captureCurrentSession());
   if (!session.jwt || !session.accountId) throw new TabAuthUnavailableError();
   const base = await getBackendUrl();
   await applyForCurrentSession(session, async () => {});
+  beforeDispatch?.();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
@@ -80,7 +87,12 @@ export async function peopleRequest<T>(
     const result = response.status === 204 ? undefined : await response.json();
     return applyForCurrentSession(session, async () => result as T);
   } catch (error) {
-    if (error instanceof TabApiError || error instanceof TabAuthUnavailableError) throw error;
+    if (
+      error instanceof TabApiError ||
+      error instanceof TabAuthUnavailableError ||
+      error instanceof SessionChangedError
+    )
+      throw error;
     if (getAccountIdSync() !== session.accountId) throw new TabAuthUnavailableError();
     throw new TabApiError(0, "network", "People request unavailable");
   } finally {

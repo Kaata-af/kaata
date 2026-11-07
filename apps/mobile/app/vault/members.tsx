@@ -938,7 +938,7 @@ export default function VaultMembersScreen() {
                 screen renders a disabled state when offline so users get clear
                 feedback rather than an opaque API error. */}
             <NavRow
-              icon="mail-outline"
+              icon="person-add-outline"
               label={t("members.row.sendInvite")}
               hint={t("members.row.sendInvite.hint")}
               onPress={() => router.push("/vault/invite")}

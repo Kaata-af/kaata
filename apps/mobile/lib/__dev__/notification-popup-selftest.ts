@@ -44,10 +44,17 @@ function fixture() {
     reload: async () => {},
     decline: async () => {},
   };
+  const memberRequests = {
+    rows: [] as any[],
+    failed: false,
+    reload: async () => {},
+    decline: async () => {},
+  };
   const component = compileUI(
     "../../components/NotificationInbox",
     {
       "../lib/use-people-requests": { usePeopleRequests: () => requests },
+      "../lib/use-vault-member-requests": { useVaultMemberRequests: () => memberRequests },
       "./ProtectedModal": { ProtectedModal: "Modal" },
       "./SheetBackdrop": {
         SheetBackdrop: "SheetBackdrop",
@@ -148,6 +155,7 @@ function fixture() {
     opens,
     reads,
     requests,
+    memberRequests,
     render,
     find,
     bell,
@@ -402,6 +410,36 @@ async function main() {
     "an unaccepted request is never opened as an authorized tally",
   );
   invitation.hooks.unmount();
+  const membership = fixture();
+  membership.memberRequests.rows = [{ id: "member-invite", token: "v_account-bound" }];
+  membership.render();
+  const memberBadge = nodes(membership.bell()).find(
+    (node) => node.type === "Text" && node.props.allowFontScaling === false,
+  )!;
+  assert.equal(
+    memberBadge.props.children,
+    2,
+    "member invitations count on the existing notification badge",
+  );
+  membership.open();
+  membership.measure();
+  const memberContent = nodes(membership.hooks.tree).find(
+    (node) => typeof node.props.openMemberRequest === "function",
+  )!;
+  memberContent.props.openMemberRequest(membership.memberRequests.rows[0]);
+  assert.deepEqual(membership.routes, [], "member review waits for the popup to close");
+  membership.flushTimers();
+  assert.deepEqual(
+    membership.routes,
+    [{ pathname: "/invite/[token]", params: { token: "v_account-bound" } }],
+    "member requests reuse the existing access invitation route",
+  );
+  assert.deepEqual(
+    membership.opens,
+    [],
+    "reviewing a member invitation cannot open a financial tally",
+  );
+  membership.hooks.unmount();
   normal.hooks.unmount();
   reduced.hooks.unmount();
   console.log(
