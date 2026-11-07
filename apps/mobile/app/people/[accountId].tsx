@@ -2,11 +2,11 @@ import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import * as Network from "expo-network";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { InitialAvatar } from "../../components/InitialAvatar";
 import { PeopleProfileActions } from "../../components/PeopleProfileActions";
+import { PeopleScreen } from "../../components/PeopleScreen";
 import { NavRow, ScreenHeader, SectionGap } from "../../components/SettingsScreen";
 import {
   applyForCurrentSession,
@@ -198,7 +198,7 @@ export default function PeopleProfileScreen() {
 
   const disabled = !!busy || offline || actionFailed;
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+    <PeopleScreen>
       <ScreenHeader
         title={t("peopleProfile.title")}
         isRTL={rtl}
@@ -376,12 +376,11 @@ export default function PeopleProfileScreen() {
         onConfirm={() => void act("remove")}
         onCancel={() => setRemoveScope(null)}
       />
-    </SafeAreaView>
+    </PeopleScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bgDefault },
   content: { paddingBottom: 32 },
   message: { padding: SETTINGS_ROW_PADDING_X, gap: 16 },
   identity: { alignItems: "center", padding: SETTINGS_ROW_PADDING_X, paddingTop: 28, gap: 10 },

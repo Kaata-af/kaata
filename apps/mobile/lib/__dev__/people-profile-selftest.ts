@@ -1,6 +1,6 @@
 // Real profile/list screens at the hook boundary. All identities and transport are synthetic.
 import assert from "node:assert/strict";
-import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
+import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 const me = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const john = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -25,7 +25,10 @@ function fixture(state: State = "none", list = false) {
     route = john,
     binding = 1,
     focused = true,
-    offline = false;
+    offline = false,
+    canGoBack = true,
+    platform = "ios";
+  let insets = { top: 59, bottom: 34, left: 0, right: 0 };
   let nextState = state;
   let getGate: Promise<any> | undefined;
   let mutationGate: Promise<any> | undefined;
@@ -57,6 +60,30 @@ function fixture(state: State = "none", list = false) {
       else nextState = "none";
       return friendship();
     };
+  const native = {
+    ActivityIndicator: "Spinner",
+    Image: "Image",
+    ScrollView: "ScrollView",
+    Text: "Text",
+    View: "View",
+    Pressable: "Pressable",
+    Platform: {
+      get OS() {
+        return platform;
+      },
+    },
+    StyleSheet: { create: (value: unknown) => value, hairlineWidth: 1 },
+  };
+  const safeArea = {
+    SafeAreaView: "SafeAreaView",
+    useSafeAreaInsets: () => insets,
+  };
+  const PeopleScreen = compileUI("../../components/PeopleScreen", {
+    "react/jsx-runtime": { jsx, jsxs: jsx },
+    "react-native": native,
+    "react-native-safe-area-context": safeArea,
+    "../lib/colors": { colors: { bgDefault: "#fff" } },
+  }).PeopleScreen;
   const mocks = {
     react: {
       ...hooks.react,
@@ -73,27 +100,20 @@ function fixture(state: State = "none", list = false) {
         push: (value: any) => routes.push(value),
         replace: (value: any) => routes.push(value),
         dismissTo: (value: any) => routes.push(value),
-        canGoBack: () => true,
+        canGoBack: () => canGoBack,
         back: () => routes.push("back"),
       }),
     },
     "expo-network": {
       useNetworkState: () => ({ isConnected: !offline, isInternetReachable: !offline }),
     },
-    "react-native": {
-      ActivityIndicator: "Spinner",
-      Image: "Image",
-      ScrollView: "ScrollView",
-      Text: "Text",
-      View: "View",
-      Pressable: "Pressable",
-      StyleSheet: { create: (value: unknown) => value, hairlineWidth: 1 },
-    },
-    "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
+    "react-native": native,
+    "react-native-safe-area-context": safeArea,
     "../../components/Button": { Button: "Button" },
     "../../components/ConfirmDialog": { ConfirmDialog: "ConfirmDialog" },
     "../../components/InitialAvatar": { InitialAvatar: "Avatar" },
     "../../components/PeopleProfileActions": { PeopleProfileActions: "PeopleProfileActions" },
+    "../../components/PeopleScreen": { PeopleScreen },
     "../../components/SettingsScreen": {
       ScreenHeader: "ScreenHeader",
       NavRow: "NavRow",
@@ -177,6 +197,19 @@ function fixture(state: State = "none", list = false) {
     find,
     button,
     text,
+    frame() {
+      assert.equal(hooks.tree.type, PeopleScreen, "the route root owns its safe-area frame");
+      return PeopleScreen(hooks.tree.props);
+    },
+    setPlatform(value: string) {
+      platform = value;
+    },
+    setInsets(value: typeof insets) {
+      insets = value;
+    },
+    setCanGoBack(value: boolean) {
+      canGoBack = value;
+    },
     setState(value: State) {
       nextState = value;
     },
@@ -210,6 +243,58 @@ function fixture(state: State = "none", list = false) {
 }
 
 async function main() {
+  for (const list of [false, true]) {
+    const f = fixture("none", list);
+    f.render();
+    await f.flush();
+    let frame = f.frame();
+    assert.equal(frame.type, "View", "iOS uses context insets across native modal boundaries");
+    assert.deepEqual(flattenStyle(frame.props.style), {
+      flex: 1,
+      backgroundColor: "#fff",
+      paddingTop: 59,
+      paddingBottom: 34,
+      paddingLeft: 0,
+      paddingRight: 0,
+    });
+    const header = f.find("ScreenHeader")!;
+    assert.equal(frame.props.children[0], header, "the back header is inside the safe-area frame");
+    assert.equal(
+      nodes(frame).filter((node) => node.type === "SafeAreaView").length,
+      0,
+      "iOS does not apply the same inset twice through a nested native safe-area view",
+    );
+    f.setInsets({ top: 0, bottom: 21, left: 59, right: 59 });
+    frame = f.frame();
+    assert.deepEqual(
+      flattenStyle(frame.props.style),
+      {
+        flex: 1,
+        backgroundColor: "#fff",
+        paddingTop: 0,
+        paddingBottom: 21,
+        paddingLeft: 59,
+        paddingRight: 59,
+      },
+      "updated context insets protect landscape edges without retaining portrait padding",
+    );
+    f.setPlatform("android");
+    frame = f.frame();
+    assert.equal(
+      frame.type,
+      "SafeAreaView",
+      "Android keeps the existing native safe-area behavior",
+    );
+    assert.deepEqual(frame.props.edges, ["top", "bottom"]);
+    assert.deepEqual(flattenStyle(frame.props.style), { flex: 1, backgroundColor: "#fff" });
+    assert.equal(frame.props.children[0], header);
+    header.props.onBack();
+    assert.equal(f.routes.at(-1), "back");
+    f.setCanGoBack(false);
+    header.props.onBack();
+    assert.equal(f.routes.at(-1), "/", "a directly opened profile/list keeps the home fallback");
+    f.hooks.unmount();
+  }
   {
     const f = fixture();
     const get = deferred<any>();
@@ -512,7 +597,7 @@ async function main() {
     assert.equal(f.hooks.lateWrites, 0);
   }
   console.log(
-    "people profiles: explicit friendship actions, uncertainty reconciliation, independent financial actions, list pagination and account/focus/route races passed",
+    "people profiles: modal safe-area frames, back navigation, explicit friendship actions, uncertainty reconciliation, independent financial actions, list pagination and account/focus/route races passed",
   );
 }
 void main().catch((error) => {

@@ -2,9 +2,9 @@ import { useIsFocused, useRouter } from "expo-router";
 import * as Network from "expo-network";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../components/Button";
 import { InitialAvatar } from "../../components/InitialAvatar";
+import { PeopleScreen } from "../../components/PeopleScreen";
 import { ScreenHeader } from "../../components/SettingsScreen";
 import {
   applyForCurrentSession,
@@ -119,7 +119,7 @@ export default function FriendsScreen() {
     }
   }
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+    <PeopleScreen>
       <ScreenHeader
         title={t("friends.title")}
         isRTL={rtl}
@@ -206,11 +206,10 @@ export default function FriendsScreen() {
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </PeopleScreen>
   );
 }
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bgDefault },
   content: { paddingBottom: 32 },
   message: { padding: SETTINGS_ROW_PADDING_X, gap: 12 },
   row: {

@@ -3,7 +3,15 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { BlurTargetView } from "expo-blur";
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -83,6 +91,7 @@ import {
   getActiveVaultId,
   getActiveVaultIdSyncMaybe,
   getInstallIdSync,
+  getSessionAccountIdSync,
   onAccountIdentityChanged,
   setActiveVaultId,
 } from "../lib/db-tx";
@@ -110,7 +119,7 @@ import { useLedgerRefresh } from "../lib/ledger-events";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
 import { getLocale, t } from "../lib/i18n";
-import { icon, typography } from "../lib/tokens";
+import { icon, TOUCH_MIN, typography } from "../lib/tokens";
 import { useActiveVaultWriteCaps } from "../lib/use-vault-role";
 import {
   shouldPromptBatteryExemption,
@@ -184,6 +193,12 @@ export default function HomeScreen() {
   // this screen (and all its children) without an app restart. Strings via
   // t() refresh on the same render.
   const isRTL = useIsRTL();
+  const friendsAccountId = useSyncExternalStore(
+    onAccountIdentityChanged,
+    getSessionAccountIdSync,
+    getSessionAccountIdSync,
+  );
+  const friendsOpening = useRef(false);
 
   const selectedCurrency = useCurrency();
   const [self, setSelf] = useState<Self | null>(null);
@@ -945,6 +960,7 @@ export default function HomeScreen() {
   }, [selectableIds]);
   useFocusEffect(
     useCallback(() => {
+      friendsOpening.current = false;
       selectionOwnerActive.current = true;
       return () => {
         setKeyboardShown(false);
@@ -1693,6 +1709,7 @@ export default function HomeScreen() {
     ) : null;
 
   const filtersVisible = filtersExpanded && currentPeopleScope && currentVaultScope;
+  const friendsShortcutDisabled = selecting || selectionBusy || confirmRemoveIds !== null;
   const filterContent = (
     <>
       <CustomerListOptions
@@ -1864,6 +1881,39 @@ export default function HomeScreen() {
 
             <View style={{ flex: 1 }} pointerEvents="none" />
 
+            {friendsAccountId ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("friends.title")}
+                accessibilityState={{ disabled: friendsShortcutDisabled }}
+                disabled={friendsShortcutDisabled}
+                onPress={() => {
+                  if (
+                    !selectionOwnerActive.current ||
+                    friendsOpening.current ||
+                    friendsAccountId !== getSessionAccountIdSync() ||
+                    homeInteraction.current.selecting ||
+                    homeInteraction.current.confirming ||
+                    selectionBusyRef.current ||
+                    filtersExpandedRef.current
+                  )
+                    return;
+                  friendsOpening.current = true;
+                  cancelStoreReview();
+                  dismissKeyboard();
+                  router.push("/people/friends");
+                }}
+                style={({ pressed }) => [
+                  styles.friendsShortcut,
+                  (pressed || friendsShortcutDisabled) && { opacity: 0.5 },
+                ]}
+              >
+                <Ionicons name="people-outline" size={icon.row} color={colors.textEmphasis} />
+                <Text style={[styles.friendsShortcutLabel, textDir(isRTL)]}>
+                  {t("friends.title")}
+                </Text>
+              </Pressable>
+            ) : null}
             <NotificationBell
               onOpen={cancelStoreReview}
               onVisibilityChange={setNotificationInboxVisible}
@@ -2977,6 +3027,19 @@ const styles = StyleSheet.create({
   // future tweaks easy. The headerSubname style was removed alongside
   // its JSX (Phase 7 founder feedback — the user-name subtitle is gone).
   profileBtn: {},
+  friendsShortcut: {
+    minWidth: TOUCH_MIN,
+    minHeight: TOUCH_MIN,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  friendsShortcutLabel: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 11,
+    lineHeight: sansLineHeight(11, 14),
+    color: colors.textEmphasis,
+  },
   // Read-only badge in the header (viewer on a shared kaata).
   readOnlyBadge: {
     flexDirection: "row",

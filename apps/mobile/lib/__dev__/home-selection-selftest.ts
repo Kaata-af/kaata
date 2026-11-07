@@ -30,8 +30,17 @@ const react: any = Object.fromEntries(
 );
 // This host fixture treats layout effects as its synchronous commit boundary.
 react.useLayoutEffect = react.useEffect;
-let vault = "vault-a",
-  account = "account-a";
+react.useSyncExternalStore = (
+  subscribe: (notify: () => void) => () => void,
+  getSnapshot: () => unknown,
+) => {
+  const [, update] = react.useState(0);
+  react.useEffect(() => subscribe(() => update((value: number) => value + 1)), [subscribe]);
+  return getSnapshot();
+};
+let vault: string | null = "vault-a";
+let account = "account-a";
+let signedIn = true;
 let selectedCurrency = "AFN";
 let fixtureRTL = false;
 let writeCaps = { resolved: false, canCreate: true, canAmend: true };
@@ -310,7 +319,7 @@ const mocks: Record<string, any> = {
     },
   },
   "../lib/auth": {
-    getSessionUser: async () => ({ id: account, name: "Self" }),
+    getSessionUser: async () => (signedIn ? { id: account, name: "Self" } : null),
     signOut: asyncNoop,
   },
   "../lib/db": {
@@ -325,10 +334,9 @@ const mocks: Record<string, any> = {
     },
     getAppMeta: async (key: string) => metadata.get(key) ?? null,
     getLocalSelf: async () => ({ id: "self", name: "Self", shop_name: vault }),
-    listActiveVaults: async () => [{ id: vault, name: vault, currency: "AFN" }],
-    listAllVaultsIncludingArchived: async () => [
-      { id: vault, name: vault, currency: "AFN", archived: false },
-    ],
+    listActiveVaults: async () => (vault ? [{ id: vault, name: vault, currency: "AFN" }] : []),
+    listAllVaultsIncludingArchived: async () =>
+      vault ? [{ id: vault, name: vault, currency: "AFN", archived: false }] : [],
     listCurrencyBalanceSummaries: async () => [
       {
         currency: selectedCurrency,
@@ -349,6 +357,7 @@ const mocks: Record<string, any> = {
   "../lib/db-tx": {
     clearActiveVaultId: asyncNoop,
     getAccountIdSync: () => account,
+    getSessionAccountIdSync: () => (signedIn ? account : null),
     getInstallIdSync: () => "install",
     getActiveVaultId: async () => vault,
     getActiveVaultIdSyncMaybe: () => vault,
@@ -404,7 +413,7 @@ const mocks: Record<string, any> = {
     t: (key: string, params?: { count?: number }) =>
       key === "selection.contactsRemoved" ? `${params?.count} contacts removed` : key,
   },
-  "../lib/tokens": { icon: {}, typography: {} },
+  "../lib/tokens": { icon: {}, typography: {}, TOUCH_MIN: 44 },
   "../lib/people-search": {
     usePeopleSearch: () => ({
       visible: false,
@@ -573,6 +582,18 @@ const input = () =>
   )!;
 const addButton = () =>
   homeNodes().find((node) => node.props.accessibilityLabel === "personAdd.new");
+const friendsButton = () =>
+  homeNodes().find(
+    (node) => node.type === "Pressable" && node.props.accessibilityLabel === "friends.title",
+  );
+const expectFriendsUnavailable = () => {
+  const button = friendsButton()!;
+  assert.equal(button.props.disabled, true, "Friends waits while contact selection is active");
+  assert.equal(button.props.accessibilityState.disabled, true);
+  const count = navigations.length;
+  button.props.onPress();
+  assert.equal(navigations.length, count, "a disabled Friends callback cannot navigate");
+};
 const toolbar = () => homeNodes().find((node) => node.type === "SelectionToolbar")!;
 const removalDialog = () =>
   homeNodes().find(
@@ -2303,7 +2324,16 @@ async function main() {
   for (const row of nodes(tree).filter((node) => node.type === "PersonRow"))
     assert.ok(!row.props.selecting, "Homepage rows have no selection checkboxes");
   const initialListReads = listRequests.length;
+  const friendsBeforeSelection = friendsButton()!.props.onPress;
   startFromContactMenu();
+  expectFriendsUnavailable();
+  const beforeRetainedFriends = navigations.length;
+  friendsBeforeSelection();
+  assert.equal(
+    navigations.length,
+    beforeRetainedFriends,
+    "an earlier Friends callback respects current selection",
+  );
   expectBottomDock(true);
   assert.equal(
     homeNodes().some((node) => node.type === "SearchSheet"),
@@ -2632,11 +2662,13 @@ async function main() {
   render();
   archivePending = deferred<void>();
   const confirmation = askRemove();
+  expectFriendsUnavailable();
   confirmation.onConfirm();
   confirmation.onConfirm();
   render();
   assert.equal(removalDialog().props.visible, false);
   assert.equal(toolbar().props.busy, true);
+  expectFriendsUnavailable();
   assert.deepEqual(toasts, [], "Success waits for customer removal to finish");
   toolbar().props.onClose();
   confirmation.onCancel();
@@ -2710,6 +2742,82 @@ async function main() {
   assert.equal(listRequests.at(-1)!.currency, "USD");
   changeCurrency("AFN");
   await flush();
+  // Friends is account-level navigation: no financial role or active book is required.
+  const originalVault = vault;
+  const originalCaps = writeCaps;
+  const initialFriends = friendsButton()!;
+  assert.ok(initialFriends, "signed-in Home exposes the existing Friends destination");
+  assert.equal(initialFriends.props.accessibilityRole, "button");
+  const friendsStyle = flattenStyle(initialFriends.props.style({ pressed: false }));
+  assert.ok(friendsStyle.minWidth >= 44 && friendsStyle.minHeight >= 44);
+  assert.ok(
+    nodes(initialFriends).some(
+      (node) => node.type === "Text" && node.props.children === "friends.title",
+    ),
+    "Friends has a visible localized label",
+  );
+  const headerActions = homeNodes();
+  assert.ok(
+    headerActions.indexOf(initialFriends) <
+      headerActions.findIndex((node) => node.type === "NotificationBell"),
+    "Friends stays alongside the existing header actions",
+  );
+  const beforeStaleFriends = navigations.length;
+  signedIn = false;
+  initialFriends.props.onPress();
+  assert.equal(
+    navigations.length,
+    beforeStaleFriends,
+    "a retained signed-in button cannot navigate after sign-out before repaint",
+  );
+  identityListeners.forEach((listener) => listener());
+  render();
+  assert.equal(friendsButton(), undefined, "signed-out Home hides Friends immediately");
+  await flush();
+  signedIn = true;
+  identityListeners.forEach((listener) => listener());
+  await flush();
+  const currentFriends = friendsButton()!;
+  const originalAccount = account;
+  account = "shortcut-other-account";
+  currentFriends.props.onPress();
+  assert.equal(
+    navigations.length,
+    beforeStaleFriends,
+    "a retained callback cannot navigate for a different account",
+  );
+  account = originalAccount;
+  vault = null;
+  writeCaps = { resolved: true, canCreate: false, canAmend: false };
+  await reload();
+  await flush();
+  const noBookFriends = friendsButton()!;
+  assert.ok(noBookFriends, "Friends remains available without an active Kaata");
+  assert.equal(
+    noBookFriends.props.disabled,
+    false,
+    "read-only permissions do not gate friendship navigation",
+  );
+  keyboardOpen = true;
+  const beforeFriendsDismiss = keyboardDismissals;
+  const beforeFriendsReview = reviewInteractionCancels;
+  noBookFriends.props.onPress();
+  noBookFriends.props.onPress();
+  assert.deepEqual(
+    navigations.slice(beforeStaleFriends),
+    ["/people/friends"],
+    "one tap opens the existing list and repeated taps cannot stack duplicate pages",
+  );
+  assert.equal(keyboardOpen, false);
+  assert.ok(keyboardDismissals > beforeFriendsDismiss, "opening Friends dismisses the keyboard");
+  assert.ok(
+    reviewInteractionCancels > beforeFriendsReview,
+    "opening Friends cancels an idle review prompt",
+  );
+  vault = originalVault;
+  writeCaps = originalCaps;
+  await reload();
+  await flush();
   const oldRow = homeRows()[0];
   const lateRead = blockNextListRead();
   const lateRefresh = reload();
@@ -2738,7 +2846,7 @@ async function main() {
     "Late row callbacks and reads cannot update unmounted Home",
   );
   console.log(
-    "PASS home selection: one mixed list and simultaneous totals, settled accounts disclosure/search/scoped selection, full-source currency classification, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query counts and unique direction-filter counts opposite Clear in LTR/RTL, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
+    "PASS home selection: signed-in Friends shortcut and stale/duplicate/selection guards, one mixed list and simultaneous totals, settled accounts disclosure/search/scoped selection, full-source currency classification, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query counts and unique direction-filter counts opposite Clear in LTR/RTL, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
   );
 }
 void main();
