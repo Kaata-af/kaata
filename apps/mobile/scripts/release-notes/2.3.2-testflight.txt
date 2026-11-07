@@ -1,8 +1,7 @@
-Kaata 2.3.2 testing build 52
+Kaata 2.3.2 testing build 53
 
-- Open a person's profile from existing search, send a friend request, then accept or decline it from the recipient's inbox. Friendship must not create financial contacts, share tallies or grant Kaata access.
-- Check Friends, outgoing request cancellation, duplicate taps, removal and the same statuses on another device. Both people must agree before appearing as friends.
-- From a profile, separately share a tally or invite the person to the named current Kaata. Keep contact selection, sharing rules and member role confirmation. Pending requests should be clear; returning from a member invitation should reopen the profile.
-- Verify existing shared tallies open correctly and member invitations still require an owner or admin. Review and accept tally/member invitations separately from friendship.
-- Check account/Kaata switching, offline failures and retries. Old profile results must disappear after an account change. Discovery opt-out should keep established friends reachable without publishing their profile in search.
-- Check existing invitation links, Ninja privacy, and English, Dari and Pashto layouts.
+- Invite another Kaata user from the existing Add member screen, then accept on their phone. The invitation must finish only after that phone's membership proof reaches the shared log.
+- Confirm the inviter sees an accepted member as Finishing setup while the guest's phone completes admission, then sees the ordinary member row after sync. Pending names must not create owner or admin permissions.
+- Retry an interrupted acceptance and check previously stranded joins, including a joined Kaata missing from the guest's phone. Recovery must preserve the original role and shared history without accepting the invitation again.
+- Check owner and admin invitations, existing invitation links and QR memberships. Removed members and devices must stay removed; a missing membership witness must remain pending rather than report success.
+- Check account switching, background/resume, offline retry, multiple Kaatas, and English, Dari and Pashto layouts. Existing friendship, shared tally and member invitation flows remain separate.
