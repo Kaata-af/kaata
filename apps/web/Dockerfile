@@ -28,7 +28,9 @@ RUN bun install --frozen-lockfile
 COPY apps/web/ ./
 COPY apps/_shared/brand-palette.json /app/apps/_shared/brand-palette.json
 # Portable domain logic also used by the released mobile app; no native code.
-COPY apps/mobile/lib/currency-catalog.ts apps/mobile/lib/calculator.ts apps/mobile/lib/calculator-input.ts apps/mobile/lib/money.ts apps/mobile/lib/digits.ts /app/apps/mobile/lib/
+COPY apps/mobile/lib/currency-catalog.ts apps/mobile/lib/calculator.ts apps/mobile/lib/calculator-input.ts \
+     apps/mobile/lib/money.ts apps/mobile/lib/digits.ts \
+     apps/mobile/lib/group-name.ts apps/mobile/lib/group-memberships.ts /app/apps/mobile/lib/
 RUN bun run build
 
 # -----------------------------------------------------------------------------
