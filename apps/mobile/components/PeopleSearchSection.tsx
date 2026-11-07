@@ -15,6 +15,7 @@ export function PeopleSearchSection(props: {
   disabled?: boolean;
   /** Different callers may invite an account without creating a contact. */
   actionLabel?: string;
+  opensProfile?: boolean;
   localPeople: readonly { id: string }[];
   visiblePeople: readonly { id: string }[];
 }) {
@@ -90,7 +91,7 @@ export function PeopleSearchSection(props: {
               </View>
               <Ionicons
                 name={
-                  existingId(person)
+                  props.opensProfile || existingId(person)
                     ? rtl
                       ? "chevron-back"
                       : "chevron-forward"

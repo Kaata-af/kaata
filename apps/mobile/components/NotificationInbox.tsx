@@ -30,6 +30,8 @@ import { usePeopleRequests } from "../lib/use-people-requests";
 import type { PeopleRequest } from "../lib/people-connections";
 import { useVaultMemberRequests } from "../lib/use-vault-member-requests";
 import type { VaultMemberRequest } from "../lib/vault-member-requests";
+import { useFriendRequests } from "../lib/use-friend-requests";
+import type { FriendRequest } from "../lib/friends-api";
 
 type Inbox = ReturnType<typeof useInbox>;
 
@@ -76,6 +78,8 @@ function InboxContent({
   openRequest,
   memberRequests,
   openMemberRequest,
+  friendRequests,
+  openFriendRequest,
 }: {
   inbox: Inbox;
   compact?: boolean;
@@ -89,6 +93,8 @@ function InboxContent({
   openRequest: (item: PeopleRequest) => void;
   memberRequests: ReturnType<typeof useVaultMemberRequests>;
   openMemberRequest: (item: VaultMemberRequest) => void;
+  friendRequests: ReturnType<typeof useFriendRequests>;
+  openFriendRequest: (item: FriendRequest) => void;
 }) {
   const rtl = useIsRTL();
   const toast = useToast();
@@ -137,6 +143,75 @@ function InboxContent({
         </Pressable>
       ) : null}
       <ScrollView showsVerticalScrollIndicator={!compact} contentContainerStyle={styles.content}>
+        {friendRequests.failed ? (
+          <Pressable
+            accessibilityRole="button"
+            style={styles.message}
+            onPress={() => void friendRequests.reload()}
+          >
+            <Text style={[styles.time, textDir(rtl)]}>{t("friends.requestsFailed")}</Text>
+          </Pressable>
+        ) : null}
+        {friendRequests.rows.length > 0 ? (
+          <Text style={[styles.title, textDir(rtl), { padding: 16 }]}>
+            {t("friends.requestsTitle")}
+          </Text>
+        ) : null}
+        {(compact ? friendRequests.rows.slice(0, 3) : friendRequests.rows).map((item) => {
+          const key = `friend-${item.id}`;
+          return (
+            <View
+              key={key}
+              style={[styles.notice, { alignItems: rtl ? "flex-end" : "flex-start" }]}
+            >
+              <Text style={[styles.body, textDir(rtl)]}>
+                {t("friends.requestBody", {
+                  name: item.from.name || item.from.username || t("inviteAccept.confirm.someone"),
+                })}
+              </Text>
+              {item.from.username ? (
+                <Text style={[styles.time, textDir(rtl)]}>
+                  {ltrIsolate(`@${item.from.username}`)}
+                </Text>
+              ) : null}
+              <View style={[rowDir(rtl), { gap: 16 }]}>
+                <Pressable
+                  accessibilityRole="button"
+                  style={styles.control}
+                  disabled={declining !== null}
+                  onPress={() => openFriendRequest(item)}
+                >
+                  <Text style={styles.controlText}>{t("peopleProfile.view")}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  style={styles.control}
+                  disabled={declining !== null}
+                  onPress={() => {
+                    if (decliningRef.current) return;
+                    decliningRef.current = true;
+                    setDeclining(key);
+                    void friendRequests
+                      .decline(item.id)
+                      .catch(() => {
+                        if (friendRequests.isCurrent()) toast.push(t("inbox.failed"), "error");
+                      })
+                      .finally(() => {
+                        decliningRef.current = false;
+                        setDeclining(null);
+                      });
+                  }}
+                >
+                  {declining === key ? (
+                    <ActivityIndicator color={colors.textSubtle} />
+                  ) : (
+                    <Text style={styles.controlText}>{t("peopleSearch.decline")}</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
         {memberRequests.failed ? (
           <Pressable
             accessibilityRole="button"
@@ -264,7 +339,8 @@ function InboxContent({
         ))}
         {page.items.length === 0 &&
         requests.rows.length === 0 &&
-        memberRequests.rows.length === 0 ? (
+        memberRequests.rows.length === 0 &&
+        friendRequests.rows.length === 0 ? (
           <View style={styles.empty}>
             {loading ? (
               <ActivityIndicator color={colors.textSubtle} />
@@ -359,14 +435,19 @@ export function NotificationBell({
   const inbox = useInbox();
   const requests = usePeopleRequests();
   const memberRequests = useVaultMemberRequests();
+  const friendRequests = useFriendRequests();
   // Due reminders count on the bell too: they used to be invisible until the
   // dropdown was opened. Loaded here, not by the dropdown, so the row stays
   // put through opening and closing.
   const reminders = useCustomerReminders(undefined, undefined, true);
   const dueReminders = reminders.due.length;
   const hasReminders = reminders.rows.length > 0;
-  const badge =
-    inbox.page.unread + requests.rows.length + memberRequests.rows.length + dueReminders;
+  const noticeCount =
+    inbox.page.unread +
+    requests.rows.length +
+    memberRequests.rows.length +
+    friendRequests.rows.length;
+  const badge = noticeCount + dueReminders;
   const toast = useToast();
   const anchor = useRef<ViewInstance>(null);
   const [position, setPosition] = useState<{ y: number } | null>(null);
@@ -473,9 +554,8 @@ export function NotificationBell({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            t("inbox.bell", {
-              count: inbox.page.unread + requests.rows.length + memberRequests.rows.length,
-            }) + (dueReminders ? `. ${t("reminders.dueShortcut", { count: dueReminders })}` : "")
+            t("inbox.bell", { count: noticeCount }) +
+            (dueReminders ? `. ${t("reminders.dueShortcut", { count: dueReminders })}` : "")
           }
           accessibilityState={{ expanded: visible && !closing }}
           style={styles.bell}
@@ -490,6 +570,7 @@ export function NotificationBell({
             void inbox.reload();
             void requests.reload();
             void memberRequests.reload();
+            void friendRequests.reload();
             anchor.current?.measureInWindow((_x, y, _w, h) => {
               if (
                 !mounted.current ||
@@ -561,6 +642,16 @@ export function NotificationBell({
               inbox={inbox}
               requests={requests}
               memberRequests={memberRequests}
+              friendRequests={friendRequests}
+              openFriendRequest={(item) =>
+                close(() => {
+                  if (friendRequests.isCurrent())
+                    router.push({
+                      pathname: "/people/[accountId]",
+                      params: { accountId: item.from.account_id },
+                    });
+                })
+              }
               openMemberRequest={(item) =>
                 close(() =>
                   router.push({ pathname: "/invite/[token]", params: { token: item.token } }),
@@ -601,6 +692,7 @@ export function FullNotificationInbox() {
   const inbox = useInbox();
   const requests = usePeopleRequests();
   const memberRequests = useVaultMemberRequests();
+  const friendRequests = useFriendRequests();
   const toast = useToast();
   const busy = useRef(false);
   const open = (item: InboxItem) => {
@@ -625,6 +717,14 @@ export function FullNotificationInbox() {
       open={open}
       requests={requests}
       memberRequests={memberRequests}
+      friendRequests={friendRequests}
+      openFriendRequest={(item) => {
+        if (friendRequests.isCurrent())
+          router.push({
+            pathname: "/people/[accountId]",
+            params: { accountId: item.from.account_id },
+          });
+      }}
       openMemberRequest={(item) =>
         router.push({ pathname: "/invite/[token]", params: { token: item.token } })
       }

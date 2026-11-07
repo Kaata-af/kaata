@@ -128,6 +128,7 @@ export async function sendPeopleRequest(
   groupId: string,
   accountId: string,
   session?: SessionSnapshot,
+  beforeDispatch?: () => void,
 ): Promise<void> {
   await peopleRequest(
     "POST",
@@ -137,6 +138,7 @@ export async function sendPeopleRequest(
       recipient_account_id: accountId,
     },
     session,
+    beforeDispatch,
   );
 }
 

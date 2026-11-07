@@ -34,8 +34,7 @@ import { HomeBalanceSummary } from "../components/HomeBalanceSummary";
 import { HomeBalanceFilterSwipe } from "../components/HomeBalanceFilterSwipe";
 import { SettledAccountsSection } from "../components/SettledAccountsSection";
 import { PeopleSearchSection } from "../components/PeopleSearchSection";
-import { DiscoveredPersonDialog } from "../components/DiscoveredPersonDialog";
-import { usePeopleSearch, type DiscoveredPerson } from "../lib/people-search";
+import { usePeopleSearch } from "../lib/people-search";
 import {
   HomeFilterPopover,
   type FilterAnchor,
@@ -213,7 +212,6 @@ export default function HomeScreen() {
     currencies: string[];
   } | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
-  const [discoveredPerson, setDiscoveredPerson] = useState<DiscoveredPerson | null>(null);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const filtersExpandedRef = useRef(filtersExpanded);
   filtersExpandedRef.current = filtersExpanded;
@@ -861,13 +859,7 @@ export default function HomeScreen() {
   );
   const canSelect = caps.resolved && canAmend && currentVaultScope && currentPeopleScope;
   const selecting = selectionMode && canSelect;
-  const peopleSearch = usePeopleSearch(
-    customerQuery,
-    canCreate && canAmend && currentPeopleScope && !selecting && !discoveredPerson,
-  );
-  useEffect(() => {
-    setDiscoveredPerson(null);
-  }, [activeVaultId, activeAccountId, canCreate, canAmend]);
+  const peopleSearch = usePeopleSearch(customerQuery, currentPeopleScope && !selecting);
   const canSelectRef = useRef(canSelect);
   canSelectRef.current = canSelect;
   const selectedIds = useMemo(() => {
@@ -2093,11 +2085,15 @@ export default function HomeScreen() {
                       search={peopleSearch}
                       localPeople={visibleAllPeople}
                       visiblePeople={homePeople}
+                      actionLabel={t("peopleProfile.view")}
+                      opensProfile
                       onSelect={(person) => {
-                        if (!isCurrentHome() || !canCreateRef.current || !canAmend || selecting)
-                          return;
+                        if (!isCurrentHome() || selecting) return;
                         dismissKeyboard();
-                        setDiscoveredPerson(person);
+                        router.push({
+                          pathname: "/people/[accountId]",
+                          params: { accountId: person.account_id },
+                        });
                       }}
                     />
                   }
@@ -2181,15 +2177,6 @@ export default function HomeScreen() {
       >
         {filterContent}
       </HomeFilterPopover>
-
-      <DiscoveredPersonDialog
-        person={discoveredPerson}
-        onDismiss={() => setDiscoveredPerson(null)}
-        onAdded={(personId) => {
-          setDiscoveredPerson(null);
-          if (isCurrentHome()) router.push({ pathname: "/person/[id]", params: { id: personId } });
-        }}
-      />
 
       {/* Phase 7 — unified settings sheet replaces HamburgerMenuSheet +
           ProfileMenuSheet. Opens from the profile chip top-RIGHT. All

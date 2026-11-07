@@ -4,7 +4,7 @@ import { AppState } from "react-native";
 import { getBackendUrl } from "./api";
 import { applyForCurrentSession, captureCurrentSession, SessionChangedError } from "./auth";
 import {
-  getAccountIdSync,
+  getSessionAccountIdSync,
   getActiveVaultIdSyncMaybe,
   getDb,
   onAccountIdentityChanged,
@@ -43,8 +43,10 @@ export async function searchPeopleDirectory(
   const session = await captureCurrentSession();
   if (!session.accountId || !session.jwt) throw new SessionChangedError();
   const base = await getBackendUrl();
+  await applyForCurrentSession(session, async () => {});
   if (signal.aborted) throw new Error("search_cancelled");
-  const path = `${base}/v1/people/search?q=${encodeURIComponent(query)}`;
+  if (getActiveVaultIdSyncMaybe() !== vaultId) throw new SessionChangedError();
+  const path = `${base}/v1/people/search?q=${encodeURIComponent(query)}&include_friends=1`;
   const options = {
     headers: { Authorization: `Bearer ${session.jwt}`, Accept: "application/json" },
     signal,
@@ -105,14 +107,28 @@ export async function searchPeopleDirectory(
 
 /** No persistent directory cache: clearing search, leaving, or switching accounts discards it. */
 export function usePeopleSearch(input: string, enabled: boolean, country?: string) {
-  const account = useSyncExternalStore(onAccountIdentityChanged, getAccountIdSync, () => null);
+  const revision = useRef(0);
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      onAccountIdentityChanged(() => {
+        revision.current++;
+        notify();
+      }),
+    [],
+  );
+  const identitySnapshot = useCallback(
+    () => `${revision.current}:${getSessionAccountIdSync() ?? ""}`,
+    [],
+  );
+  const identity = useSyncExternalStore(subscribe, identitySnapshot, identitySnapshot);
+  const account = getSessionAccountIdSync();
   const vault = getActiveVaultIdSyncMaybe();
   const focused = useIsFocused();
   const [foreground, setForeground] = useState(AppState.currentState === "active");
   const [attempt, setAttempt] = useState(0);
   const query = peopleSearchQuery(input, country);
-  const visible = enabled && focused && foreground && !!query && !!account && !!vault;
-  const scope = JSON.stringify([visible, query, account, vault, attempt]);
+  const visible = enabled && focused && foreground && !!query && !!account;
+  const scope = JSON.stringify([visible, query, identity, vault, attempt]);
   const latestScope = useRef(scope);
   latestScope.current = scope;
   const [state, setState] = useState<{
@@ -140,7 +156,7 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
     const current = () =>
       alive &&
       latestScope.current === scope &&
-      getAccountIdSync() === account &&
+      identitySnapshot() === identity &&
       getActiveVaultIdSyncMaybe() === vault;
     setState({
       scope,
@@ -154,7 +170,7 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
       timeout = setTimeout(() => controller.abort(), 15_000);
       void Promise.all([
         searchPeopleDirectory(query, controller.signal, vault),
-        getDiscoveredPersonIds(vault!).catch(() => ({})),
+        vault ? getDiscoveredPersonIds(vault).catch(() => ({})) : Promise.resolve({}),
       ])
         .then(async ([page, localIdentities]) => {
           const existingPersonIds: Record<string, string> = { ...localIdentities };
@@ -202,7 +218,7 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
       if (timeout) clearTimeout(timeout);
       controller.abort();
     };
-  }, [visible, scope, query, account, vault]);
+  }, [visible, scope, query, identity, vault]);
   const current = visible && state?.scope === scope ? state : null;
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
   return {

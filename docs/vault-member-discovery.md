@@ -30,7 +30,8 @@ Ninja accounts remain outside the directory.
   and membership witness, journal, admission, and materialization pipeline.
 
 Migration 083 keeps pending `account_id` null and stores the target separately.
-Creation requires an active owner or manager and a discoverable, active target.
+Creation requires an active owner or manager and an active target who is
+discoverable or an [accepted friend](people-profiles.md) of the inviter.
 Preview and acceptance recheck the recipient, inviter authority, expiry, and
 Kaata state. Turning off discovery after a request was sent does not strand it.
 Switching accounts or sessions invalidates stale UI and network results.
@@ -59,6 +60,5 @@ Automated checks use isolated fixtures and databases. No real person received
 an invitation during development. A full two-account device acceptance test
 remains tester QA.
 
-The feature is available in Android internal build 86 and iOS TestFlight build
-51. See [testing distribution](2.3.2-member-discovery-testing.md) for delivery
+The feature is available in Android internal build 86 and iOS TestFlight build 51. See [testing distribution](2.3.2-member-discovery-testing.md) for delivery
 evidence and verification limits.

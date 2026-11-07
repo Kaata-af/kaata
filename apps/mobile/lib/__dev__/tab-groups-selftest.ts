@@ -524,6 +524,19 @@ async function main() {
   await apiChecks();
   {
     const f = fixture();
+    f.scope("new-account");
+    await assert.rejects(
+      f.module.linkContactGroup("person", {
+        myLabel: "Old profile session",
+        expectedSession: { accountId: "owner", jwt: "old-jwt", bindingVersion: 1 },
+      }),
+      errors.TabAuthUnavailableError,
+    );
+    assert.equal(f.sent.length, 0, "A profile confirmation never recaptures the new account");
+    assert.equal(f.meta.size, 0, "A stale profile creates no financial draft");
+  }
+  {
+    const f = fixture();
     const group = await f.module.linkContactGroup("person", { myLabel: "Owner" });
     assert.equal(f.sent[0].recording_mode, "notify_one_way");
     assert.equal(group.group.recording_mode, "notify_one_way");

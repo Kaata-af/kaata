@@ -172,6 +172,11 @@ for (const rtl of [false, true])
         );
         const notification = form.row("notificationSettings.title");
         assert.equal(
+          !!form.row("friends.title"),
+          signedIn,
+          "friends belongs to signed-in account settings, independent of the active book",
+        );
+        assert.equal(
           sections.filter(
             (node) => node.type === "NavRow" && node.props.label === "notificationSettings.title",
           ).length,
@@ -232,6 +237,7 @@ for (const [label, expected] of [
   ["menu.thisKaata.settings", "manage"],
   ["menu.allKaatas.add", "add"],
   ["notificationSettings.title", "/notification-settings"],
+  ["friends.title", "/people/friends"],
 ] as const) {
   const form = fixture();
   const action = form.row(label);

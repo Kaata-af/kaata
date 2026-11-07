@@ -52,8 +52,7 @@ import { icon, radius, TOUCH_MIN } from "../../lib/tokens";
 import type { PersonWithBalance } from "../../lib/types";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { PeopleSearchSection } from "../../components/PeopleSearchSection";
-import { DiscoveredPersonDialog } from "../../components/DiscoveredPersonDialog";
-import { usePeopleSearch, type DiscoveredPerson } from "../../lib/people-search";
+import { usePeopleSearch } from "../../lib/people-search";
 import { personSharedAccountStatus } from "../../lib/tabs/link-status";
 import { useDeviceContacts } from "../../lib/use-device-contacts";
 import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
@@ -92,7 +91,6 @@ export default function PersonAddOrFindScreen() {
   const canWriteNoteRef = useRef(canWriteNote);
   canWriteNoteRef.current = canWriteNote;
   const [findQuery, setFindQuery] = useState("");
-  const [discoveredPerson, setDiscoveredPerson] = useState<DiscoveredPerson | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -202,13 +200,10 @@ export default function PersonAddOrFindScreen() {
     ? nameQuery.length > 0 || phoneFilter.length > 0
     : findQuery.trim().length > 0;
   const peopleSearch = usePeopleSearch(
-    phone.trim() || nameQuery || findQuery,
-    canCreate && canWriteNote && !busy && !discoveredPerson && !noteVisible,
+    canCreate ? phone.trim() || nameQuery : findQuery,
+    !busy && !noteVisible,
     countryCode,
   );
-  useEffect(() => {
-    setDiscoveredPerson(null);
-  }, [activeVaultId, canCreate, canWriteNote]);
 
   // Defer the values the (potentially large) phone-book filter runs on, so each
   // keystroke stays responsive while the list catches up (React concurrent).
@@ -737,18 +732,22 @@ export default function PersonAddOrFindScreen() {
                   section.data.flatMap((item) => (item.kind === "app" ? [item.person] : [])),
                 )}
                 disabled={busy || people === null}
+                actionLabel={t("peopleProfile.view")}
+                opensProfile
                 onSelect={(person) => {
                   if (
-                    !canCreateRef.current ||
-                    !canWriteNoteRef.current ||
                     savingRef.current ||
+                    !mounted.current ||
                     getActiveVaultIdSyncMaybe() !== activeVaultId
                   )
                     return;
                   firstNameRef.current?.blur();
                   lastNameRef.current?.blur();
                   phoneRef.current?.blur();
-                  setDiscoveredPerson(person);
+                  router.push({
+                    pathname: "/people/[accountId]",
+                    params: { accountId: person.account_id },
+                  });
                 }}
               />
               {people !== null
@@ -760,15 +759,6 @@ export default function PersonAddOrFindScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-
-      <DiscoveredPersonDialog
-        person={discoveredPerson}
-        onDismiss={() => setDiscoveredPerson(null)}
-        onAdded={(personId) => {
-          setDiscoveredPerson(null);
-          openPerson(personId);
-        }}
-      />
 
       {canCreate ? (
         <CountryPickerSheet

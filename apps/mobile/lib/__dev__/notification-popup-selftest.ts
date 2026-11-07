@@ -50,11 +50,20 @@ function fixture() {
     reload: async () => {},
     decline: async () => {},
   };
+  let friendScope = true;
+  const friendRequests = {
+    rows: [] as any[],
+    failed: false,
+    reload: async () => {},
+    decline: async () => {},
+    isCurrent: () => friendScope,
+  };
   const component = compileUI(
     "../../components/NotificationInbox",
     {
       "../lib/use-people-requests": { usePeopleRequests: () => requests },
       "../lib/use-vault-member-requests": { useVaultMemberRequests: () => memberRequests },
+      "../lib/use-friend-requests": { useFriendRequests: () => friendRequests },
       "./ProtectedModal": { ProtectedModal: "Modal" },
       "./SheetBackdrop": {
         SheetBackdrop: "SheetBackdrop",
@@ -156,6 +165,10 @@ function fixture() {
     reads,
     requests,
     memberRequests,
+    friendRequests,
+    invalidateFriends: () => {
+      friendScope = false;
+    },
     render,
     find,
     bell,
@@ -440,6 +453,36 @@ async function main() {
     "reviewing a member invitation cannot open a financial tally",
   );
   membership.hooks.unmount();
+  for (const switched of [false, true]) {
+    const friendship = fixture();
+    const friend = { id: "friend-request", from: { account_id: "peer-account", name: "Peer" } };
+    friendship.friendRequests.rows = [friend];
+    friendship.render();
+    const badge = nodes(friendship.bell()).find(
+      (node) => node.type === "Text" && node.props.allowFontScaling === false,
+    )!;
+    assert.equal(
+      badge.props.children,
+      2,
+      "friend requests are counted in the existing inbox badge",
+    );
+    friendship.open();
+    friendship.measure();
+    const content = nodes(friendship.hooks.tree).find(
+      (node) => typeof node.props.openFriendRequest === "function",
+    )!;
+    content.props.openFriendRequest(friend);
+    assert.deepEqual(friendship.routes, [], "profile waits for the notification popup to dismiss");
+    if (switched) friendship.invalidateFriends();
+    friendship.flushTimers();
+    assert.deepEqual(
+      friendship.routes,
+      switched ? [] : [{ pathname: "/people/[accountId]", params: { accountId: "peer-account" } }],
+      "review navigates only to the profile and only while the original account is current",
+    );
+    assert.deepEqual(friendship.opens, [], "friend requests never open a tally");
+    friendship.hooks.unmount();
+  }
   normal.hooks.unmount();
   reduced.hooks.unmount();
   console.log(

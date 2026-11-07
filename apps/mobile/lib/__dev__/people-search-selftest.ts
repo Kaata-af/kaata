@@ -6,8 +6,8 @@ import type { DiscoveredPerson } from "../people-search";
 const accountA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const accountB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const person: DiscoveredPerson = { account_id: accountB, name: "John Smith", username: "john" };
-let account = accountA,
-  vault = "vault-a",
+let account: string | null = accountA,
+  vault: string | null = "vault-a",
   binding = 1,
   focused = true;
 const phone = compileUI("../phone", {
@@ -40,13 +40,20 @@ const pending: Array<{
 }> = [];
 const hooks = uiHooks();
 let appStateListener: (state: string) => void = () => {};
+const identityListeners = new Set<() => void>();
 class SessionChangedError extends Error {}
 const api = compileUI(
   "../people-search",
   {
     react: {
       ...hooks.react,
-      useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot(),
+      useSyncExternalStore: (
+        subscribe: (notify: () => void) => () => void,
+        snapshot: () => unknown,
+      ) => {
+        hooks.react.useEffect(() => subscribe(() => {}), [subscribe]);
+        return snapshot();
+      },
     },
     "expo-router": { useIsFocused: () => focused },
     "react-native": {
@@ -76,9 +83,12 @@ const api = compileUI(
       },
     },
     "./db-tx": {
-      getAccountIdSync: () => account,
+      getSessionAccountIdSync: () => account,
       getActiveVaultIdSyncMaybe: () => vault,
-      onAccountIdentityChanged: () => () => {},
+      onAccountIdentityChanged: (notify: () => void) => {
+        identityListeners.add(notify);
+        return () => identityListeners.delete(notify);
+      },
       getDb: async () => ({
         getFirstAsync: async (sql: string, _relationship: string, scopedVault: string) => {
           assert.ok(sql.includes("vault_id = ?") && sql.includes("archived_at IS NULL"));
@@ -131,7 +141,7 @@ async function main() {
   advance(1);
   await settleUI();
   assert.equal(pending.length, 1);
-  assert.ok(pending[0].url.includes("q=John&vault_id=vault-a"));
+  assert.ok(pending[0].url.includes("q=John&include_friends=1&vault_id=vault-a"));
 
   query = "Jane";
   result = render();
@@ -238,6 +248,37 @@ async function main() {
   result = render();
   assert.equal(result.visible, false);
   assert.equal(result.people.length, 0);
+  enabled = true;
+  account = accountA;
+  vault = null;
+  result = render();
+  assert.equal(result.visible, true, "signed-in people search does not require a financial book");
+  advance(350);
+  await settleUI();
+  const noVaultIndex = pending.length - 1;
+  assert.equal(
+    pending[noVaultIndex].url,
+    "https://fixture.invalid/v1/people/search?q=Joh&include_friends=1",
+  );
+  // A -> signed out -> A can happen before React paints a new frame.
+  account = null;
+  identityListeners.forEach((notify) => notify());
+  account = accountA;
+  identityListeners.forEach((notify) => notify());
+  pending[noVaultIndex].reply.resolve(response([person]));
+  await settleUI();
+  assert.equal(render().people.length, 0, "batched identity changes cannot revive old search rows");
+  advance(350);
+  await settleUI();
+  pending.at(-1)!.reply.resolve(response([person]));
+  await settleUI();
+  result = render();
+  assert.equal(result.people.length, 1);
+  assert.deepEqual(result.existingPersonIds, {}, "no book means no financial contact associations");
+  account = null;
+  identityListeners.forEach((notify) => notify());
+  result = render();
+  assert.equal(result.visible, false, "cached account identity cannot enable signed-out discovery");
   hooks.unmount();
   for (const request of pending) request.reply.resolve(response([person]));
   await settleUI();
@@ -315,6 +356,8 @@ async function main() {
     "matching names never collapse separate identities",
   );
   const firstFallbackRequest = pending.length;
+  account = accountB;
+  vault = "vault-b";
   const newBookSearch = api.searchPeopleDirectory("John", new AbortController().signal, vault);
   await settleUI();
   assert.ok(pending[firstFallbackRequest].url.includes("&vault_id="));
@@ -322,7 +365,7 @@ async function main() {
   await settleUI();
   assert.equal(
     pending[firstFallbackRequest + 1].url,
-    "https://fixture.invalid/v1/people/search?q=John",
+    "https://fixture.invalid/v1/people/search?q=John&include_friends=1",
   );
   pending[firstFallbackRequest + 1].reply.resolve(
     response([{ ...linkedPerson, account_id: accountA }]),

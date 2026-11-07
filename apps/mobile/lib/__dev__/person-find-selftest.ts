@@ -3745,7 +3745,7 @@ async function main() {
   deviceContacts.pop();
 
   // Directory discovery shares each existing scroll owner, follows local
-  // matches, and only opens a confirmation; searching never changes a book.
+  // matches, and opens a public profile; searching never changes a book.
   const remotePerson = { account_id: "remote-account", name: "Ahmad Saafi", username: "ahmad" };
   fixture(home, "owner");
   cachedAccountId = persistedAccountId = "account-a";
@@ -3779,11 +3779,12 @@ async function main() {
   );
   remoteSection.props.onSelect(remotePerson);
   await flush();
-  assert.equal(find("DiscoveredPersonDialog")!.props.person, remotePerson);
-  assert.equal(writes.length, 0, "selecting a directory result waits for sharing confirmation");
-  find("DiscoveredPersonDialog")!.props.onDismiss();
-  await flush();
-  assert.equal(writes.length, 0, "cancelling a discovery preview creates no contact");
+  assert.deepEqual(routes.at(-1), {
+    pathname: "/people/[accountId]",
+    params: { accountId: remotePerson.account_id },
+  });
+  assert.equal(remoteSection.props.opensProfile, true);
+  assert.equal(writes.length, 0, "selecting a directory result creates no financial contact");
 
   fixture(addOrFind, "owner");
   cachedAccountId = persistedAccountId = "account-a";
@@ -3814,19 +3815,24 @@ async function main() {
   assert.equal(remoteSection.props.search.visible, true);
   remoteSection.props.onSelect(remotePerson);
   await flush();
-  assert.equal(find("DiscoveredPersonDialog")!.props.person, remotePerson);
+  assert.deepEqual(routes.at(-1), {
+    pathname: "/people/[accountId]",
+    params: { accountId: remotePerson.account_id },
+  });
   assert.equal(writes.length, 0);
-  find("DiscoveredPersonDialog")!.props.onDismiss();
-  await flush();
   applyRole("viewer");
   await runTimers();
   remoteSection.props.onSelect(remotePerson);
   await flush();
-  assert.equal(
-    find("DiscoveredPersonDialog")!.props.person,
-    null,
-    "a retained discovery row cannot reopen sharing after a role downgrade",
+  assert.deepEqual(
+    routes.at(-1),
+    {
+      pathname: "/people/[accountId]",
+      params: { accountId: remotePerson.account_id },
+    },
+    "viewers may read a profile independently from financial permissions",
   );
+  assert.equal(writes.length, 0, "viewing a profile after role downgrade cannot create a contact");
   deviceContacts.pop();
   unmount();
   console.log(

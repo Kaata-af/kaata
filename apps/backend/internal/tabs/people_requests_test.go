@@ -16,6 +16,44 @@ func publishRequestRecipient(t *testing.T, f *tabFixture) {
 	}
 }
 
+func TestPeopleRequestHiddenRecipientRequiresActiveFriendship(t *testing.T) {
+	f := newTabFixture(t)
+	if _, err := f.pool.Exec(t.Context(), `UPDATE accounts SET discovery_enabled=FALSE WHERE id=$1::uuid`, f.acctB); err != nil {
+		t.Fatal(err)
+	}
+	created, err := f.svc.CreateGroup(t.Context(), groupInput(t, f, "notify"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"pending", "declined", "cancelled", "removed", "accepted"} {
+		if _, err := f.pool.Exec(t.Context(), `INSERT INTO account_friendships(account_low_id,account_high_id,requested_by,status,accepted_at)
+ VALUES(LEAST($1::uuid,$2::uuid),GREATEST($1::uuid,$2::uuid),$1::uuid,$3,CASE WHEN $3='accepted' THEN NOW() END)
+ ON CONFLICT(account_low_id,account_high_id) DO UPDATE SET status=EXCLUDED.status,accepted_at=EXCLUDED.accepted_at`, f.acctA, f.acctB, status); err != nil {
+			t.Fatal(err)
+		}
+		request, err := f.svc.SendPeopleRequest(t.Context(), f.acctA, created.Group.ID, f.acctB)
+		if status != "accepted" {
+			if !errors.Is(err, ErrNotFound) {
+				t.Fatalf("%s friendship allowed invitation: %v", status, err)
+			}
+			continue
+		}
+		if err != nil || request.ID == "" {
+			t.Fatalf("accepted friend cannot receive request: %+v %v", request, err)
+		}
+	}
+	mine, err := f.svc.Mine(t.Context(), f.acctB)
+	if err != nil || len(mine.Groups) != 0 || len(mine.Tabs) != 0 {
+		t.Fatalf("friendship or invitation granted financial access: %+v %v", mine, err)
+	}
+	if _, err := f.pool.Exec(t.Context(), `UPDATE accounts SET pending_delete_at=NOW() WHERE id=$1::uuid`, f.acctB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.SendPeopleRequest(t.Context(), f.acctA, created.Group.ID, f.acctB); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleting friend was eligible: %v", err)
+	}
+}
+
 func TestPeopleRequestUsesExplicitRecipientJoin(t *testing.T) {
 	f := newTabFixture(t)
 	publishRequestRecipient(t, f)

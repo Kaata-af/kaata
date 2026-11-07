@@ -168,7 +168,18 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 		return AccountInviteResult{}, err
 	}
 	if !states[in.TargetAccountID].discoverable {
-		return AccountInviteResult{}, ErrInviteRecipientUnavailable
+		// Discovery opt-out hides the directory, not an established friendship.
+		// Account locks still protect activity and friendship mutations; this
+		// alternative grants no membership and does not bypass inviter authority.
+		var friends bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account_friendships
+ WHERE account_low_id=LEAST($1::uuid,$2::uuid) AND account_high_id=GREATEST($1::uuid,$2::uuid)
+ AND status='accepted')`, in.InviterAccID, in.TargetAccountID).Scan(&friends); err != nil {
+			return AccountInviteResult{}, err
+		}
+		if !friends {
+			return AccountInviteResult{}, ErrInviteRecipientUnavailable
+		}
 	}
 	var vaultPending, recipientPending int
 	// Count every unexpired pending request, including temporarily inactive

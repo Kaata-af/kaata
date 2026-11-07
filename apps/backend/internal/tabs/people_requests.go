@@ -96,11 +96,39 @@ func (s *Service) SendPeopleRequest(ctx context.Context, account, groupID, recip
 	if _, err := uuid.Parse(recipient); err != nil || recipient == account {
 		return out, ErrNotFound
 	}
-	tx, err := s.beginMutation(ctx, &account)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return out, err
 	}
 	defer tx.Rollback(ctx)
+	// Friendship mutation and account deletion lock accounts before groups.
+	// Taking only the sender first can deadlock with a pair update while the
+	// request insert waits on its recipient FK, so acquire both in UUID order.
+	rows, err := tx.Query(ctx, `SELECT id::text,disabled_at IS NULL AND pending_delete_at IS NULL
+ FROM accounts WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`, []string{account, recipient})
+	if err != nil {
+		return out, err
+	}
+	active := map[string]bool{}
+	for rows.Next() {
+		var id string
+		var available bool
+		if err := rows.Scan(&id, &available); err != nil {
+			rows.Close()
+			return out, err
+		}
+		active[id] = available
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	if !active[account] {
+		return out, ErrAuthRequired
+	}
+	if !active[recipient] {
+		return out, ErrNotFound
+	}
 	g, err := loadGroup(ctx, tx, groupID, true)
 	if err != nil {
 		return out, err
@@ -132,7 +160,11 @@ func (s *Service) SendPeopleRequest(ctx context.Context, account, groupID, recip
 		return out, err
 	}
 	var eligible bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1::uuid AND discovery_enabled AND disabled_at IS NULL AND pending_delete_at IS NULL)`, recipient).Scan(&eligible)
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1::uuid
+ AND disabled_at IS NULL AND pending_delete_at IS NULL
+ AND (discovery_enabled OR EXISTS(SELECT 1 FROM account_friendships f
+ WHERE f.account_low_id=LEAST($1::uuid,$2::uuid) AND f.account_high_id=GREATEST($1::uuid,$2::uuid)
+ AND f.status='accepted')))`, recipient, account).Scan(&eligible)
 	if err != nil {
 		return out, err
 	}

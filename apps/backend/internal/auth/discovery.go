@@ -65,6 +65,16 @@ func discoveryQuery(raw string) (query, prefix, phone string, err error) {
 }
 
 func (s *Service) SearchPeople(ctx context.Context, accountID, raw string, vaultIDs ...string) (PeopleSearchPage, error) {
+	vaultID := ""
+	if len(vaultIDs) > 0 {
+		vaultID = vaultIDs[0]
+	}
+	return s.SearchPeopleWithFriends(ctx, accountID, raw, vaultID, false)
+}
+
+// Including existing friends is an explicit client opt-in. It may match a
+// private friend's name/username, but never their nonpublic phone number.
+func (s *Service) SearchPeopleWithFriends(ctx context.Context, accountID, raw, vaultID string, includeFriends bool) (PeopleSearchPage, error) {
 	page := PeopleSearchPage{People: []DiscoverablePerson{}}
 	query, prefix, phone, err := discoveryQuery(raw)
 	if err != nil {
@@ -73,9 +83,8 @@ func (s *Service) SearchPeople(ctx context.Context, accountID, raw string, vault
 	if prefix == "" && phone == "" {
 		return page, nil
 	}
-	vaultID := ""
-	if len(vaultIDs) > 0 {
-		vaultID = vaultIDs[0]
+	if err := s.activeFriendViewer(ctx, accountID); err != nil {
+		return page, err
 	}
 	if vaultID != "" {
 		if _, err := uuid.Parse(vaultID); err != nil {
@@ -96,13 +105,15 @@ func (s *Service) SearchPeople(ctx context.Context, accountID, raw string, vault
  WHERE (g.a_vault_id=NULLIF($6,'')::uuid AND (g.b_account_id=a.id OR (g.b_account_id IS NULL AND r.recipient_account_id=a.id)))
  OR (g.b_vault_id=NULLIF($6,'')::uuid AND g.a_account_id=a.id)
  ORDER BY (g.closed_at IS NULL) DESC,g.created_at DESC,g.id DESC LIMIT 1),'')
- FROM accounts a WHERE discovery_enabled AND disabled_at IS NULL AND pending_delete_at IS NULL AND a.id<>$1::uuid
- AND (($4<>'' AND phone_e164=$4) OR ($4='' AND
+ FROM accounts a LEFT JOIN account_friendships f ON f.account_low_id=LEAST(a.id,$1::uuid) AND f.account_high_id=GREATEST(a.id,$1::uuid) AND f.status='accepted'
+ WHERE (a.discovery_enabled OR ($7 AND $4='' AND f.id IS NOT NULL)) AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL AND a.id<>$1::uuid
+ AND EXISTS(SELECT 1 FROM accounts viewer WHERE viewer.id=$1::uuid AND viewer.disabled_at IS NULL AND viewer.pending_delete_at IS NULL)
+ AND (($4<>'' AND a.discovery_enabled AND phone_e164=$4) OR ($4='' AND
    (people_search_text(COALESCE(username,'')) LIKE $3 OR
    to_tsvector('simple',people_search_text(COALESCE(NULLIF(display_name,''),name,''))) @@ to_tsquery('simple',NULLIF($5,'')))))
  ORDER BY CASE WHEN people_search_text(username)=$2 THEN 0
  WHEN people_search_text(COALESCE(NULLIF(display_name,''),name,''))=$2 THEN 1 ELSE 2 END,
- people_search_text(COALESCE(NULLIF(display_name,''),name,'')),a.id LIMIT 21`, accountID, query, like, phone, prefix, vaultID)
+ people_search_text(COALESCE(NULLIF(display_name,''),name,'')),a.id LIMIT 21`, accountID, query, like, phone, prefix, vaultID, includeFriends)
 	if err != nil {
 		return page, err
 	}
@@ -131,7 +142,11 @@ func (h *Handler) SearchPeople(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, 401, "authentication required")
 		return
 	}
-	page, err := h.svc.SearchPeople(r.Context(), claims.AccountID, r.URL.Query().Get("q"), r.URL.Query().Get("vault_id"))
+	page, err := h.svc.SearchPeopleWithFriends(r.Context(), claims.AccountID, r.URL.Query().Get("q"), r.URL.Query().Get("vault_id"), r.URL.Query().Get("include_friends") == "1")
+	if errors.Is(err, ErrSessionRevoked) {
+		writeFriendError(w, err)
+		return
+	}
 	if errors.Is(err, errPeopleVault) {
 		httpx.Error(w, 404, err.Error())
 		return

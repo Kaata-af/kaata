@@ -119,7 +119,9 @@ export type ProfileSettingsProps = {
 
   // Dismiss
   onDismiss: () => void;
-  onNavigate?: (path: "/sign-in" | "/guide" | "/dev/btc-test" | "/notification-settings") => void;
+  onNavigate?: (
+    path: "/sign-in" | "/guide" | "/dev/btc-test" | "/notification-settings" | "/people/friends",
+  ) => void;
 };
 
 /** Content of the native /profile modal, presented like /person/new. */
@@ -182,8 +184,9 @@ export function ProfileSettingsSheet(props: ProfileSettingsProps) {
       action();
     };
   }
-  const navigate = (path: "/sign-in" | "/guide" | "/dev/btc-test" | "/notification-settings") =>
-    props.onNavigate ? props.onNavigate(path) : router.replace(path);
+  const navigate = (
+    path: "/sign-in" | "/guide" | "/dev/btc-test" | "/notification-settings" | "/people/friends",
+  ) => (props.onNavigate ? props.onNavigate(path) : router.replace(path));
 
   const membersCount = useMembersCount(props.activeVaultId, props.visible);
 
@@ -266,6 +269,13 @@ export function ProfileSettingsSheet(props: ProfileSettingsProps) {
               label={t("menu.account.settings")}
               hint={t("menu.account.settings.hint")}
               onPress={chained(props.onOpenAccount)}
+              isRTL={isRTL}
+            />
+            <NavRow
+              icon="people-outline"
+              label={t("friends.title")}
+              hint={t("friends.menuHint")}
+              onPress={chained(() => navigate("/people/friends"))}
               isRTL={isRTL}
             />
             <NavRow

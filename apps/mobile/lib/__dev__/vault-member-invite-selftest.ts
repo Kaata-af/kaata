@@ -13,7 +13,7 @@ class ApiError extends Error {
   }
 }
 
-function fixture() {
+function fixture(options: { profileAccountId?: string } = {}) {
   const hooks = uiHooks();
   let account = "account-owner",
     vault = "vault-a",
@@ -36,8 +36,19 @@ function fixture() {
   const copies: string[] = [];
   const shares: unknown[] = [];
   const messages: unknown[] = [];
+  const profileReads: Array<{
+    id: string;
+    session: any;
+    vault: string;
+    reply: ReturnType<typeof deferred<any>>;
+  }> = [];
   const toast = { push: (...args: unknown[]) => messages.push(args) };
-  const router = { back: () => {}, push: () => {} };
+  const destinations: unknown[] = [];
+  const router = {
+    back: () => {},
+    push: () => {},
+    dismissTo: (route: unknown) => destinations.push(route),
+  };
   const translate = (key: string, params?: any) =>
     params ? `${key}:${JSON.stringify(params)}` : key;
   const Screen = compileUI(
@@ -65,6 +76,7 @@ function fixture() {
       },
       "expo-router": {
         useRouter: () => router,
+        useLocalSearchParams: () => ({ profileAccountId: options.profileAccountId }),
         useIsFocused: () => focused,
         useFocusEffect: (fn: () => void) =>
           hooks.react.useEffect(() => {
@@ -164,9 +176,17 @@ function fixture() {
           return reply.promise;
         },
       },
+      "../../lib/friends-api": {
+        getPersonProfile: (id: string, session: any, vault: string, beforeDispatch: () => void) => {
+          beforeDispatch();
+          const reply = deferred<any>();
+          profileReads.push({ id, session, vault, reply });
+          return reply.promise;
+        },
+      },
       "../../lib/vault-api": {
         ApiError,
-        listVaults: async () => (registered ? [{ vault_id: vault }] : []),
+        listVaults: async () => (registered ? [{ vault_id: vault, name: `Shop ${vault}` }] : []),
         createVaultInvite: async (id: string, input: any, session: any) => {
           links.push({ vault: id, input, session });
           return {
@@ -227,6 +247,8 @@ function fixture() {
     copies,
     shares,
     messages,
+    profileReads,
+    destinations,
     setOnline: (value: boolean) => {
       online = value;
       render();
@@ -272,6 +294,98 @@ function fixture() {
 }
 
 async function main() {
+  {
+    const f = fixture({ profileAccountId: john.account_id });
+    await f.settle();
+    f.profileReads[0].reply.resolve({ person: john, can_receive_requests: false });
+    await f.settle();
+    assert.equal(
+      f.all().some((node) => node.props.testID === "member-invite-recipient"),
+      false,
+    );
+    assert.equal(f.button("invite.link.create").props.disabled, true);
+    assert.equal(
+      f.writes.length + f.links.length,
+      0,
+      "An ineligible profile never becomes a member or wildcard invitation",
+    );
+  }
+  {
+    const f = fixture({ profileAccountId: john.account_id });
+    await f.settle();
+    assert.equal(f.profileReads.length, 1);
+    assert.equal(f.profileReads[0].id, john.account_id);
+    assert.equal(f.profileReads[0].session.accountId, "account-owner");
+    assert.equal(f.profileReads[0].vault, "vault-a");
+    assert.equal(
+      f.button("invite.link.create").props.disabled,
+      true,
+      "Profile lookup cannot fall back to a wildcard invite",
+    );
+    f.profileReads[0].reply.resolve({
+      person: { ...john, name: "Authoritative John" },
+      can_receive_requests: true,
+    });
+    await f.settle();
+    assert.equal(f.writes.length, 0, "Profile lookup only stages the person");
+    const confirmation = f.confirm();
+    assert.match(confirmation.props.description, /Authoritative John/);
+    assert.match(confirmation.props.description, /Shop vault-a/);
+    const sending = confirmation.props.onConfirm();
+    await f.settle();
+    assert.equal(f.writes.length, 1);
+    assert.equal(f.links.length, 0);
+    f.writes[0].reply.resolve({ expires_at: Date.now() + 86400_000 });
+    await sending;
+    await f.settle();
+    f.button("peopleProfile.backToProfile").props.onPress();
+    await f.settle();
+    assert.deepEqual(f.destinations, [
+      { pathname: "/people/[accountId]", params: { accountId: john.account_id } },
+    ]);
+  }
+  {
+    const f = fixture({ profileAccountId: john.account_id });
+    await f.settle();
+    f.profileReads[0].reply.reject(new ApiError(404, "person_not_found"));
+    await f.settle();
+    assert.equal(f.button("invite.link.create").props.disabled, true);
+    assert.equal(f.links.length + f.writes.length, 0);
+    const retry = f
+      .all()
+      .find((node) => node.type === "NavRow" && node.props.label === "invite.people.unavailable");
+    assert.ok(retry);
+    retry.props.onPress();
+    await f.settle();
+    assert.equal(f.profileReads.length, 2);
+    f.setAccount("account-b");
+    await f.settle();
+    f.profileReads[1].reply.resolve({ person: john, can_receive_requests: true });
+    await f.settle();
+    assert.equal(
+      f.all().some((node) => node.props.testID === "member-invite-recipient"),
+      false,
+      "Late profile from A cannot stage a person under B",
+    );
+    assert.equal(f.writes.length, 0);
+  }
+  {
+    const f = fixture({ profileAccountId: john.account_id });
+    await f.settle();
+    f.profileReads[0].reply.resolve({ person: john, can_receive_requests: true });
+    await f.settle();
+    const wait = deferred<void>();
+    f.pauseGuard(wait.promise);
+    f.one("ScreenHeader").props.onBack();
+    f.rebind();
+    wait.resolve();
+    await f.settle();
+    assert.deepEqual(
+      f.destinations,
+      [],
+      "A late profile return never navigates under a replacement session",
+    );
+  }
   {
     const f = fixture();
     await f.settle();

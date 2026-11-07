@@ -292,16 +292,19 @@ export async function linkContactGroup(
     myLabel: string;
     recordingMode?: import("./types").TabRecordingMode;
     openingNote?: string | null;
+    /** A profile confirmation must keep the session which displayed it. */
+    expectedSession?: SessionSnapshot;
   },
 ): Promise<LinkedTabGroup> {
   const mode = options.recordingMode ?? "notify_one_way";
   if (!isTabRecordingMode(mode))
     groupError("recording_upgrade_required", "Unknown recording mode", 426);
   const label = cleanLabel(options.myLabel);
-  const session = await captureCurrentSession();
+  const session = options.expectedSession ?? (await captureCurrentSession());
   if (!session.jwt) throw new TabAuthUnavailableError();
   const vaultId = getActiveVaultIdSyncMaybe();
   if (!vaultId) throw new TabInputError("no_active_vault");
+  await atScope(session, vaultId, async () => {});
   await assertVaultAction(vaultId, "entry.amend");
   await ensureTabGroupSupport({ jwt: session.jwt });
   const relationshipId = await atScope(session, vaultId, () =>

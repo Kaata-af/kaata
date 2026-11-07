@@ -142,10 +142,19 @@ export function Privacy() {
             <strong>Let people find me</strong> enabled in Account settings, signed-in Kaata users
             can search for your account name and username and send you an invitation inside Kaata.
             Someone who already knows your full phone number can also use it to find you. Search
-            results do not reveal your phone number, email address or ledger. You can turn discovery
-            off at any time; doing so does not remove shared accounts you have already joined. Ninja
-            mode uses no account and does not make your local profile searchable. If you later sign
-            in, your account's discovery setting applies.
+            results and people profiles do not reveal your phone number, email address or ledger. A
+            people profile can show your Kaata name, username and profile picture. You can turn
+            discovery off at any time to hide from people who are not your friends. Existing friends
+            can still find you by name or username. Ninja mode uses no account and does not make
+            your local profile searchable. If you later sign in, your account's discovery setting
+            applies.
+          </p>
+          <p>
+            Kaata stores friend requests and accepted friendships so you can manage them across
+            devices. A friendship is visible to the two people involved and requires both to agree.
+            Friends can see each other's Kaata name, username and profile picture. A friend request
+            does not share a tally or give access to a kaata. Those invitations are separate, and
+            removing a friend does not remove a shared tally or revoke a kaata membership.
           </p>
         </Section>
 

@@ -19,7 +19,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Network from "expo-network";
-import { useFocusEffect, useIsFocused, useRouter } from "expo-router";
+import { useFocusEffect, useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   KeyboardAvoidingView,
@@ -67,6 +67,7 @@ import { useVaultPermission } from "../../lib/use-vault-role";
 import { useLedgerRefresh } from "../../lib/ledger-events";
 import { usePeopleSearch, type DiscoveredPerson } from "../../lib/people-search";
 import { createVaultMemberRequest } from "../../lib/vault-member-requests";
+import { getPersonProfile } from "../../lib/friends-api";
 import { ApiError, createVaultInvite, listVaults } from "../../lib/vault-api";
 import type { VaultRole } from "../../lib/events";
 
@@ -82,6 +83,7 @@ type RecipientChoice = {
   accountId: string;
   identity: string;
   generation: number;
+  vaultName?: string;
 };
 type SentInvitation = { person: DiscoveredPerson; role: VaultRole; expires_at: number };
 
@@ -91,6 +93,9 @@ const AVATAR_SIZE = 44;
 
 export default function VaultInviteScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ profileAccountId?: string }>();
+  const profileAccountId =
+    typeof params.profileAccountId === "string" ? params.profileAccountId : "";
   const isRTL = useIsRTL();
   const toast = useToast();
 
@@ -119,7 +124,7 @@ export default function VaultInviteScreen() {
   const identity = useSyncExternalStore(subscribeIdentity, identitySnapshot, identitySnapshot);
   const accountId = getSessionAccountIdSync();
   const [attempt, setAttempt] = useState(0);
-  const viewIdentity = JSON.stringify([vaultId, identity, focused, attempt]);
+  const viewIdentity = JSON.stringify([vaultId, identity, focused, attempt, profileAccountId]);
   const latestViewIdentity = useRef(viewIdentity);
   latestViewIdentity.current = viewIdentity;
   const [loadedViewIdentity, setLoadedViewIdentity] = useState<string | null>(null);
@@ -145,6 +150,10 @@ export default function VaultInviteScreen() {
   const confirmation = viewCurrent ? storedConfirmation : null;
   const sent = viewCurrent ? storedSent : null;
   const [sendError, setSendError] = useState<string | null>(null);
+  const [vaultName, setVaultName] = useState<string | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileFailed, setProfileFailed] = useState(false);
+  const [profileAttempt, setProfileAttempt] = useState(0);
   // Message-language picker for the invite share, when share_lang_pref = 'ask'.
   const [askLangVisible, setAskLangVisible] = useState(false);
   // Re-entry guard: the ask-sheet rows stay tappable through the 220ms exit
@@ -179,7 +188,8 @@ export default function VaultInviteScreen() {
     currentScope &&
     hasJwt === true &&
     online === true &&
-    vaultOnServer !== false;
+    vaultOnServer !== false &&
+    (!profileAccountId || (!!vaultName && !profileLoading && !profileFailed));
   const canSendRef = useRef(canSend);
   canSendRef.current = canSend;
   const peopleSearch = usePeopleSearch(query, canSend && !busy && !recipient && !result && !sent);
@@ -241,6 +251,9 @@ export default function VaultInviteScreen() {
     setConfirmation(null);
     setSent(null);
     setSendError(null);
+    setVaultName(null);
+    setProfileLoading(false);
+    setProfileFailed(false);
     setResult(null);
     setAskLangVisible(false);
     setHasJwt(null);
@@ -299,8 +312,11 @@ export default function VaultInviteScreen() {
           alive &&
           generation === scopeGeneration.current &&
           getActiveVaultIdSyncMaybe() === vaultId
-        )
-          setVaultOnServer(vaults.some((v) => v.vault_id === vaultId));
+        ) {
+          const book = vaults.find((v) => v.vault_id === vaultId);
+          setVaultOnServer(!!book);
+          setVaultName(book?.name ?? null);
+        }
       } catch {
         if (alive && generation === scopeGeneration.current) setVaultOnServer(null);
       }
@@ -309,6 +325,57 @@ export default function VaultInviteScreen() {
       alive = false;
     };
   }, [vaultId, accountId, hasJwt, online, focused]);
+
+  // Only an explicit profile entry supplies an account selector. Never trust
+  // names/roles from navigation, and never turn a failed private lookup into
+  // a shareable wildcard link. Ordinary Add member search remains unchanged.
+  useEffect(() => {
+    if (!profileAccountId || !viewCurrent || !hasJwt || online !== true || !focused || !canInvite)
+      return;
+    const session = screenSession.current;
+    if (!session) return;
+    let alive = true;
+    const generation = scopeGeneration.current;
+    const current = () => alive && generation === scopeGeneration.current && currentView();
+    setProfileLoading(true);
+    setProfileFailed(false);
+    setRecipient(null);
+    setConfirmation(null);
+    void getPersonProfile(profileAccountId, session, vaultId, () => {
+      if (!current()) throw new SessionChangedError();
+    })
+      .then(async (profile) => {
+        if (profile.can_receive_requests !== true)
+          throw new ApiError(
+            404,
+            "recipient_unavailable",
+            "This person cannot receive a new request",
+          );
+        await applyForCurrentSession(session, async () => {
+          if (!current()) return;
+          setRecipient(profile.person);
+          setProfileLoading(false);
+        });
+      })
+      .catch(() => {
+        if (current()) {
+          setProfileLoading(false);
+          setProfileFailed(true);
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [
+    profileAccountId,
+    viewIdentity,
+    viewCurrent,
+    hasJwt,
+    online,
+    focused,
+    canInvite,
+    profileAttempt,
+  ]);
 
   function changeQuery(value: string) {
     if (submittingRef.current) return;
@@ -337,6 +404,7 @@ export default function VaultInviteScreen() {
       accountId,
       identity,
       generation: scopeGeneration.current,
+      vaultName: vaultName ?? undefined,
     });
   }
 
@@ -497,11 +565,30 @@ export default function VaultInviteScreen() {
     }
   }
 
+  function goBack() {
+    if (!profileAccountId || !viewSession || !currentView()) {
+      router.back();
+      return;
+    }
+    // The full-page profile may have been replaced to leave a native modal.
+    // Return by account selector and let that page fetch its current identity;
+    // never carry a cached name, friendship state, or invitation grant back.
+    void applyForCurrentSession(viewSession, async () => {
+      if (currentView())
+        router.dismissTo({
+          pathname: "/people/[accountId]",
+          params: { accountId: profileAccountId },
+        });
+    }).catch(() => {
+      if (mountedRef.current && focusedRef.current) router.back();
+    });
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScreenHeader
         title={t("invite.title")}
-        onBack={() => router.back()}
+        onBack={goBack}
         isRTL={isRTL}
         backLabel={t("common.back")}
       />
@@ -515,6 +602,24 @@ export default function VaultInviteScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           {!canInvite ? <EmptyHint label={t("invite.ownerOnly")} isRTL={isRTL} /> : null}
+          {viewCurrent && vaultName ? (
+            <EmptyHint
+              label={t("peopleProfile.currentKaata", { kaata: vaultName })}
+              isRTL={isRTL}
+            />
+          ) : null}
+          {viewCurrent && profileLoading ? (
+            <EmptyHint label={t("peopleSearch.loading")} isRTL={isRTL} />
+          ) : null}
+          {viewCurrent && profileFailed ? (
+            <NavRow
+              icon="refresh-outline"
+              label={t("invite.people.unavailable")}
+              hint={t("inbox.retry")}
+              onPress={() => setProfileAttempt((value) => value + 1)}
+              isRTL={isRTL}
+            />
+          ) : null}
 
           {/* Blocker banner — ONLY when something actually prevents creating a
               link (signed out / offline / kaata not yet synced), because that
@@ -572,6 +677,11 @@ export default function VaultInviteScreen() {
                 </View>
               </View>
               <View style={styles.formInset}>
+                {profileAccountId ? (
+                  <View style={{ marginBottom: 12 }}>
+                    <Button label={t("peopleProfile.backToProfile")} onPress={goBack} />
+                  </View>
+                ) : null}
                 <Button
                   label={t("invite.people.sendAnother")}
                   variant="secondary"
@@ -786,7 +896,10 @@ export default function VaultInviteScreen() {
             ? t("invite.people.confirmBody", {
                 name: confirmation.person.name,
                 role: roleLabel(confirmation.role),
-              })
+              }) +
+              (confirmation.vaultName
+                ? `\n\n${t("peopleProfile.currentKaata", { kaata: confirmation.vaultName })}`
+                : "")
             : undefined
         }
         confirmLabel={t("invite.people.send")}

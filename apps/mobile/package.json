@@ -113,6 +113,7 @@
     "selftest:customer-groups": "tsx lib/__dev__/customer-groups-selftest.ts",
     "selftest:customer-search": "tsx lib/__dev__/customer-search-selftest.ts",
     "selftest:people-discovery": "tsx lib/__dev__/people-search-selftest.ts && tsx lib/__dev__/people-connections-selftest.ts",
+    "selftest:people-profiles": "tsx lib/__dev__/friends-api-selftest.ts && tsx lib/__dev__/people-profile-selftest.ts && tsx lib/__dev__/people-profile-actions-selftest.ts && tsx lib/__dev__/notification-popup-selftest.ts",
     "selftest:member-discovery": "tsx lib/__dev__/vault-member-requests-selftest.ts && tsx lib/__dev__/vault-member-invite-selftest.ts && tsx lib/__dev__/invite-join-selftest.ts && tsx lib/__dev__/notification-popup-selftest.ts",
     "selftest:search-relevance": "tsx lib/__dev__/search-relevance-selftest.ts",
     "selftest:onboarding-calendar": "tsx lib/__dev__/onboarding-calendar-selftest.ts",

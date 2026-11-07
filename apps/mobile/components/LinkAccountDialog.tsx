@@ -42,7 +42,7 @@ import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 import { getCurrentCurrencyCode, getCurrencyLabel } from "../lib/currency";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../lib/db-tx";
 import { getDiscoveredPersonIds, sendPeopleRequest } from "../lib/people-connections";
-import { captureCurrentSession } from "../lib/auth";
+import { applyForCurrentSession, captureCurrentSession, type SessionSnapshot } from "../lib/auth";
 
 const recordingModeLabel = {
   notify: "tab.recordingMode.notify",
@@ -77,6 +77,8 @@ export function LinkAccountDialog(props: {
   preparePerson?: () => Promise<string>;
   onDelivered?: () => void;
   contactChoice?: (busy: boolean) => ReactNode;
+  expectedSession?: SessionSnapshot;
+  isCurrent?: () => boolean;
 }) {
   const rtl = useIsRTL();
   const toast = useToast();
@@ -110,6 +112,7 @@ export function LinkAccountDialog(props: {
     accountId,
     props.person.id,
     props.recipientAccountId,
+    props.expectedSession?.bindingVersion,
     groupMode ? "group" : currency,
   ]);
   const currentContext = useRef(context);
@@ -199,6 +202,7 @@ export function LinkAccountDialog(props: {
       !pendingSettingsReady ||
       !deliveryReady ||
       !props.visible ||
+      !(props.isCurrent?.() ?? true) ||
       currentContext.current !== context ||
       getActiveVaultIdSyncMaybe() !== vaultId ||
       getAccountIdSync() !== accountId
@@ -214,11 +218,13 @@ export function LinkAccountDialog(props: {
     const session = generation.current;
     const active = () =>
       session === generation.current &&
+      (props.isCurrent?.() ?? true) &&
       currentContext.current === context &&
       getActiveVaultIdSyncMaybe() === vaultId &&
       getAccountIdSync() === accountId;
     try {
-      const sendingSession = await captureCurrentSession();
+      const sendingSession = props.expectedSession ?? (await captureCurrentSession());
+      if (props.expectedSession) await applyForCurrentSession(sendingSession, async () => {});
       if (!active()) return;
       if (props.preparePerson && !preparedPerson.current) {
         const prepared = await props.preparePerson();
@@ -232,6 +238,7 @@ export function LinkAccountDialog(props: {
           const created = await linkContactGroup(personId, {
             myLabel: props.myLabel,
             recordingMode,
+            ...(props.expectedSession ? { expectedSession: sendingSession } : {}),
           });
           fresh = created.link;
           if (!active()) return;
@@ -266,7 +273,9 @@ export function LinkAccountDialog(props: {
       if (recipientAccountId) {
         if (!fresh.group_id)
           throw new TabApiError(409, "group_required", "A shared account is required");
-        await sendPeopleRequest(fresh.group_id, recipientAccountId, sendingSession);
+        await sendPeopleRequest(fresh.group_id, recipientAccountId, sendingSession, () => {
+          if (!active()) throw new TabAuthUnavailableError();
+        });
         if (!active()) return;
         toast.push(t("peopleSearch.sent"), "success");
         if (props.onDelivered) props.onDelivered();

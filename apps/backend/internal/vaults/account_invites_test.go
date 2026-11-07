@@ -38,6 +38,34 @@ func accountInviteSeed(t *testing.T, f *graceVaultFixture) string {
 	return id
 }
 
+func TestAccountInviteHiddenRecipientRequiresActiveFriendship(t *testing.T) {
+	f := newGraceVaultFixture(t)
+	accountInviteExec(t, f, `UPDATE accounts SET discovery_enabled=FALSE WHERE id=$1::uuid`, f.joiner)
+	in := CreateAccountInviteInput{VaultID: f.vault, InviterAccID: f.owner, TargetAccountID: f.joiner, Role: "viewer"}
+	for _, status := range []string{"pending", "declined", "cancelled", "removed", "accepted"} {
+		accountInviteExec(t, f, `INSERT INTO account_friendships(account_low_id,account_high_id,requested_by,status,accepted_at)
+ VALUES(LEAST($1::uuid,$2::uuid),GREATEST($1::uuid,$2::uuid),$1::uuid,$3,CASE WHEN $3='accepted' THEN NOW() END)
+ ON CONFLICT(account_low_id,account_high_id) DO UPDATE SET status=EXCLUDED.status,accepted_at=EXCLUDED.accepted_at`, f.owner, f.joiner, status)
+		request, err := f.svc.CreateAccountInvite(t.Context(), in)
+		if status != "accepted" {
+			if !errors.Is(err, ErrInviteRecipientUnavailable) {
+				t.Fatalf("%s friendship allowed invitation: %v", status, err)
+			}
+			continue
+		}
+		if err != nil || request.InviteID == "" {
+			t.Fatalf("accepted friend cannot receive request: %+v %v", request, err)
+		}
+	}
+	if books, err := f.svc.List(t.Context(), f.joiner); err != nil || len(books) != 0 {
+		t.Fatalf("friendship or invitation granted membership: %+v %v", books, err)
+	}
+	accountInviteExec(t, f, `UPDATE accounts SET pending_delete_at=NOW() WHERE id=$1::uuid`, f.joiner)
+	if _, err := f.svc.CreateAccountInvite(t.Context(), in); !errors.Is(err, ErrInviteRecipientUnavailable) {
+		t.Fatalf("deleting friend was eligible: %v", err)
+	}
+}
+
 func TestAccountInviteSelector(t *testing.T) {
 	id := uuid.NewString()
 	for _, invalid := range []string{"", id, "v_" + uuid.Nil.String(), "v_" + strings.ToUpper(id), "v_" + strings.ReplaceAll(id, "-", ""), "v_" + id + " ", "v_" + strings.Repeat("a", 41)} {

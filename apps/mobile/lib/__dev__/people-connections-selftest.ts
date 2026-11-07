@@ -495,11 +495,20 @@ test("double taps and scope changes during confirmation never send twice or link
 });
 
 function discoveryDialogFixture(
-  options: { mapped?: boolean; joined?: boolean; link?: Record<string, unknown> } = {},
+  options: {
+    mapped?: boolean;
+    joined?: boolean;
+    link?: Record<string, unknown>;
+    profile?: boolean;
+    eligible?: boolean;
+  } = {},
 ) {
   const hooks = uiHooks();
   const prepared: unknown[][] = [];
   const added: string[] = [];
+  const delivered: string[] = [];
+  let current = true;
+  const expectedSession = { accountId: viewer, jwt: "profile-jwt", bindingVersion: 1 };
   const ui = compileUI("../../components/DiscoveredPersonDialog", {
     react: hooks.react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
@@ -507,6 +516,12 @@ function discoveryDialogFixture(
     "react-native": { Pressable: "Pressable", Text: "Text", TextInput: "TextInput", View: "View" },
     "../lib/auth": {
       captureCurrentSession: async () => ({ accountId: viewer, jwt: "jwt", bindingVersion: 1 }),
+      applyForCurrentSession: async (session: any, work: () => Promise<any>) => {
+        assert.equal(session, expectedSession);
+        if (!current) throw new SessionChangedError();
+        return work();
+      },
+      SessionChangedError,
     },
     "../lib/db": {
       getLocalSelf: async () => ({ name: "My Name" }),
@@ -530,6 +545,16 @@ function discoveryDialogFixture(
       },
     },
     "../lib/db-tx": { getAccountIdSync: () => viewer, getActiveVaultIdSyncMaybe: () => book },
+    "../lib/friends-api": {
+      getPersonProfile: async (id: string, session: any, vault: string, before: () => void) => {
+        assert.equal(id, person.account_id);
+        assert.equal(session, expectedSession);
+        assert.equal(vault, book);
+        before();
+        return { person, can_receive_requests: options.eligible !== false };
+      },
+    },
+    "../lib/tabs/errors": errors,
     "../lib/people-connections": {
       discoveredPersonId: connectionsFixture().api.discoveredPersonId,
       getDiscoveredPersonIds: async () =>
@@ -552,10 +577,63 @@ function discoveryDialogFixture(
       },
     },
   });
-  const props = { person, onDismiss() {}, onAdded: (id: string) => added.push(id) };
+  const props = {
+    person,
+    onDismiss() {},
+    onAdded: (id: string) => added.push(id),
+    ...(options.profile
+      ? {
+          expectedSession,
+          expectedVaultId: book,
+          isCurrent: () => current,
+          onDelivered: (id: string) => delivered.push(id),
+        }
+      : {}),
+  };
   const render = () => hooks.render(() => ui.DiscoveredPersonDialog(props));
-  return { hooks, render, added, prepared };
+  return {
+    hooks,
+    render,
+    added,
+    prepared,
+    delivered,
+    expectedSession,
+    invalidate: () => {
+      current = false;
+    },
+  };
 }
+
+test("profile tally confirmation stays pinned and delivery does not navigate to the ledger", async () => {
+  const f = discoveryDialogFixture({ profile: true });
+  f.render();
+  await settleUI();
+  const dialog = f.render();
+  assert.equal(dialog.props.expectedSession, f.expectedSession);
+  await dialog.props.preparePerson();
+  assert.equal(f.prepared[0][1], f.expectedSession);
+  dialog.props.onDelivered();
+  assert.deepEqual(f.delivered, ["saved-john"]);
+  assert.deepEqual(f.added, [], "Only a joined tally may navigate from this profile flow");
+  f.invalidate();
+  await assert.rejects(dialog.props.preparePerson(), SessionChangedError);
+  dialog.props.onDelivered();
+  assert.equal(f.delivered.length, 1, "Stale delivery callback is ignored");
+  f.hooks.unmount();
+});
+
+test("profile-only explicit tally send rechecks eligibility before creating a local contact", async () => {
+  const f = discoveryDialogFixture({ profile: true, eligible: false });
+  f.render();
+  await settleUI();
+  await assert.rejects(
+    f.render().props.preparePerson(),
+    (error: any) => error instanceof errors.TabApiError && error.code === "recipient_unavailable",
+  );
+  assert.equal(f.prepared.length, 0);
+  assert.deepEqual(f.added, []);
+  f.hooks.unmount();
+});
 
 test("opening discovery and choosing a saved contact are read-only until confirmation", async () => {
   const { hooks, render, added, prepared } = discoveryDialogFixture();

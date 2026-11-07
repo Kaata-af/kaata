@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "expo-router";
 import { Pressable, Text, TextInput, View } from "react-native";
-import { captureCurrentSession, type SessionSnapshot } from "../lib/auth";
+import {
+  applyForCurrentSession,
+  captureCurrentSession,
+  SessionChangedError,
+  type SessionSnapshot,
+} from "../lib/auth";
 import { getLocalSelf, listAllPeopleForSearch } from "../lib/db";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb } from "../lib/db-tx";
 import {
@@ -19,14 +24,22 @@ import { searchPeople } from "../lib/search";
 import type { PersonWithBalance } from "../lib/types";
 import { getTabGroupLinkForPerson } from "../lib/tabs/db";
 import type { TabLink } from "../lib/tabs/types";
+import { getPersonProfile } from "../lib/friends-api";
+import { TabApiError } from "../lib/tabs/errors";
 
 export function DiscoveredPersonDialog(props: {
   person: DiscoveredPerson | null;
   onDismiss: () => void;
   onAdded: (personId: string) => void;
+  /** Optional profile flow: retain its session and stay on the profile after sending. */
+  expectedSession?: SessionSnapshot;
+  expectedVaultId?: string;
+  isCurrent?: () => boolean;
+  onDelivered?: (personId: string) => void;
+  onUnavailable?: () => void;
 }) {
   const router = useRouter();
-  const vaultId = getActiveVaultIdSyncMaybe();
+  const vaultId = props.expectedVaultId ?? getActiveVaultIdSyncMaybe();
   const accountId = getAccountIdSync();
   const rtl = useIsRTL();
   const [contacts, setContacts] = useState<PersonWithBalance[]>([]);
@@ -44,12 +57,17 @@ export function DiscoveredPersonDialog(props: {
   } | null>(null);
   useEffect(() => {
     let active = true;
+    const current = () =>
+      active &&
+      (props.isCurrent?.() ?? true) &&
+      getAccountIdSync() === accountId &&
+      getActiveVaultIdSyncMaybe() === vaultId;
     setSource(null);
     setSelected(null);
     setChoosing(false);
     setQuery("");
     prepared.current = null;
-    if (props.person && vaultId && accountId) {
+    if (props.person && vaultId && accountId && current()) {
       const targetId = props.person.account_id;
       const relationshipId = props.person.existing_relationship_id;
       const resolveExisting = async () =>
@@ -65,15 +83,18 @@ export function DiscoveredPersonDialog(props: {
             )?.user_b_id
           : undefined;
       void Promise.all([
-        captureCurrentSession(),
+        props.expectedSession
+          ? applyForCurrentSession(props.expectedSession, async () => props.expectedSession!)
+          : captureCurrentSession(),
         getLocalSelf(),
         listAllPeopleForSearch(vaultId, undefined, { allCurrencies: true }),
         getDiscoveredPersonIds(vaultId),
         resolveExisting(),
       ])
         .then(async ([session, self, people, identities, serverPersonId]) => {
+          if (props.expectedSession) await applyForCurrentSession(session, async () => {});
           if (
-            active &&
+            current() &&
             session.accountId === accountId &&
             getActiveVaultIdSyncMaybe() === vaultId
           ) {
@@ -81,8 +102,9 @@ export function DiscoveredPersonDialog(props: {
               serverPersonId || identities[targetId] || discoveredPersonId(vaultId, targetId);
             const existing = people.find((person) => person.id === existingId);
             const link = existing ? await getTabGroupLinkForPerson(existing.id) : null;
+            if (props.expectedSession) await applyForCurrentSession(session, async () => {});
             if (
-              !active ||
+              !current() ||
               getAccountIdSync() !== accountId ||
               getActiveVaultIdSyncMaybe() !== vaultId
             )
@@ -117,17 +139,21 @@ export function DiscoveredPersonDialog(props: {
           }
         })
         .catch(() => {
-          if (active) props.onDismiss();
+          if (current()) {
+            props.onUnavailable?.();
+            props.onDismiss();
+          }
         });
     }
     return () => {
       active = false;
     };
-  }, [props.person?.account_id, vaultId, accountId]);
+  }, [props.person?.account_id, vaultId, accountId, props.expectedSession?.bindingVersion]);
   const person = props.person;
   if (
     !person ||
     !source ||
+    !(props.isCurrent?.() ?? true) ||
     source.targetId !== person.account_id ||
     source.vaultId !== vaultId ||
     source.session.accountId !== accountId
@@ -150,7 +176,29 @@ export function DiscoveredPersonDialog(props: {
       link={selected === source.linkedPersonId ? source.link : null}
       recipientAccountId={person.account_id}
       recipientUsername={person.username}
+      expectedSession={props.expectedSession}
+      isCurrent={props.isCurrent}
       preparePerson={async () => {
+        if (!(props.isCurrent?.() ?? true)) throw new SessionChangedError();
+        if (props.expectedSession) {
+          const check = () => {
+            if (!(props.isCurrent?.() ?? true) || getActiveVaultIdSyncMaybe() !== source.vaultId)
+              throw new SessionChangedError();
+          };
+          const profile = await getPersonProfile(
+            person.account_id,
+            source.session,
+            source.vaultId,
+            check,
+          );
+          check();
+          if (profile.can_receive_requests !== true)
+            throw new TabApiError(
+              404,
+              "recipient_unavailable",
+              "This person cannot receive a new request",
+            );
+        }
         const result = await prepareDiscoveredContact(
           person,
           source.session,
@@ -233,8 +281,10 @@ export function DiscoveredPersonDialog(props: {
       }
       onLinked={() => {}}
       onDelivered={() => {
+        if (!(props.isCurrent?.() ?? true)) return;
         props.onDismiss();
-        props.onAdded(prepared.current || id);
+        if (props.onDelivered) props.onDelivered(prepared.current || id);
+        else props.onAdded(prepared.current || id);
       }}
       onDismiss={props.onDismiss}
       onAuthRequired={() => router.push("/account")}

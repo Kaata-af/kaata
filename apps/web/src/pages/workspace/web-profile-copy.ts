@@ -32,7 +32,7 @@ const en = {
   kaataNext: "Next, create your first kaata to finish setting up.",
   discoveryLabel: "Let people find me",
   discoveryHint:
-    "On by default. Other Kaata users can find your name and username, or find you using your full phone number. Search results never show your phone number or email. Changes save immediately.",
+    "On by default. Other Kaata users can find you by name, username or full phone number. Search results hide your phone and email. Turn it off to hide from people outside your friends list. Changes save immediately.",
   discoveryLoading: "Loading your search visibility…",
   discoveryLoadError: "We couldn’t load your search visibility.",
   discoverySaveError:
@@ -75,7 +75,7 @@ export const webProfileCopy: Record<Lang, ProfileCopy> = {
     kaataNext: "اکنون اولین کاتای خود را بسازید تا راه‌اندازی تکمیل شود.",
     discoveryLabel: "دیگران مرا پیدا کنند",
     discoveryHint:
-      "به‌صورت پیش‌فرض روشن است. کاربران کاتا می‌توانند نام و نام کاربری شما را جستجو کنند، یا با شمارۀ کامل تلفون شما را پیدا کنند. نتایج جستجو شمارۀ تلفون و ایمیل شما را نمایش نمی‌دهد. تغییرات فوراً ذخیره می‌شود.",
+      "به‌صورت پیش‌فرض روشن است. کاربران کاتا می‌توانند با نام، نام کاربری یا شمارۀ کامل تلفون شما را پیدا کنند. شماره و ایمیل در نتایج پنهان می‌ماند. برای پنهان شدن از کسانی که دوست شما نیستند، این گزینه را خاموش کنید. تغییرات فوراً ذخیره می‌شود.",
     discoveryLoading: "تنظیم پیداشدن شما باز می‌شود…",
     discoveryLoadError: "تنظیم پیداشدن شما باز نشد.",
     discoverySaveError:
@@ -114,7 +114,7 @@ export const webProfileCopy: Record<Lang, ProfileCopy> = {
     kaataNext: "اوس خپله لومړۍ کاتا جوړه کړئ ترڅو چمتووالی بشپړ شي.",
     discoveryLabel: "نور خلک مې پیدا کړای شي",
     discoveryHint:
-      "په لومړي سر کې چالان دی. د کاتا کارنان ستاسو نوم او کارن‌نوم لټولای شي، یا مو د موبایل په بشپړه شمېره موندلای شي. د لټون پایلې ستاسو د موبایل شمېره او برېښنالیک نه ښيي. بدلونونه سمدستي خوندي کېږي.",
+      "په اصل کې فعال دی. د کاټا کارنان مو په نوم، کارن‌نوم یا بشپړه ټیلیفون شمېره موندلی شي. شمېره او برېښنالیک مو په پایلو کې پټ وي. له هغو کسانو د ځان پټولو لپاره یې بند کړئ چې ملګري مو نه دي. بدلونونه سمدستي خوندي کېږي.",
     discoveryLoading: "ستاسو د موندلو تنظیم پرانیستل کېږي…",
     discoveryLoadError: "ستاسو د موندلو تنظیم پرانیستل نه شو.",
     discoverySaveError:
