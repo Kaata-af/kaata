@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// TestFlight only. Default/status reads ASC; enable adds the exact 2.3.2 / 51 build
+// TestFlight only. Default/status reads ASC; enable adds the exact 2.3.2 / 52 build
 // to an EXISTING internal group. App Store versions and reviews are read-only.
 //
 //   node scripts/asc-testflight.mjs
@@ -23,7 +23,7 @@ const API = "https://api.appstoreconnect.apple.com/v1";
 const KAATA_APP_ID = "6789651127";
 const KAATA_BUNDLE_ID = "af.kaata.app";
 const TEST_VERSION = "2.3.2";
-const TEST_BUILD_NUMBER = "51";
+const TEST_BUILD_NUMBER = "52";
 const TEST_GROUP_ID = "fcb33597-43b6-42ba-8582-b85d26fc3895";
 const ID = /^[A-Za-z0-9-]+$/;
 
@@ -76,7 +76,7 @@ export function parseArgs(argv) {
 
 function assertTestBuild(cfg, buildId, result) {
   if (cfg.version !== TEST_VERSION || cfg.buildNumber !== TEST_BUILD_NUMBER)
-    throw new Error("Local configuration must be 2.3.2 / iOS build 51.");
+    throw new Error("Local configuration must be 2.3.2 / iOS build 52.");
   const build = result.data;
   if (
     build?.type !== "builds" ||
@@ -93,7 +93,7 @@ function assertTestBuild(cfg, buildId, result) {
 
 function assertNoteText(text) {
   if (typeof text !== "string" || !text.trim() || text.length > 4000)
-    throw new Error("TestFlight notes must contain 1–4000 characters.");
+    throw new Error("TestFlight notes must contain 1â€“4000 characters.");
 }
 
 function readConfig() {
@@ -154,7 +154,7 @@ export function makeClient(
       cfg.version !== TEST_VERSION ||
       cfg.buildNumber !== TEST_BUILD_NUMBER
     )
-      throw new Error("Notes require the exact 2.3.2 / 51 test build.");
+      throw new Error("Notes require the exact 2.3.2 / 52 test build.");
     assertNoteText(notes.text);
   }
   let notesBuildVerified = false;
@@ -467,7 +467,7 @@ export async function setNotes(asc, cfg, opts) {
     !opts.buildId ||
     !ID.test(opts.buildId)
   )
-    throw new Error("Notes are restricted to the exact app.json 2.3.2 / 51 test build.");
+    throw new Error("Notes are restricted to the exact app.json 2.3.2 / 52 test build.");
   assertNoteText(opts.text);
   const [app, result] = await Promise.all([
     asc("GET", `/apps/${cfg.appId}?fields[apps]=bundleId`),

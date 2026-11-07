@@ -1,7 +1,8 @@
-Kaata 2.3.2 testing build 51
+Kaata 2.3.2 testing build 52
 
-- In Members > Add member, search for a Kaata user by name, username or full phone number. Choose Editor, Clerk or Viewer, then confirm the person and role before sending.
-- Check the recipient's existing inbox. Review the Kaata and role, then accept or decline. An invitation alone must not grant access or create a financial contact.
-- Switch accounts or Kaatas while searching, sending or reviewing. Old results and invitations must disappear. Check duplicate taps, offline retry and declined invitations across devices.
-- Check that existing members cannot be invited again and ordinary invitation links still work. Owners and admins can invite; other member roles cannot.
-- Recheck Home/Add person search, discovery opt-out and Ninja privacy. Check member invitations in English, Dari and Pashto.
+- Open a person's profile from existing search, send a friend request, then accept or decline it from the recipient's inbox. Friendship must not create financial contacts, share tallies or grant Kaata access.
+- Check Friends, outgoing request cancellation, duplicate taps, removal and the same statuses on another device. Both people must agree before appearing as friends.
+- From a profile, separately share a tally or invite the person to the named current Kaata. Keep contact selection, sharing rules and member role confirmation. Pending requests should be clear; returning from a member invitation should reopen the profile.
+- Verify existing shared tallies open correctly and member invitations still require an owner or admin. Review and accept tally/member invitations separately from friendship.
+- Check account/Kaata switching, offline failures and retries. Old profile results must disappear after an account change. Discovery opt-out should keep established friends reachable without publishing their profile in search.
+- Check existing invitation links, Ninja privacy, and English, Dari and Pashto layouts.
