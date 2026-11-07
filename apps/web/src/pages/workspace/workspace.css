@@ -223,10 +223,16 @@
   justify-content: space-between;
   gap: 16px;
 }
-.workspace-header p {
+.workspace-header-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-bottom: 7px;
+}
+.workspace-header-kicker p {
   color: #737373;
   font-size: 12px;
-  margin-bottom: 7px;
 }
 .workspace-header h1 {
   font-size: 29px;

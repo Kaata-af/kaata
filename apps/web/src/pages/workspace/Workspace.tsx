@@ -46,7 +46,7 @@ import { CurrencyPicker, CurrencySettings, EnabledCurrencies } from "./CurrencyS
 import { EntryCalculator } from "./EntryCalculator";
 import { EntryHistory } from "./EntryHistory";
 import { PersonNotePanel } from "./PersonNotePanel";
-import { refreshWebProDisplays, WebProBanner } from "./WebPro";
+import { refreshWebProDisplays, useWebProStatus, WebProBanner, WebProHeaderLink } from "./WebPro";
 import { MobileAppPrompt } from "./MobileAppPrompt";
 import { WebProfilePanel } from "./WebProfile";
 import { webProfileCopy } from "./web-profile-copy";
@@ -90,6 +90,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
     lang
   ];
   const toast = useToast();
+  const { status: proStatus, failed: proStatusFailed } = useWebProStatus(session);
   const [vaults, setVaults] = useState<WebVault[]>([]);
   const [vaultID, setVaultID] = useState("");
   const [ledger, setLedger] = useState<WebLedger | null>(null);
@@ -528,7 +529,10 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
       <main className="workspace-main">
         <header className="workspace-header">
           <div>
-            <p>{c.web}</p>
+            <div className="workspace-header-kicker">
+              <p>{c.web}</p>
+              <WebProHeaderLink status={proStatus} failed={proStatusFailed} />
+            </div>
             <h1>{ledger?.name || c.kaatas}</h1>
           </div>
           <div className="workspace-header-actions">
@@ -569,7 +573,7 @@ export default function LedgerWorkspace({ session }: { session: WebSession }) {
         </header>
         <MobileAppPrompt />
         <WebProfilePanel open={profileOpen} onClose={() => setProfileOpen(false)} online={online} />
-        <WebProBanner session={session} />
+        <WebProBanner status={proStatus} />
         {!online && <Notice>{c.offline}</Notice>}
         {error && <Notice error>{loadMessage}</Notice>}
         {pending && (

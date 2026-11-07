@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { BrandLogo } from "../../components/BrandLogo";
+import { Button } from "../../components/ui/button";
 import { SelectField } from "../../components/ui/select-field";
 import { useI18n, type Lang } from "../../lib/i18n";
 import { WebApiError, type WebSession } from "../../lib/web-auth";
@@ -32,6 +33,7 @@ const copies = {
     name: "Kaata Pro",
     trial: "Free trial",
     active: "Pro active",
+    badge: "Pro",
     subscribe: "Subscribe",
     manage: "Your subscription",
     trialBody: "All web features are available during the free trial.",
@@ -93,6 +95,7 @@ const copies = {
     name: "کاتا پرو",
     trial: "دورۀ آزمایشی رایگان",
     active: "پرو فعال است",
+    badge: "پرو",
     subscribe: "خرید اشتراک",
     manage: "اشتراک شما",
     trialBody: "در دورۀ آزمایشی رایگان، همۀ امکانات وب در دسترس شما است.",
@@ -153,6 +156,7 @@ const copies = {
     name: "کاتا پرو",
     trial: "وړیا ازمایښتي دوره",
     active: "پرو فعال دی",
+    badge: "پرو",
     subscribe: "ګډون واخلئ",
     manage: "ستاسو ګډون",
     trialBody: "د وړیا ازمایښتي دورې پر مهال د وېب ټولې اسانتیاوې شته.",
@@ -216,7 +220,7 @@ function expiresAt(value: string, lang: Lang) {
     new Date(value),
   );
 }
-function useWebProStatus(session: WebSession) {
+export function useWebProStatus(session: WebSession) {
   const [status, setStatus] = useState<WebProStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -254,23 +258,52 @@ function useWebProStatus(session: WebSession) {
   return { status, loading, failed, refresh };
 }
 
-export function WebProBanner({ session }: { session: WebSession }) {
+export function WebProHeaderLink({
+  status,
+  failed,
+}: {
+  status: WebProStatus | null;
+  failed: boolean;
+}) {
   const { lang } = useI18n();
   const c = copies[lang];
-  const { status } = useWebProStatus(session);
   const active = status?.status === "active";
+  if (!active && (status || !failed)) return null;
+
+  return (
+    <Button
+      asChild
+      size="sm"
+      variant={active ? "outline" : "link"}
+      className={
+        active
+          ? "h-6 shrink-0 rounded-full border-emerald-200 bg-emerald-50 px-2 text-[11px] font-semibold text-emerald-800 shadow-none hover:bg-emerald-100 hover:text-emerald-900"
+          : "h-6 shrink-0 px-0 text-[11px]"
+      }
+    >
+      <Link
+        to={WEB_ROUTES.subscription}
+        aria-label={active ? `${c.name} · ${c.manage}` : undefined}
+      >
+        {active ? c.badge : c.manage}
+      </Link>
+    </Button>
+  );
+}
+
+export function WebProBanner({ status }: { status: WebProStatus | null }) {
+  const { lang } = useI18n();
+  const c = copies[lang];
+  if (status?.status !== "trial") return null;
+
   return (
     <section className="web-pro-banner" aria-label={c.name}>
       <div>
         <strong>{c.name}</strong>
-        <span className="web-pro-badge">{active ? c.active : c.trial}</span>
-        <p>
-          {active && status.subscription_expires_at
-            ? c.expires.replace("{date}", expiresAt(status.subscription_expires_at, lang))
-            : c.trialBody}
-        </p>
+        <span className="web-pro-badge">{c.trial}</span>
+        <p>{c.trialBody}</p>
       </div>
-      <Link to={WEB_ROUTES.subscription}>{active ? c.manage : c.subscribe}</Link>
+      <Link to={WEB_ROUTES.subscription}>{c.subscribe}</Link>
       <p className="web-pro-mobile-note">{c.mobileFree}</p>
     </section>
   );
