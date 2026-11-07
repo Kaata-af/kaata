@@ -41,6 +41,11 @@ react.useSyncExternalStore = (
 let vault: string | null = "vault-a";
 let account = "account-a";
 let signedIn = true;
+let homeFocused = true;
+let homeFocusEpoch = 0;
+let appState = "active";
+let backClock = 10_000;
+const backHandlers = new Set<() => boolean>();
 let selectedCurrency = "AFN";
 let fixtureRTL = false;
 let writeCaps = { resolved: false, canCreate: true, canAmend: true };
@@ -198,8 +203,18 @@ const native = {
   RefreshControl: "RefreshControl",
   KeyboardAvoidingView: "KeyboardAvoidingView",
   StyleSheet: { create: (styles: any) => styles, hairlineWidth: 1, absoluteFill: {} },
-  AppState: { addEventListener: () => ({ remove: noop }) },
-  BackHandler: { addEventListener: () => ({ remove: noop }) },
+  AppState: {
+    get currentState() {
+      return appState;
+    },
+    addEventListener: () => ({ remove: noop }),
+  },
+  BackHandler: {
+    addEventListener: (_event: string, callback: () => boolean) => {
+      backHandlers.add(callback);
+      return { remove: () => backHandlers.delete(callback) };
+    },
+  },
   Keyboard: {
     dismiss: () => {
       keyboardDismissals++;
@@ -252,7 +267,8 @@ const mocks: Record<string, any> = {
     Redirect: "Redirect",
     useRouter: () => router,
     useLocalSearchParams: () => ({}),
-    useFocusEffect: (work: () => any) => react.useEffect(work, [work]),
+    useFocusEffect: (work: () => any) =>
+      react.useEffect(() => (homeFocused ? work() : undefined), [work, homeFocusEpoch]),
   },
   "../lib/use-search-focus-effect": {
     useSearchFocusEffect: (work: () => any) => react.useEffect(work, [work]),
@@ -484,7 +500,10 @@ Object.defineProperty(mocks, "../lib/mesh", {
     return meshImportPending?.promise ?? meshMock;
   },
 });
-const Home = compileUI("../../app/index", mocks, { __DEV__: false }).default;
+const Home = compileUI("../../app/index", mocks, {
+  __DEV__: false,
+  Date: { now: () => backClock },
+}).default;
 
 // Home-local list components are real; imported visual components remain opaque.
 let pageHooks: { key: string | undefined; hooks: ReturnType<typeof uiHooks> } | undefined;
@@ -1077,6 +1096,206 @@ async function settledHomeAccounts() {
   await reload();
   await flush();
   assert.deepEqual(ids(), ["a", "b", "c"]);
+}
+
+async function homeBackSearch() {
+  const oldPlatform = native.Platform.OS;
+  native.Platform.OS = "android";
+  const focusHome = async (focused: boolean) => {
+    homeFocused = focused;
+    homeFocusEpoch++;
+    render();
+    await flush();
+  };
+  await focusHome(false);
+  assert.equal(backHandlers.size, 0, "Home releases Back while another screen is focused");
+  await focusHome(true);
+  assert.equal(backHandlers.size, 1);
+  const back = () => [...backHandlers][0]();
+  const setQuery = (query: string) => {
+    input().props.onChangeText(query);
+    render();
+  };
+  const closeFilters = () => {
+    homeNodes()
+      .find((node) => node.type === "HomeFilterPopover")
+      ?.props.onDismiss();
+    render();
+  };
+  const previousPreference = { ...options().props.preference };
+  options().props.onChange({
+    ...previousPreference,
+    sort: "name_desc",
+    group: ["g"],
+    direction: "collect",
+  });
+  render();
+  closeFilters();
+  const preferenceKey = `customer_home:${account}:${vault}`;
+  await settleUI();
+  const savedPreference = metadata.get(preferenceKey);
+  const beforeBackNavigation = navigations.length;
+  const beforeBackToasts = toasts.length;
+  const retainedBack = [...backHandlers][0];
+  setQuery("Cyrus");
+  openSearch();
+  const beforeBackDismissal = keyboardDismissals;
+  assert.equal(retainedBack(), true, "Home consumes Back to leave a nonempty search");
+  render();
+  assert.equal(input().props.value, "");
+  assert.equal(nativeSearchFocused, false);
+  assert.ok(keyboardDismissals > beforeBackDismissal);
+  emitKeyboard("keyboardDidHide");
+  render();
+  assert.equal(toasts.length, beforeBackToasts, "clearing search does not display the exit hint");
+  assert.equal(navigations.length, beforeBackNavigation);
+  assert.equal(
+    metadata.get(preferenceKey),
+    savedPreference,
+    "Back clears only text, retaining sort/group/direction preferences",
+  );
+
+  setQuery("   ");
+  assert.equal(retainedBack(), true, "even whitespace is content in the search field");
+  render();
+  assert.equal(input().props.value, "");
+  assert.equal(toasts.length, beforeBackToasts);
+  assert.equal(back(), true);
+  assert.equal(toasts.at(-1)?.message, "home.exit.hint");
+  const exitHints = toasts.length;
+  backClock += 100;
+  setQuery("Cyrus");
+  assert.equal(back(), true);
+  render();
+  assert.equal(input().props.value, "");
+  assert.equal(toasts.length, exitHints);
+  backClock += 100;
+  assert.equal(back(), true, "clearing a query resets an earlier double-back exit window");
+  backClock += 100;
+  assert.equal(back(), false, "empty Home still exits on a second Back within the window");
+
+  setQuery("Cyrus");
+  options();
+  const beforeFiltersBack = toasts.length;
+  assert.equal(back(), false, "the filter popup keeps precedence over Home's query/exit handler");
+  render();
+  assert.equal(input().props.value, "Cyrus");
+  assert.equal(toasts.length, beforeFiltersBack);
+  closeFilters();
+  emitKeyboard("keyboardDidHide");
+  render();
+
+  // Android can consume Back inside the IME before JavaScript receives Back.
+  openSearch();
+  const beforeImeBack = toasts.length;
+  assert.equal(nativeSearchFocused, true);
+  emitKeyboard("keyboardDidHide");
+  render();
+  assert.equal(
+    input().props.value,
+    "",
+    "a native-focused Android keyboard dismissal clears Home search",
+  );
+  assert.equal(toasts.length, beforeImeBack);
+  assert.equal(navigations.length, beforeBackNavigation);
+  for (const method of ["hide", "submit"] as const) {
+    setQuery("Cyrus");
+    openSearch();
+    if (method === "hide")
+      homeNodes()
+        .find((node) => node.props.accessibilityLabel === "common.hideKeyboard")!
+        .props.onPress();
+    else input().props.onSubmitEditing();
+    assert.equal(nativeSearchFocused, false);
+    emitKeyboard("keyboardDidHide");
+    render();
+    assert.equal(
+      input().props.value,
+      "Cyrus",
+      `${method} explicitly hides the keyboard without clearing search`,
+    );
+  }
+  openSearch();
+  input().props.onSubmitEditing();
+  input().props.ref.current.focus();
+  input().props.onFocus();
+  render();
+  emitKeyboard("keyboardDidHide");
+  render();
+  assert.equal(
+    input().props.value,
+    "Cyrus",
+    "a delayed explicit hide does not clear a refocused query",
+  );
+  openSearch();
+  appState = "background";
+  emitKeyboard("keyboardDidHide");
+  render();
+  assert.equal(
+    input().props.value,
+    "Cyrus",
+    "background keyboard dismissal is not a search Back action",
+  );
+  appState = "active";
+
+  options().props.onChange({ ...customerList.DEFAULT_CUSTOMER_LIST });
+  render();
+  closeFilters();
+  setQuery("");
+  startFromContactMenu();
+  setQuery("Ahmad");
+  const confirmation = askRemove();
+  const beforeConfirmationBack = toasts.length;
+  back();
+  render();
+  assert.equal(
+    input().props.value,
+    "Ahmad",
+    "Home cannot clear search behind a removal confirmation",
+  );
+  assert.equal(toasts.length, beforeConfirmationBack);
+  confirmation.onCancel();
+  toolbar().props.onClose();
+  render();
+
+  await focusHome(false);
+  await focusHome(true);
+  assert.equal(input().props.value, "Ahmad", "an unrelated focus return does not discard search");
+  const contact = homeRows()[0];
+  contact.props.onPress(contact.props.person);
+  assert.deepEqual(navigations.at(-1), {
+    pathname: "/person/[id]",
+    params: { id: contact.props.person.id },
+  });
+  await focusHome(false);
+  await focusHome(true);
+  assert.equal(
+    input().props.value,
+    "",
+    "returning from a searched local contact resets the Home query",
+  );
+  setQuery("John");
+  renderedPage!.props.discovery.props.onSelect({ account_id: "directory-account", name: "John" });
+  assert.deepEqual(navigations.at(-1), {
+    pathname: "/people/[accountId]",
+    params: { accountId: "directory-account" },
+  });
+  await focusHome(false);
+  await focusHome(true);
+  assert.equal(
+    input().props.value,
+    "",
+    "returning from a searched Kaata profile resets the Home query",
+  );
+  options().props.onChange(previousPreference);
+  render();
+  closeFilters();
+  input().props.onSubmitEditing();
+  emitKeyboard("keyboardDidHide");
+  render();
+  native.Platform.OS = oldPlatform;
+  await focusHome(false);
+  await focusHome(true);
 }
 
 async function main() {
@@ -2818,6 +3037,7 @@ async function main() {
   writeCaps = originalCaps;
   await reload();
   await flush();
+  await homeBackSearch();
   const oldRow = homeRows()[0];
   const lateRead = blockNextListRead();
   const lateRefresh = reload();
@@ -2825,6 +3045,7 @@ async function main() {
   const unmountedShow = [...keyboardListeners.get("keyboardWillShow")!][0];
   const unmountedHide = [...keyboardListeners.get("keyboardDidHide")!][0];
   hooks.unmount();
+  assert.equal(backHandlers.size, 0, "unmounted Home removes its hardware Back listener");
   const writesAfterCleanup = hooks.lateWrites;
   const navigationsAfterCleanup = navigations.length;
   oldRow.props.onPress(oldRow.props.person);
@@ -2846,7 +3067,7 @@ async function main() {
     "Late row callbacks and reads cannot update unmounted Home",
   );
   console.log(
-    "PASS home selection: signed-in Friends shortcut and stale/duplicate/selection guards, one mixed list and simultaneous totals, settled accounts disclosure/search/scoped selection, full-source currency classification, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query counts and unique direction-filter counts opposite Clear in LTR/RTL, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
+    "PASS home selection: hardware/IME Back clears search, explicit dismissal preserves it, searched-contact/profile return and exit timer guards, signed-in Friends shortcut and stale/duplicate/selection guards, one mixed list and simultaneous totals, settled accounts disclosure/search/scoped selection, full-source currency classification, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query counts and unique direction-filter counts opposite Clear in LTR/RTL, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
   );
 }
 void main();
