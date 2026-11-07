@@ -6,13 +6,13 @@ import { readFileSync } from "node:fs";
 import { enableBuild, makeClient, parseArgs, setNotes, status } from "./asc-testflight.mjs";
 
 const APP_ID = "6789651127";
-const BUILD_ID = "test-build-50";
+const BUILD_ID = "test-build-51";
 const GROUP_ID = "fcb33597-43b6-42ba-8582-b85d26fc3895";
 const cfg = {
   appId: APP_ID,
   bundleId: "af.kaata.app",
   version: "2.3.2",
-  buildNumber: "50",
+  buildNumber: "51",
   exemptEncryption: true,
 };
 const opts = {
@@ -38,7 +38,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     type: "builds",
     id: BUILD_ID,
     attributes: {
-      version: "50",
+      version: "51",
       processingState: "VALID",
       expired: false,
       usesNonExemptEncryption: false,
@@ -72,7 +72,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     assert.equal(url.origin, "https://api.appstoreconnect.apple.com");
     assert.equal(init.redirect, "error");
     if (init.method === "POST" && route === "/betaBuildLocalizations") {
-      const localization = { ...body.data, id: "english-notes-50" };
+      const localization = { ...body.data, id: "english-notes-51" };
       localizations.push(localization);
       return Response.json({ data: localization }, { status: 201 });
     }
@@ -138,7 +138,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
       return Response.json({
         data: {
           type: "buildBetaDetails",
-          id: "detail-50",
+          id: "detail-51",
           attributes: {
             internalBuildState: state,
             externalBuildState: "READY_FOR_BETA_SUBMISSION",
@@ -286,7 +286,8 @@ test("enable refuses a different local build number or a different internal grou
     "47",
     "48",
     "49",
-    "51",
+    "50",
+    "52",
     "",
     "forty",
   ]) {
@@ -413,7 +414,7 @@ test("notes creates only English beta metadata for the verified test build, pres
     ],
   );
   assert.equal(result.locale, "en-US");
-  assert.equal(result.localizationId, "english-notes-50");
+  assert.equal(result.localizationId, "english-notes-51");
   assert.equal(result.characters, notes.text.length);
   assert.equal(result.changed, true);
   assert.equal(result.production.versions[0].buildId, "production-build-39");
@@ -423,7 +424,7 @@ test("notes creates only English beta metadata for the verified test build, pres
 test("notes updates only the exact build's existing English localization and is idempotent", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-50",
+    id: "english-notes-51",
     attributes: { locale: "en-US", whatsNew: "Old test notes" },
   };
   const otherLocale = {
@@ -438,11 +439,11 @@ test("notes updates only the exact build's existing English localization and is 
     [
       {
         method: "PATCH",
-        route: "/betaBuildLocalizations/english-notes-50",
+        route: "/betaBuildLocalizations/english-notes-51",
         body: {
           data: {
             type: "betaBuildLocalizations",
-            id: "english-notes-50",
+            id: "english-notes-51",
             attributes: { whatsNew: notes.text },
           },
         },
@@ -495,13 +496,13 @@ test("notes capability cannot be granted to another local version or build", () 
     { ...cfg, buildNumber: "39" },
     { ...cfg, buildNumber: "41" },
   ])
-    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.2 \/ 50/);
+    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.2 \/ 51/);
 });
 
 test("notes capability requires preflight and blocks unrelated IDs, changed payloads and App Store metadata", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-50",
+    id: "english-notes-51",
     attributes: { locale: "en-US", whatsNew: "Old" },
   };
   const { asc, calls } = fixture({ localizations: [english] }, null, notes);

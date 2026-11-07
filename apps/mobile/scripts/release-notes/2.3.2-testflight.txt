@@ -1,7 +1,7 @@
-Kaata 2.3.2 testing build 50
+Kaata 2.3.2 testing build 51
 
-- Search by name, surname, username or full phone number from the existing Home search and Add person screen. Saved contacts should appear first, followed by matching people on Kaata.
-- Send an invitation inside Kaata, then check the recipient's inbox and accept or decline it. Accepting should use the existing shared-account setup without a copied link.
-- Discovery is on by default for accounts. Turn off Let people find me in Account settings and check that the account disappears from searches and stays hidden after signing in again.
-- Ninja-mode profiles should not appear in people search. Search results should never show a phone number, email address or ledger details.
-- Check loading, empty results, offline errors and the discovery controls in English, Dari and Pashto.
+- In Members > Add member, search for a Kaata user by name, username or full phone number. Choose Editor, Clerk or Viewer, then confirm the person and role before sending.
+- Check the recipient's existing inbox. Review the Kaata and role, then accept or decline. An invitation alone must not grant access or create a financial contact.
+- Switch accounts or Kaatas while searching, sending or reviewing. Old results and invitations must disappear. Check duplicate taps, offline retry and declined invitations across devices.
+- Check that existing members cannot be invited again and ordinary invitation links still work. Owners and admins can invite; other member roles cannot.
+- Recheck Home/Add person search, discovery opt-out and Ninja privacy. Check member invitations in English, Dari and Pashto.
