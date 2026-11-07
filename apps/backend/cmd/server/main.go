@@ -503,6 +503,15 @@ func main() {
 		pr.With(httpx.RateLimitPerIP(30, time.Minute)).Post("/v1/admin/users/{account_id}/pro", webProH.AdminRecordPayment)
 		pr.With(httpx.RateLimitPerIP(30, time.Minute)).Post("/v1/admin/users/{account_id}/pro/grants", webProH.AdminGrant)
 		pr.With(httpx.RateLimitPerIP(30, time.Minute)).Post("/v1/admin/users/{account_id}/pro/grants/{grant_id}/revoke", webProH.AdminRevokeGrant)
+		pr.Get("/v1/admin/users/{account_id}/pro/invoices", webProH.AdminListInvoices)
+		pr.Get("/v1/admin/users/{account_id}/pro/payments", webProH.AdminListBillingPayments)
+		pr.Group(func(billing chi.Router) {
+			billing.Use(httpx.RateLimitPerIP(30, time.Minute))
+			billing.Post("/v1/admin/users/{account_id}/pro/invoices", webProH.AdminIssueInvoice)
+			billing.Post("/v1/admin/users/{account_id}/pro/invoices/{invoice_id}/apply-payment", webProH.AdminApplyInvoicePayment)
+			billing.Post("/v1/admin/users/{account_id}/pro/invoices/{invoice_id}/void", webProH.AdminVoidInvoice)
+			billing.Post("/v1/admin/users/{account_id}/pro/receipts", webProH.AdminIssueReceipt)
+		})
 		// Operator outreach: the numbers list plus hand-ticked sent/replied/
 		// status/note state, per-contact outcomes (opened / sent / not on
 		// WhatsApp / invalid / skip / retry, version-checked), source

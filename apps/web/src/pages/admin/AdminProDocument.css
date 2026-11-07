@@ -1,0 +1,87 @@
+.kaata-pro-document {
+  color: #18241d;
+  background: white;
+  border: 1px solid #dae3db;
+  border-radius: 12px;
+  padding: clamp(1rem, 4vw, 1.75rem);
+  overflow-wrap: anywhere;
+}
+.kaata-pro-document header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.8rem;
+}
+.kaata-pro-document header strong {
+  font-size: 1.5rem;
+}
+.kaata-pro-document-state {
+  display: inline-block;
+  border: 1px solid #dae3db;
+  border-radius: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  font-weight: 600;
+}
+.kaata-pro-document h2 {
+  margin-top: 1.3rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+.kaata-pro-document-number {
+  color: #43564a;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+.kaata-pro-document dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: 0.8rem;
+  margin: 1.25rem 0;
+  font-size: 0.85rem;
+}
+.kaata-pro-document dt {
+  font-weight: 600;
+}
+.kaata-pro-document table {
+  width: 100%;
+  font-size: 0.85rem;
+}
+.kaata-pro-document :is(td, th) {
+  padding: 0.55rem 0;
+  border-bottom: 1px solid #dae3db;
+  text-align: start;
+}
+.kaata-pro-document :is(td, th):last-child {
+  text-align: end;
+  white-space: nowrap;
+}
+.kaata-pro-document-total {
+  margin-top: 0.75rem;
+  text-align: end;
+  font-size: 0.85rem;
+}
+.kaata-pro-document-total strong {
+  margin-inline-start: 0.5rem;
+}
+.kaata-pro-print {
+  display: none;
+}
+
+@media print {
+  body:has(> .kaata-pro-print) > :not(.kaata-pro-print),
+  body:has(> .kaata-pro-print) dialog::backdrop {
+    display: none !important;
+  }
+  body:has(> .kaata-pro-print) {
+    margin: 0;
+    background: white;
+  }
+  .kaata-pro-print {
+    display: block;
+  }
+  .kaata-pro-print .kaata-pro-document {
+    margin: 0 auto;
+    max-width: 45rem;
+    break-inside: avoid;
+  }
+}

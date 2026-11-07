@@ -27,6 +27,7 @@ export type AdminProStatus = {
   manual_grant: AdminProGrant | null;
   grant_history: AdminProGrant[];
   grants_available: boolean;
+  billing_documents_available?: true;
   plans: WebProPlan[];
   pending_checkout: boolean;
   payments: AdminProPayment[];
@@ -182,6 +183,7 @@ export async function getAdminProStatus(
       ? value.grant_history.map(parseAdminProGrant)
       : [],
     grants_available: grantsAvailable,
+    ...(value.billing_documents_available === true ? { billing_documents_available: true } : {}),
     plans,
     pending_checkout: value.pending_checkout,
     payments: value.payments.map(parseAdminProPayment),

@@ -6,6 +6,7 @@ import { SelectField } from "../../components/ui/select-field";
 import type { WebProPlan } from "../../lib/web-pro";
 import { useAdminToken } from "./api";
 import { AdminProGrants } from "./AdminProGrants";
+import { AdminProInvoices } from "./AdminProInvoices";
 import {
   AdminProPaymentError,
   adminProKey,
@@ -92,7 +93,7 @@ export function AdminProPayments({
         if (error.kind === "conflict") setUncertain(false);
       }
     },
-    onSettled: () => client.invalidateQueries({ queryKey: key, exact: true }),
+    onSettled: () => client.invalidateQueries({ queryKey: key }),
   });
 
   useEffect(() => {
@@ -394,6 +395,9 @@ export function AdminProPayments({
             <p className="mt-1 text-xs text-brand-muted">No payments recorded.</p>
           )}
         </div>
+      )}
+      {data?.billing_documents_available && (
+        <AdminProInvoices accountID={accountID} accountName={accountName} plans={data.plans} />
       )}
     </section>
   );

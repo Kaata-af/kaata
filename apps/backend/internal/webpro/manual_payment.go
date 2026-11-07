@@ -18,6 +18,7 @@ type AdminSubscription struct {
 	PaidExpiresAt         *time.Time     `json:"paid_expires_at"`
 	ManualGrant           *ManualGrant   `json:"manual_grant"`
 	GrantHistory          []ManualGrant  `json:"grant_history"`
+	BillingDocuments      bool           `json:"billing_documents_available"`
 	Plans                 []Plan         `json:"plans"`
 	PendingCheckout       bool           `json:"pending_checkout"`
 	Payments              []AdminPayment `json:"payments"`
@@ -75,7 +76,7 @@ func (s *Service) AdminSubscription(ctx context.Context, accountID string) (Admi
 	}
 	defer tx.Rollback(ctx)
 
-	out := AdminSubscription{Payments: []AdminPayment{}}
+	out := AdminSubscription{BillingDocuments: true, Payments: []AdminPayment{}}
 	// An expired checkout link can still have a late payment, so keep the
 	// warning until there are no unconfirmed provider orders.
 	err = tx.QueryRow(ctx, `
