@@ -60,3 +60,22 @@ and stale session, account, route and vault changes. Existing people discovery,
 membership invitation, profile settings and contact regressions cover older
 flows. Backend tests use isolated PostgreSQL for pair authorization,
 concurrency, lifecycle, search privacy, and the selected Kaata summary.
+
+## Two-account device check
+
+Use two updated tester accounts and a test Kaata. Open the second account's
+profile from ordinary search and send a friend request. On the recipient's
+phone, open it from **Friend requests** in the existing inbox, then accept it.
+Confirm that both accounts see the friendship and that no tally or membership
+was created.
+
+From that profile, send **Share a tally** and **Invite to Kaata** as separate
+requests. Verify that the recipient can review each in its own inbox section,
+that the tally preview asks for the correct contact and sharing choices, and
+that the member preview names the test Kaata and selected role. Accept each
+independently. Removing the friendship should leave the joined tally and role
+in place. With discovery off, the former friend should no longer see the
+account under **People on Kaata**.
+
+The feature is available in Android internal build 87 and iOS TestFlight
+build 52. See the [private testing release](2.3.2-people-profiles-testing.md).
