@@ -4,11 +4,22 @@ import { applyForCurrentSession, captureCurrentSession } from "./auth";
 import { getDb } from "./db-tx";
 import { isPlaceholderSelfName, t } from "./i18n";
 import { ApiError, listVaults } from "./vault-api";
+import type { VaultRole } from "./events";
 
 const requests = new Map<string, number>();
 
+/** Display-only evidence of accepted server memberships. Never an ACL or chain admission. */
+export type MemberRosterSnapshot = {
+  vaultId: string;
+  viewerAccountId: string;
+  members: { account_id: string; role: VaultRole; display_name: string | null }[];
+};
+
 /** Refresh only cosmetic identity data. Never creates or changes membership. */
-export async function refreshMemberProfiles(vaultId: string): Promise<boolean> {
+export async function refreshMemberProfiles(
+  vaultId: string,
+  onRoster?: (snapshot: MemberRosterSnapshot) => void,
+): Promise<boolean> {
   const session = await captureCurrentSession();
   if (!vaultId || !session.accountId || !session.jwt) return false;
   const viewer = session.accountId;
@@ -18,7 +29,7 @@ export async function refreshMemberProfiles(vaultId: string): Promise<boolean> {
   const current = () => requests.get(key) === request;
 
   try {
-    const listing = (await listVaults()).find((v) => v.vault_id === vaultId);
+    const listing = (await listVaults(session)).find((v) => v.vault_id === vaultId);
     return await applyForCurrentSession(session, async () => {
       if (!current()) return false;
       // Older backends omit members. Preserve usable offline data until a
@@ -84,6 +95,31 @@ export async function refreshMemberProfiles(vaultId: string): Promise<boolean> {
           applied = true;
         }),
       );
+      if (applied && current() && onRoster) {
+        const seen = new Set<string>();
+        onRoster({
+          vaultId,
+          viewerAccountId: viewer,
+          members: (listing?.members ?? []).flatMap((member) => {
+            if (
+              !member ||
+              typeof member.account_id !== "string" ||
+              !member.account_id ||
+              seen.has(member.account_id) ||
+              !["owner", "manager", "editor", "clerk", "viewer"].includes(member.role)
+            )
+              return [];
+            seen.add(member.account_id);
+            return [
+              {
+                account_id: member.account_id,
+                role: member.role as VaultRole,
+                display_name: realName(member.name),
+              },
+            ];
+          }),
+        });
+      }
       return applied;
     });
   } catch (err) {
@@ -102,6 +138,7 @@ export async function refreshMemberProfiles(vaultId: string): Promise<boolean> {
             vaultId,
           ),
         );
+        if (current()) onRoster?.({ vaultId, viewerAccountId: viewer, members: [] });
       });
     }
     throw err;

@@ -35,6 +35,8 @@ async function fixture() {
     CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT);
     CREATE TABLE pending_invitations(token TEXT,accepted_at INTEGER,declined_at INTEGER);
     CREATE TABLE vaults(id TEXT PRIMARY KEY,vault_trust_anchor_pubkey TEXT,archived_at INTEGER);
+    CREATE TABLE vault_members_mirror(vault_id TEXT,account_id TEXT,role TEXT,
+      accepted_at INTEGER,revoked_at INTEGER,display_name TEXT);
     CREATE TABLE event_log(event_id TEXT PRIMARY KEY,event_type TEXT,vault_id TEXT,target_id TEXT,
       relationship_id TEXT,hlc_physical_ms INTEGER,hlc_logical INTEGER,hlc_device_id TEXT,
       device_id TEXT,actor_account_id TEXT,payload_json TEXT,payload_schema INTEGER,event_sig_b64 TEXT,
@@ -49,7 +51,8 @@ async function fixture() {
     attempts = 0,
     offline = false,
     refuse = false,
-    nextWitnessStatus = 0;
+    nextWitnessStatus = 0,
+    omitMemberWitness = false;
   let tail = Promise.resolve();
   const calls: string[] = [];
   class SessionChangedError extends Error {}
@@ -220,20 +223,22 @@ async function fixture() {
       ).toString("base64");
     return {
       server_key_id: "key",
-      member_witness: {
-        role: "viewer",
-        inviter_account_id: "owner",
-        issued_at_ms: now,
-        sig_b64: sig(
-          chain.memberWitnessTuple({
-            vault_id: "vault",
-            account_id: "peer",
-            inviter_account_id: "owner",
+      member_witness: omitMemberWitness
+        ? null
+        : {
             role: "viewer",
+            inviter_account_id: "owner",
             issued_at_ms: now,
-          }),
-        ),
-      },
+            sig_b64: sig(
+              chain.memberWitnessTuple({
+                vault_id: "vault",
+                account_id: "peer",
+                inviter_account_id: "owner",
+                role: "viewer",
+                issued_at_ms: now,
+              }),
+            ),
+          },
       device_witness: {
         issued_at_ms: now,
         sig_b64: sig(
@@ -381,6 +386,31 @@ async function fixture() {
     session,
     SessionChangedError,
     append,
+    omitMemberWitness: (omit = true) => {
+      omitMemberWitness = omit;
+    },
+    seedPrematureDevice: async (acked = true) => {
+      const response = witness();
+      await append(
+        {
+          event_id: "premature-device",
+          event_type: "vault_device_added",
+          vault_id: "vault",
+          target_id: "peer-device",
+          device_id: "peer-device",
+          actor_account_id: "peer",
+          payload_schema: 1,
+          payload: {
+            account_id: "peer",
+            device_id: "peer-device",
+            device_pubkey: peerKey,
+            witness: { ...response.device_witness, server_key_id: response.server_key_id },
+          },
+        },
+        peerSeed,
+        acked,
+      );
+    },
     witnessStatus: (status: number) => {
       nextWitnessStatus = status;
     },
@@ -441,6 +471,121 @@ async function main() {
     healthy.attempts(),
     1,
     "already-published proof completes offline without new witness",
+  );
+
+  const missingMember = await fixture();
+  await missingMember.api.acceptVaultInvite("v_11111111-1111-4111-8111-111111111111");
+  missingMember.omitMemberWitness();
+  await missingMember.backfill.ensureChainBackfill("vault");
+  assert.equal(await missingMember.getMeta("witness_emit_pending:vault"), "1");
+  assert.equal(
+    (missingMember.store.prepare("SELECT COUNT(*) n FROM event_log").get() as any).n,
+    1,
+    "a successful HTTP response without membership authority cannot emit a device admission",
+  );
+  assert.equal(
+    await missingMember.backfill.isSelfAdmissionPublished("vault", missingMember.session()),
+    false,
+  );
+  missingMember.omitMemberWitness(false);
+  missingMember.advance();
+  await missingMember.backfill.ensureChainBackfill("vault");
+  assert.equal(
+    await missingMember.getMeta("witness_emit_pending:vault"),
+    "1",
+    "repair still waits for publication",
+  );
+  assert.equal(
+    missingMember.calls.filter((call) => call.startsWith("post:")).length,
+    1,
+    "repair never consumes the accepted invitation again",
+  );
+  missingMember.ack();
+  missingMember.advance();
+  await missingMember.backfill.ensureChainBackfill("vault");
+  assert.equal(await missingMember.getMeta("witness_emit_pending:vault"), "");
+  assert.equal(
+    await missingMember.backfill.isSelfAdmissionPublished("vault", missingMember.session()),
+    true,
+  );
+
+  const stranded = await fixture();
+  await stranded.seedPrematureDevice();
+  const originalPremature = stranded.store
+    .prepare("SELECT * FROM event_log WHERE event_id='premature-device'")
+    .get();
+  assert.equal(
+    await stranded.backfill.isSelfAdmissionPublished("vault", stranded.session()),
+    false,
+    "a server-acked device event before membership is not a completed join",
+  );
+  await stranded.setMeta("witness_emit_pending:vault", "1");
+  await stranded.backfill.ensureChainBackfill("vault");
+  const repaired = await stranded.proof.getLocalMembershipState("vault");
+  assert.equal(repaired.members.get("peer").role, "viewer");
+  assert.equal(repaired.devices.get(peerKey).account_id, "peer");
+  assert.deepEqual(
+    stranded.store.prepare("SELECT * FROM event_log WHERE event_id='premature-device'").get(),
+    originalPremature,
+    "repair appends valid admissions without rewriting historical signed rows",
+  );
+  assert.equal(
+    await stranded.backfill.isSelfAdmissionPublished("vault", stranded.session()),
+    false,
+  );
+  stranded.ack();
+  stranded.advance();
+  await stranded.backfill.ensureChainBackfill("vault");
+  assert.equal(await stranded.backfill.isSelfAdmissionPublished("vault", stranded.session()), true);
+  assert.equal(await stranded.getMeta("witness_emit_pending:vault"), "");
+
+  const paired = await fixture();
+  await paired.append(
+    {
+      event_id: "qr-member",
+      event_type: "vault_member_added",
+      vault_id: "vault",
+      target_id: "peer",
+      device_id: "owner-device",
+      actor_account_id: "owner",
+      payload_schema: 1,
+      payload: { account_id: "peer", role: "viewer" },
+    },
+    ownerSeed,
+    true,
+  );
+  paired.omitMemberWitness();
+  await assert.rejects(paired.backfill.emitWitnessedSelfAdmission("vault"), /server confirmation/);
+  assert.equal(
+    (await paired.proof.getLocalMembershipState("vault")).devices.get(peerKey).account_id,
+    "peer",
+    "an owner-approved QR member can bind its device without an invitation witness",
+  );
+
+  const namedInviter = await fixture();
+  namedInviter.store
+    .prepare("INSERT INTO vault_members_mirror VALUES('vault','owner','manager',1,NULL,NULL)")
+    .run();
+  await assert.rejects(
+    namedInviter.backfill.emitWitnessedSelfAdmission("vault", { inviterName: "Manager" }),
+    /server confirmation/,
+  );
+  assert.deepEqual(
+    namedInviter.store
+      .prepare("SELECT role,display_name FROM vault_members_mirror WHERE account_id='owner'")
+      .get(),
+    { role: "manager", display_name: "Manager" },
+    "cosmetic inviter name preserves the known role",
+  );
+  const absentInviter = await fixture();
+  await assert.rejects(
+    absentInviter.backfill.emitWitnessedSelfAdmission("vault", { inviterName: "Inviter" }),
+    /server confirmation/,
+  );
+  assert.equal(
+    (absentInviter.store.prepare("SELECT COUNT(*) n FROM vault_members_mirror").get() as any).n,
+    0,
+    "an inviter name cannot manufacture an owner membership mirror",
   );
 
   const retry = await fixture();

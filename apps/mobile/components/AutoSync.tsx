@@ -11,13 +11,9 @@ import { startSyncScheduler } from "../lib/sync";
 // Reactive to (account_id, active_vault_id):
 //   - Signed out (account_id == null) → noop. Local-only installs
 //     must keep working with zero network traffic.
-//   - Signed in but no active vault yet → wait. A sign-in that
-//     completes before the active vault is cached would otherwise
-//     race the scheduler's first tick and cause syncOnce to no-op
-//     until the next 10s poll.
-//   - Both set → start the scheduler. If either changes (sign-out then
-//     sign-in as someone else, or default vault switched), the effect
-//     tears the old scheduler down and starts a fresh one.
+//   - Signed in → start the scheduler. The account-wide sweep can recover
+//     accepted invites even before there is a local vault to sync.
+//   - Account or active vault changes → restart the scheduler.
 //
 // Why this replaces the old AutoBackup component:
 //   - v0.4 fired POST /v1/backup/upload on AppState→background as a
@@ -63,7 +59,6 @@ export function AutoSync() {
 
   useEffect(() => {
     if (!accountId) return; // local-only mode — sync stays dormant
-    if (!vaultId) return; // no active vault yet — wait
     const stop = startSyncScheduler({ accountId });
     return stop;
   }, [accountId, vaultId]);

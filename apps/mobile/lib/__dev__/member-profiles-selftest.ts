@@ -174,6 +174,60 @@ async function main() {
   response = async () => listing("Ahmad");
   await profiles.refreshMemberProfiles("v");
   assert.deepEqual(cached(), [{ display_name: "Ahmad", email: "peer@example.test" }]);
+  let observedRoster: import("../member-profiles").MemberRosterSnapshot | null = null;
+  response = async () => [
+    {
+      ...listing("Ahmad")[0],
+      members: [
+        {
+          account_id: "accepted-not-admitted",
+          role: "clerk",
+          name: "Accepted Peer",
+          email: "private@example.test",
+        },
+      ],
+    },
+  ];
+  await profiles.refreshMemberProfiles("v", (snapshot) => {
+    observedRoster = snapshot;
+  });
+  assert.deepEqual(
+    observedRoster,
+    {
+      vaultId: "v",
+      viewerAccountId: "viewer-a",
+      members: [
+        { account_id: "accepted-not-admitted", role: "clerk", display_name: "Accepted Peer" },
+      ],
+    },
+    "display-only roster evidence omits contact details",
+  );
+  assert.equal(
+    (
+      fixture
+        .prepare(
+          "SELECT COUNT(*) AS n FROM vault_members_mirror WHERE account_id = 'accepted-not-admitted'",
+        )
+        .get() as { n: number }
+    ).n,
+    0,
+    "a server roster never creates a verified membership",
+  );
+  response = async () => {
+    throw new ApiError(403);
+  };
+  await assert.rejects(
+    profiles.refreshMemberProfiles("v", (snapshot) => {
+      observedRoster = snapshot;
+    }),
+  );
+  assert.deepEqual(
+    observedRoster,
+    { vaultId: "v", viewerAccountId: "viewer-a", members: [] },
+    "authorization denial clears display-only roster evidence",
+  );
+  response = async () => listing("Ahmad");
+  await profiles.refreshMemberProfiles("v");
   // Audit #19: a kaata made before sign-in keys its owner by a local: id the
   // server never lists; the listed owner's profile is stored under it too.
   fixture.exec(

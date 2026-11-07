@@ -488,24 +488,14 @@ export async function emitWitnessedSelfAdmission(
   // The witness request is outside the session mutex. Everything below is a
   // local mirror/chain append and must still belong to the requesting account.
   const applyAdmission = async () => {
-    // Best-effort inviter-name stamp (visibility only — role/revocation stay
-    // chain-driven). The inviter is an owner (CreateInvite is requireOwner
-    // server-side); INSERT OR IGNORE means a chain-folded row wins on role,
-    // and we only fill display_name when it's still unknown.
+    // Best-effort inviter-name stamp on an existing membership mirror only.
+    // Managers can also invite: cosmetic metadata cannot create a membership
+    // or infer its role. The listing/verified chain owns those fields.
     const inviterName = opts?.inviterName?.trim();
     const inviterId = res.member_witness?.inviter_account_id;
     if (inviterName && inviterId) {
       try {
         const db = await getDb();
-        await db.runAsync(
-          `INSERT OR IGNORE INTO vault_members_mirror
-           (vault_id, account_id, role, accepted_at, revoked_at, display_name)
-         VALUES (?, ?, 'owner', ?, NULL, ?)`,
-          vaultId,
-          inviterId,
-          Date.now(),
-          inviterName,
-        );
         await db.runAsync(
           `UPDATE vault_members_mirror SET display_name = ?
           WHERE vault_id = ? AND account_id = ? AND display_name IS NULL`,
@@ -536,6 +526,15 @@ export async function emitWitnessedSelfAdmission(
     const selfIsActiveMember = !!m && !m.removed;
     const selfDeviceBound =
       !!d && !d.removed && d.account_id === accountId && d.device_id === getInstallIdSync();
+
+    // A device witness proves account control, not permission to join this
+    // kaata. A partially supported invitation can return HTTP 200 without a
+    // member witness; keep the join pending instead of appending a device
+    // binding before its member admission. Existing verified members (including
+    // owner-approved QR pairs) can still bind a device with only its witness.
+    if (!selfIsActiveMember && !res.member_witness) {
+      throw new Error("join is waiting for its membership witness");
+    }
 
     // Emit member_added ONLY when not already an active member AND the server
     // brokered an invite (member_witness proves owner intent). Swallow a

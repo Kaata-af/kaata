@@ -206,7 +206,7 @@ export async function healMissingServerAnchors(): Promise<void> {
   if (!net.isConnected) return;
   let listings: Awaited<ReturnType<typeof listVaults>>;
   try {
-    listings = await listVaults();
+    listings = await listVaults(session);
   } catch {
     return; // offline / transient — the next sweep retries
   }
@@ -223,7 +223,22 @@ export async function healMissingServerAnchors(): Promise<void> {
           pinMissingVaultAnchorFromListing,
           retryPinnedVaultAdmission,
           queueIncompleteJoinedVault,
+          seedMissingInviteVault,
         } = await import("../recovery");
+        if (listing.joined_by_invite === true) {
+          const seeded = await applyForCurrentSession(session, () =>
+            seedMissingInviteVault(listing, session.accountId!),
+          );
+          if (seeded) {
+            const { emitLedgerApplied } = await import("../ledger-events");
+            await applyForCurrentSession(session, async () => {
+              emitLedgerApplied(listing.vault_id, "remote");
+            });
+            await pullEvents(listing.vault_id, session);
+            await retryPinnedVaultAdmission(listing.vault_id, session);
+            continue;
+          }
+        }
         const changed = await applyForCurrentSession(session, () =>
           pinMissingVaultAnchorFromListing(listing, session.accountId!),
         );
@@ -251,13 +266,16 @@ export async function healMissingServerAnchors(): Promise<void> {
         ),
       );
       if (!row?.vault_trust_anchor_pubkey) continue;
-      await createVaultOnServer({
-        vault_id: row.id,
-        name: row.name,
-        currency: row.currency || "AFN",
-        created_at_ms: row.created_at,
-        vault_trust_anchor_pubkey: row.vault_trust_anchor_pubkey,
-      });
+      await createVaultOnServer(
+        {
+          vault_id: row.id,
+          name: row.name,
+          currency: row.currency || "AFN",
+          created_at_ms: row.created_at,
+          vault_trust_anchor_pubkey: row.vault_trust_anchor_pubkey,
+        },
+        session,
+      );
       await applyForCurrentSession(session, async () => {});
       console.warn(`[reconcile] filled missing server anchor for ${row.id.slice(0, 8)}`);
     } catch (err) {

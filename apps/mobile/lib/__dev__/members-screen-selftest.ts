@@ -60,6 +60,21 @@ const transfers: { vault: string; to: string; from: string | null; demote: strin
 let inviteGate: Deferred | null = null;
 let authorityGate: Deferred | null = null;
 let profileGate: Deferred | null = null;
+let profileOffline = false;
+let peerInMirror = true;
+let callerRevoked = false;
+let serverMembers: { account_id: string; role: VaultRole; display_name: string }[] = [];
+let extraMirrorMembers: {
+  account_id: string;
+  role: VaultRole;
+  accepted_at: number;
+  revoked_at: null;
+  display_name: string;
+  profile_name: string;
+  has_profile: number;
+  email: null;
+}[] = [];
+const identityListeners = new Set<() => void>();
 let memberQueries = 0,
   authorityQueries = 0,
   profileRequests = 0;
@@ -104,6 +119,16 @@ const react = {
       before?.cleanup?.();
       slots[index].cleanup = fn();
     });
+  },
+  useSyncExternalStore(subscribe: (notify: () => void) => () => void, snapshot: () => string) {
+    react.useEffect(
+      () =>
+        subscribe(() => {
+          dirty = true;
+        }),
+      [subscribe],
+    );
+    return snapshot();
   },
 };
 const jsx = (type: any, props: any): Node => ({
@@ -191,9 +216,21 @@ const toast = {
   },
 };
 const membership = () => [
-  { account_id: "caller", accepted_at: callerAccepted ? 1 : null, revoked_at: null },
+  {
+    account_id: "caller",
+    accepted_at: callerAccepted ? 1 : null,
+    revoked_at: callerRevoked ? 2 : null,
+  },
   { account_id: "next-caller", accepted_at: 1, revoked_at: null },
-  { account_id: "peer", accepted_at: peerAccepted ? 1 : null, revoked_at: peerRevoked ? 2 : null },
+  ...(peerInMirror || peerRevoked
+    ? [
+        {
+          account_id: "peer",
+          accepted_at: peerAccepted ? 1 : null,
+          revoked_at: peerRevoked ? 2 : null,
+        },
+      ]
+    : []),
 ];
 const db = {
   getAllAsync: async (sql: string, ...args: any[]) => {
@@ -202,26 +239,33 @@ const db = {
       if (memberReadFailure) throw new Error("member read unavailable");
       const authorized =
         (args[0] === "next-caller" || callerAccepted) && peerAccepted && !peerRevoked;
-      return peerRevoked
-        ? []
-        : [
-            {
-              account_id: "peer",
-              role: peerRole,
-              accepted_at: peerAccepted ? 1 : null,
-              revoked_at: null,
-              display_name: "Current Peer",
-              profile_name: authorized ? "Current Peer" : null,
-              has_profile: authorized ? 1 : 0,
-              email: authorized ? `${args[0]}-${args[2]}@example.test` : null,
-            },
-          ];
+      const peerRows =
+        peerRevoked || !peerInMirror
+          ? []
+          : [
+              {
+                account_id: "peer",
+                role: peerRole,
+                accepted_at: peerAccepted ? 1 : null,
+                revoked_at: null,
+                display_name: "Current Peer",
+                profile_name: authorized ? "Current Peer" : null,
+                has_profile: authorized ? 1 : 0,
+                email: authorized ? `${args[0]}-${args[2]}@example.test` : null,
+              },
+            ];
+      return [...extraMirrorMembers, ...peerRows];
     }
     if (sql.includes("FROM pending_invitations")) {
       const gate = inviteGate;
       inviteGate = null;
       if (gate) await gate.promise;
       return [];
+    }
+    if (sql.includes("SELECT account_id FROM vault_members_mirror")) {
+      return membership()
+        .filter((row) => row.revoked_at != null)
+        .map(({ account_id }) => ({ account_id }));
     }
     if (sql.includes("SELECT account_id, accepted_at, revoked_at")) {
       authorityQueries++;
@@ -289,6 +333,11 @@ const screen = compile("../../app/vault/members", {
     getActiveVaultId: async () => activeVault,
     getActiveVaultIdSyncMaybe: () => activeVault,
     getDb: async () => db,
+    getSessionAccountIdSync: currentSessionAccount,
+    onAccountIdentityChanged: (listener: () => void) => {
+      identityListeners.add(listener);
+      return () => identityListeners.delete(listener);
+    },
   },
   "../../lib/db": {
     getAppMeta: async () => account,
@@ -304,9 +353,17 @@ const screen = compile("../../app/vault/members", {
   "../../lib/i18n": { t: (key: string) => key },
   "../../lib/member-profiles": {
     memberIdentityName: (member: any) => member.display_name,
-    refreshMemberProfiles: async () => {
+    refreshMemberProfiles: async (scope: string, onRoster?: (snapshot: unknown) => void) => {
+      if (!currentSessionAccount()) return false;
       profileRequests++;
+      const snapshot = {
+        vaultId: scope,
+        viewerAccountId: currentSessionAccount(),
+        members: serverMembers.map((member) => ({ ...member })),
+      };
       if (profileGate) await profileGate.promise;
+      if (profileOffline) throw new Error("offline");
+      onRoster?.(snapshot);
       return true;
     },
   },
@@ -401,6 +458,11 @@ function fixture() {
   inviteGate = null;
   authorityGate = null;
   profileGate = null;
+  profileOffline = false;
+  peerInMirror = true;
+  callerRevoked = false;
+  serverMembers = [];
+  extraMirrorMembers = [];
   memberQueries = 0;
   authorityQueries = 0;
   profileRequests = 0;
@@ -444,6 +506,161 @@ async function refocus() {
 }
 
 export async function runMembersScreenSelftest() {
+  const finishingRow = () =>
+    nodes(tree).find(
+      (node) => node.type === "MemberIdentityRow" && node.props.sub === "members.finishingSetup",
+    );
+  const acceptedRoster = [
+    { account_id: "peer", role: "viewer" as const, display_name: "Accepted Peer" },
+  ];
+  fixture();
+  peerInMirror = false;
+  await flush();
+  assert.equal(finishingRow(), undefined);
+  const beforeAcceptance = profileRequests;
+  serverMembers = acceptedRoster;
+  await poll();
+  assert.equal(
+    profileRequests,
+    beforeAcceptance + 1,
+    "the focused Members screen notices server acceptance on its bounded 30-second poll without a signed event",
+  );
+  assert.equal(
+    finishingRow()?.props.name,
+    "Accepted Peer",
+    "server acceptance remains visible before the witnessed membership reaches the host",
+  );
+  assert.equal(finishingRow()?.props.disabled, true);
+  assert.equal(
+    finishingRow()?.props.onPress,
+    undefined,
+    "server-only membership grants no management action",
+  );
+  assert.equal(
+    nodes(tree).some((node) => node.type === "EmptyHint" && node.props.label === "members.empty"),
+    false,
+  );
+  const beforeInactivePoll = profileRequests;
+  appChange("background");
+  await poll();
+  assert.equal(
+    profileRequests,
+    beforeInactivePoll,
+    "the accepted roster never polls in the background",
+  );
+  appChange("active");
+  await flush();
+  assert.equal(
+    profileRequests,
+    beforeInactivePoll + 1,
+    "returning to the foreground refreshes accepted memberships",
+  );
+  profileOffline = true;
+  await poll();
+  assert.ok(finishingRow(), "an offline refresh preserves the same-session in-memory accepted row");
+  peerInMirror = true;
+  ledger.emitLedgerApplied("v", "remote");
+  await coalescedReload();
+  assert.equal(
+    finishingRow(),
+    undefined,
+    "verified admission replaces rather than duplicates the setup row",
+  );
+  assert.ok(memberRow());
+  assert.equal(memberRow()?.props.disabled, false);
+
+  for (const localOwnerCount of [1, 2]) {
+    fixture();
+    actorRole = "viewer";
+    peerInMirror = false;
+    extraMirrorMembers = Array.from({ length: localOwnerCount }, (_, index) => ({
+      account_id: `local:owner-${index}`,
+      role: "owner",
+      accepted_at: 1,
+      revoked_at: null,
+      display_name: "Host",
+      profile_name: "Host",
+      has_profile: 1,
+      email: null,
+    }));
+    serverMembers = [{ account_id: "server-owner", role: "owner", display_name: "Host" }];
+    await flush();
+    const shownOwners = nodes(tree).filter((node) => node.type === "MemberIdentityRow");
+    assert.equal(
+      shownOwners.length,
+      localOwnerCount === 1 ? 1 : 3,
+      "a guest deduplicates the sole pre-sign-in owner alias, but ambiguous owners remain separate",
+    );
+    assert.equal(!!finishingRow(), localOwnerCount !== 1);
+    assert.ok(
+      shownOwners.every((node) => node.props.disabled),
+      "display matching grants a guest no owner action",
+    );
+    assert.equal(
+      extraMirrorMembers[0].account_id,
+      "local:owner-0",
+      "display dedupe does not rewrite signed identity",
+    );
+  }
+
+  for (const revoked of ["peer", "caller"] as const) {
+    fixture();
+    peerInMirror = false;
+    serverMembers = acceptedRoster;
+    await flush();
+    assert.ok(finishingRow());
+    if (revoked === "peer") peerRevoked = true;
+    else callerRevoked = true;
+    ledger.emitLedgerApplied("v", "remote");
+    await flush();
+    assert.equal(
+      finishingRow(),
+      undefined,
+      `${revoked} revocation hides accepted setup rows before full reload`,
+    );
+    await coalescedReload();
+    await poll();
+    assert.equal(
+      finishingRow(),
+      undefined,
+      "a stale server roster cannot resurrect a known revoked membership",
+    );
+  }
+  fixture();
+  peerInMirror = false;
+  serverMembers = acceptedRoster;
+  const lateRoster = deferred();
+  profileGate = lateRoster;
+  await flush();
+  sessionAccount = null;
+  identityListeners.forEach((notify) => notify());
+  sessionAccount = "caller";
+  binding++;
+  identityListeners.forEach((notify) => notify());
+  serverMembers = [];
+  lateRoster.resolve();
+  await flush();
+  assert.equal(
+    finishingRow(),
+    undefined,
+    "A -> signed out -> A cannot apply an older accepted roster",
+  );
+  fixture();
+  peerInMirror = false;
+  serverMembers = acceptedRoster;
+  await flush();
+  sessionAccount = null;
+  identityListeners.forEach((notify) => notify());
+  await flush();
+  assert.equal(
+    finishingRow(),
+    undefined,
+    "signed-out views do not expose the previous server roster",
+  );
+  console.log(
+    "PASS server-accepted setup display: no authority, offline continuity, verified dedupe, revocation and session privacy",
+  );
+
   fixture();
   actorRole = "manager";
   await flush();
@@ -707,7 +924,11 @@ export async function runMembersScreenSelftest() {
   binding++;
   staleDisplayedAccount();
   await flush();
-  await dismissTransferDialog();
+  assert.equal(
+    timeouts.size,
+    0,
+    "identity refresh immediately cancels an old transfer confirmation",
+  );
   assert.deepEqual(transfers, [], "a newly captured session cannot authorize an older account row");
 
   for (const throws of [false, true]) {

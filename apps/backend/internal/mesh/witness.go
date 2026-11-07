@@ -115,8 +115,8 @@ type WitnessResult struct {
 //     ErrDeviceRemoved) — a witness must not resurrect a removed device;
 //   - member witness only when the membership row records a brokered invite:
 //     invited_by set to a DIFFERENT account AND an invite the server minted
-//     (invite_token_hash — covers both email and link invites; link invites
-//     have no invite_email). Owner rows (invited_by = self, no token) and
+//     (invite_token_hash for email/link, or an account-bound invite_request_id).
+//     Owner rows (invited_by = self, no invitation) and
 //     QR-promoted rows (invited_by NULL) yield member_witness = null.
 func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installID string) (WitnessResult, error) {
 	if s.signingPriv == nil {
@@ -151,16 +151,18 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 	// names the vault, so we refuse to attest device control "for vault V"
 	// to accounts with no seat in V (no witness farming).
 	var (
-		role            string
-		invitedBy       *string
-		inviteTokenHash *string
+		role           string
+		invitedBy      *string
+		brokeredInvite bool
 	)
 	err = s.pool.QueryRow(ctx, `
-		SELECT role, invited_by::text, invite_token_hash
+		SELECT role, invited_by::text,
+		       invite_token_hash IS NOT NULL OR
+		       (invite_request_id IS NOT NULL AND invite_account_id = account_id)
 		  FROM vault_members
 		 WHERE vault_id = $1::uuid AND account_id = $2::uuid
 		   AND revoked_at IS NULL AND accepted_at IS NOT NULL
-	`, vaultID, accountID).Scan(&role, &invitedBy, &inviteTokenHash)
+	`, vaultID, accountID).Scan(&role, &invitedBy, &brokeredInvite)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return WitnessResult{}, ErrNotMember
 	}
@@ -203,11 +205,11 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 		},
 	}
 
-	// Brokered-invite test: invite_token_hash (not invite_email) is the
-	// marker — link invites store invite_email = NULL but the server still
-	// minted and hashed their token, which is exactly the owner intent this
-	// witness attests. Gating on email quarantined every link-joined member
-	// on every peer (no member witness → no chain admission).
+	// Both server-minted invitation forms prove the original grant. Link/email
+	// invitations retain their token hash; direct invitations retain their
+	// account-bound request ID and deliberately have no bearer token. Checking
+	// only the hash stranded direct invitees in the ACL without chain admission.
+	// Acceptance, not the now-possibly-expired invitation, is the durable fact.
 	//
 	// SEC FIX 3 (defense-in-depth): never issue a member_witness for an
 	// owner — or, since roles v2, ANY member-managing role (manager+). A
@@ -219,8 +221,8 @@ func (s *Service) IssueWitness(ctx context.Context, vaultID, accountID, installI
 	// role — but if one ever does (data drift, a future code path), refuse
 	// to sign the tuple rather than hand out a witness the verifier will
 	// reject anyway. The device witness still rides along.
-	if invitedBy != nil && *invitedBy != accountID && inviteTokenHash != nil &&
-		role != "owner" && role != "manager" {
+	if invitedBy != nil && *invitedBy != accountID && brokeredInvite &&
+		(role == "editor" || role == "clerk" || role == "viewer") {
 		memberCanonical, err := canonical.Canonicalize(
 			MemberWitnessTuple(vaultID, accountID, *invitedBy, role, now),
 		)

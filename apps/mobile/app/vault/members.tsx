@@ -22,7 +22,7 @@
 // Self-row is non-interactive; last-owner protection enforced at sheet build.
 
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   AppState,
   Pressable,
@@ -52,12 +52,22 @@ import {
   type SessionSnapshot,
 } from "../../lib/auth";
 import { colors } from "../../lib/colors";
-import { getActiveVaultId, getActiveVaultIdSyncMaybe, getDb } from "../../lib/db-tx";
+import {
+  getActiveVaultId,
+  getActiveVaultIdSyncMaybe,
+  getDb,
+  getSessionAccountIdSync,
+  onAccountIdentityChanged,
+} from "../../lib/db-tx";
 import { getAppMeta, getLocalSelf } from "../../lib/db";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
-import { memberIdentityName, refreshMemberProfiles } from "../../lib/member-profiles";
+import {
+  memberIdentityName,
+  refreshMemberProfiles,
+  type MemberRosterSnapshot,
+} from "../../lib/member-profiles";
 import {
   MemberCreditPermissionError,
   readMemberCreditPermission,
@@ -116,6 +126,20 @@ export default function VaultMembersScreen() {
   const isRTL = useIsRTL();
   const toast = useToast();
   const params = useLocalSearchParams<{ action?: string }>();
+  const identityRevision = useRef(0);
+  const subscribeIdentity = useCallback(
+    (notify: () => void) =>
+      onAccountIdentityChanged(() => {
+        identityRevision.current++;
+        notify();
+      }),
+    [],
+  );
+  const readIdentity = useCallback(
+    () => `${identityRevision.current}:${getSessionAccountIdSync() ?? ""}`,
+    [],
+  );
+  const identity = useSyncExternalStore(subscribeIdentity, readIdentity, readIdentity);
 
   const [vaultId, setVaultId] = useState<string>("");
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -134,6 +158,16 @@ export default function VaultMembersScreen() {
   // retired key's sentinel.
   const [localSelfAccountIds, setLocalSelfAccountIds] = useState<string[]>([]);
   const [members, setMembers] = useState<MemberRow[]>([]);
+  // A REST acceptance may reach the host before its witnessed admission.
+  // Keep that evidence in memory only; it must never grant local authority.
+  const [serverRoster, setServerRoster] = useState<
+    (MemberRosterSnapshot & { identity: string }) | null
+  >(null);
+  const [rosterExclusions, setRosterExclusions] = useState<{
+    vaultId: string;
+    identity: string;
+    accountIds: string[];
+  } | null>(null);
   // account_ids whose device is reachable over the mesh right now (presence).
   const [onlineAccounts, setOnlineAccounts] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<PendingInviteRow[]>([]);
@@ -159,6 +193,7 @@ export default function VaultMembersScreen() {
   const focusedRef = useRef(false);
   const loadRequestRef = useRef(0);
   const authorizationRequestRef = useRef(0);
+  const rosterRequestRef = useRef(0);
 
   const role: VaultRole = useVaultRole(vaultId, accountId);
   const isOwner = role === "owner";
@@ -175,6 +210,7 @@ export default function VaultMembersScreen() {
   const listedScope = useRef<string | null>(null);
   const loadAll = useCallback(async () => {
     const request = ++loadRequestRef.current;
+    const startIdentity = readIdentity();
     const activeVaultId = await getActiveVaultId();
     if (!activeVaultId) {
       if (!focusedRef.current || request !== loadRequestRef.current) return;
@@ -271,6 +307,10 @@ export default function VaultMembersScreen() {
         ORDER BY invited_at DESC`,
       activeVaultId,
     );
+    const revoked = await db.getAllAsync<{ account_id: string }>(
+      "SELECT account_id FROM vault_members_mirror WHERE vault_id = ? AND revoked_at IS NOT NULL",
+      activeVaultId,
+    );
     // An old load must not repaint a new account/vault, or a covered screen.
     const [currentVault, currentAccount] = await Promise.all([
       getActiveVaultId(),
@@ -280,7 +320,8 @@ export default function VaultMembersScreen() {
       !focusedRef.current ||
       request !== loadRequestRef.current ||
       currentVault !== activeVaultId ||
-      currentAccount !== accId
+      currentAccount !== accId ||
+      readIdentity() !== startIdentity
     )
       return;
     setVaultId(activeVaultId);
@@ -289,8 +330,30 @@ export default function VaultMembersScreen() {
     setLocalSelfAccountIds(ownLocalIds);
     listedScope.current = activeVaultId;
     setMembers(rows);
+    setRosterExclusions({
+      vaultId: activeVaultId,
+      identity: startIdentity,
+      accountIds: revoked.map((row) => row.account_id),
+    });
     setPending(inv);
-  }, [router, toast]);
+  }, [router, toast, identity]);
+
+  const refreshProfiles = useCallback(async (scope: string) => {
+    const startIdentity = readIdentity();
+    const request = ++rosterRequestRef.current;
+    await refreshMemberProfiles(scope, (snapshot) => {
+      if (
+        !snapshot.viewerAccountId ||
+        !focusedRef.current ||
+        readIdentity() !== startIdentity ||
+        getSessionAccountIdSync() !== snapshot.viewerAccountId ||
+        getActiveVaultIdSyncMaybe() !== scope ||
+        request !== rosterRequestRef.current
+      )
+        return;
+      setServerRoster({ ...snapshot, identity: startIdentity });
+    });
+  }, []);
 
   // Invalidate pending reads synchronously at commit, before an older query can
   // repaint cached emails after membership changed. A small membership-only
@@ -328,6 +391,13 @@ export default function VaultMembersScreen() {
             scope,
           );
           if (!current()) return;
+          setRosterExclusions({
+            vaultId: scope,
+            identity: readIdentity(),
+            accountIds: authority
+              .filter((member) => member.revoked_at != null)
+              .map((member) => member.account_id),
+          });
           const accepted = new Set(
             authority
               .filter((member) => member.accepted_at != null && member.revoked_at == null)
@@ -448,7 +518,7 @@ export default function VaultMembersScreen() {
           const activeVaultId = await getActiveVaultId();
           if (!activeVaultId || cancelled || !focusedRef.current) return;
           try {
-            await refreshMemberProfiles(activeVaultId);
+            await refreshProfiles(activeVaultId);
           } catch (err) {
             if (__DEV__) console.warn("[vault/members] profile refresh failed", err);
           }
@@ -478,6 +548,7 @@ export default function VaultMembersScreen() {
         focusedRef.current = false;
         ++loadRequestRef.current;
         ++authorizationRequestRef.current;
+        ++rosterRequestRef.current;
         ++creditEditRequest.current;
         ++transferRequestRef.current;
         transferPending.current = false;
@@ -512,7 +583,7 @@ export default function VaultMembersScreen() {
       try {
         const activeVaultId = await getActiveVaultId();
         if (activeVaultId) {
-          await refreshMemberProfiles(activeVaultId);
+          await refreshProfiles(activeVaultId);
           await refreshMemberCreditPermissions(activeVaultId);
         }
       } catch (err) {
@@ -843,6 +914,49 @@ export default function VaultMembersScreen() {
       })
     : [];
 
+  const excluded =
+    rosterExclusions?.vaultId === vaultId && rosterExclusions.identity === identity
+      ? new Set(rosterExclusions.accountIds)
+      : null;
+  const localSelfRevoked =
+    !!excluded &&
+    localSelfAccountIds.some((id) => excluded.has(id)) &&
+    !members.some(
+      (member) =>
+        localSelfAccountIds.includes(member.account_id) &&
+        member.accepted_at != null &&
+        !excluded.has(member.account_id),
+    );
+  const roster =
+    !!getSessionAccountIdSync() &&
+    serverRoster?.vaultId === vaultId &&
+    serverRoster.identity === identity &&
+    serverRoster.viewerAccountId === getSessionAccountIdSync() &&
+    getActiveVaultIdSyncMaybe() === vaultId &&
+    focusedRef.current &&
+    excluded &&
+    !excluded.has(serverRoster.viewerAccountId) &&
+    !localSelfRevoked
+      ? serverRoster.members
+      : [];
+  const localOwners = members.filter(
+    (member) => member.role === "owner" && member.account_id.startsWith("local:"),
+  );
+  const listedOwners = roster.filter((member) => member.role === "owner");
+  // Match the existing profile-cache alias for both hosts and guests: one
+  // local owner and one listed owner can represent the same pre-sign-in owner.
+  // This only removes a duplicate display row; it never rewrites either ID,
+  // transfers a role, or changes the verified members used by actions.
+  const ownerAlias =
+    localOwners.length === 1 && listedOwners.length === 1 ? listedOwners[0].account_id : null;
+  const knownIds = new Set(members.map((member) => member.account_id));
+  const finishingMembers = roster.filter(
+    (member) =>
+      !knownIds.has(member.account_id) &&
+      !excluded?.has(member.account_id) &&
+      member.account_id !== ownerAlias,
+  );
+
   if (!loaded) {
     // Same title / onBack / edges as the loaded branch, so the header is
     // painted (and escapable) before the mirror query resolves and nothing
@@ -881,10 +995,10 @@ export default function VaultMembersScreen() {
         ) : null}
 
         <SectionHeader
-          label={t("members.section.members", { count: members.length })}
+          label={t("members.section.members", { count: members.length + finishingMembers.length })}
           isRTL={isRTL}
         />
-        {members.length === 0 ? (
+        {members.length === 0 && finishingMembers.length === 0 ? (
           <EmptyHint label={t("members.empty")} isRTL={isRTL} />
         ) : (
           members.map((m, i) => {
@@ -894,7 +1008,7 @@ export default function VaultMembersScreen() {
             // users' own row loses its self identity instead of showing their
             // name.
             const isSelf = m.account_id === accountId || localSelfAccountIds.includes(m.account_id);
-            const last = i === members.length - 1;
+            const last = i === members.length - 1 && finishingMembers.length === 0;
             // Names and roles remain separate. Prefer the current profile;
             // without one, use the local self or admission name. Unknown peers
             // show "Name unavailable" and an unknown self shows "You" once.
@@ -918,6 +1032,25 @@ export default function VaultMembersScreen() {
             );
           })
         )}
+        {finishingMembers.map((member, index) => (
+          <MemberIdentityRow
+            key={`accepted-${member.account_id}`}
+            name={memberIdentityName(
+              { ...member, has_profile: 1, profile_name: member.display_name },
+              member.account_id === accountId,
+              selfName,
+            )}
+            sub={t("members.finishingSetup")}
+            messageSub
+            role={member.role}
+            isRTL={isRTL}
+            disabled
+            isLast={index === finishingMembers.length - 1}
+          />
+        ))}
+        {finishingMembers.length > 0 ? (
+          <EmptyHint label={t("members.finishingSetupHint")} isRTL={isRTL} />
+        ) : null}
 
         {isOwner || isManager ? (
           <>
@@ -1087,6 +1220,7 @@ function MemberIdentityRow(props: {
   onPress?: () => void;
   disabled?: boolean;
   pending?: boolean;
+  messageSub?: boolean;
   isLast?: boolean;
 }) {
   const initial = (props.name.trim()[0] ?? "?").toUpperCase();
@@ -1115,7 +1249,7 @@ function MemberIdentityRow(props: {
           <Text
             style={[
               styles.identitySub,
-              props.pending
+              props.pending || props.messageSub
                 ? textDir(props.isRTL)
                 : {
                     writingDirection: "ltr",

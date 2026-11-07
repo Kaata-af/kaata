@@ -144,6 +144,8 @@ export type VaultListing = {
   default_entry_currency?: string;
   role: string;
   members_count: number;
+  /** This account already accepted an online invitation and can resume setup. */
+  joined_by_invite?: boolean;
   created_at_ms: number;
   archived_at_ms?: number;
   vault_epoch: number;
@@ -163,8 +165,8 @@ export type VaultListing = {
  * role + trust anchor. The driver of multi-vault recovery (lib/recovery.ts)
  * loops this; archived vaults are included so the caller can decide.
  */
-export async function listVaults(): Promise<VaultListing[]> {
-  const body = await httpThrowing("GET", "/v1/vaults");
+export async function listVaults(expectedSession?: SessionSnapshot): Promise<VaultListing[]> {
+  const body = await httpThrowing("GET", "/v1/vaults", undefined, expectedSession);
   const vaults = (body as { vaults?: unknown } | null)?.vaults;
   if (!Array.isArray(vaults)) return [];
   return vaults.filter(

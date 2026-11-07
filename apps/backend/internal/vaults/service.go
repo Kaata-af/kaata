@@ -308,6 +308,10 @@ type VaultListing struct {
 	// Verified account emails are visible only to active, accepted members of
 	// the same vault. Pending invites and revoked members are not profiles.
 	Members []VaultMember `json:"members"`
+	// JoinedByInvite lets an already-accepted guest finish witnessed admission
+	// after a lost response or missing local journal. It never grants access or
+	// substitutes for the signed membership chain; elevated/QR seats omit it.
+	JoinedByInvite bool `json:"joined_by_invite,omitempty"`
 }
 
 // VaultMember is one active member row on a VaultListing.
@@ -335,7 +339,11 @@ func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, e
 		       v.created_at,
 		       v.archived_at,
 		       v.vault_epoch,
-		       v.vault_trust_anchor_pubkey
+		       v.vault_trust_anchor_pubkey,
+		       vm.role IN ('editor','clerk','viewer')
+		       AND vm.invited_by IS NOT NULL AND vm.invited_by <> vm.account_id
+		       AND (vm.invite_token_hash IS NOT NULL OR
+		            (vm.invite_request_id IS NOT NULL AND vm.invite_account_id = vm.account_id))
 		  FROM vaults v
 		  JOIN vault_members vm ON vm.vault_id = v.vault_id
 		 WHERE vm.account_id = $1::uuid
@@ -359,7 +367,7 @@ func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, e
 		if err := rows.Scan(
 			&vl.VaultID, &vl.Name, &vl.Currency, &vl.LegacyCurrency, &vl.DefaultEntryCurrency, &vl.Role,
 			&vl.MembersCount, &createdAt, &archivedAt, &vl.VaultEpoch,
-			&trustAnchorRaw,
+			&trustAnchorRaw, &vl.JoinedByInvite,
 		); err != nil {
 			return nil, fmt.Errorf("scan vault row: %w", err)
 		}

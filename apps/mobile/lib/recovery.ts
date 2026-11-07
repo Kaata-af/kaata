@@ -536,7 +536,7 @@ export async function recoverJoinedVault(
   let listings: VaultListing[];
   let pinnedMissingAnchor = false;
   try {
-    listings = await listVaults();
+    listings = await listVaults(session);
   } catch (err) {
     if (err instanceof SessionChangedError) throw err;
     console.warn("[recovery] joined-vault listing failed", err);
@@ -721,6 +721,19 @@ async function seedVaultFromListing(v: VaultListing): Promise<boolean> {
   // registered_with_server_at is set (the server already knows this vault — it
   // came back from GET /v1/vaults), so the reconcile loop won't re-POST it.
   const db = await getDb();
+  await insertVaultFromListing(db, v, accountId);
+  // Invite acceptance already seeded this id with a NULL anchor. INSERT OR
+  // IGNORE leaves that minimal row intact, so enrich it explicitly; otherwise
+  // the downloaded genesis remains quarantined even after the pull cursor
+  // reaches the end of the server log.
+  return pinMissingVaultAnchorFromListing(v, accountId);
+}
+
+async function insertVaultFromListing(
+  db: Awaited<ReturnType<typeof getDb>>,
+  v: VaultListing,
+  accountId: string,
+): Promise<void> {
   await assertLegacyCurrencyMatches(db, v.vault_id, v.legacy_currency);
   await db.runAsync(
     `INSERT OR IGNORE INTO vaults
@@ -741,11 +754,53 @@ async function seedVaultFromListing(v: VaultListing): Promise<boolean> {
     v.vault_epoch,
     v.vault_trust_anchor_pubkey ?? null,
   );
-  // Invite acceptance already seeded this id with a NULL anchor. INSERT OR
-  // IGNORE leaves that minimal row intact, so enrich it explicitly; otherwise
-  // the downloaded genesis remains quarantined even after the pull cursor
-  // reaches the end of the server log.
-  return pinMissingVaultAnchorFromListing(v, accountId);
+}
+
+/** Recover an older acceptance that left neither a local book nor a journal.
+ * The authorized listing proves this account's accepted invitation. The seed
+ * restores visibility and the original pin, while signed admission still runs
+ * through the ordinary proof and publication checks. */
+export async function seedMissingInviteVault(v: VaultListing, accountId: string): Promise<boolean> {
+  if (
+    v.joined_by_invite !== true ||
+    v.archived_at_ms != null ||
+    !v.vault_trust_anchor_pubkey ||
+    (v.role !== "editor" && v.role !== "clerk" && v.role !== "viewer")
+  )
+    return false;
+
+  const db = await getDb();
+  const { applyEventMutex } = await import("./projection");
+  return applyEventMutex.runExclusive(async () => {
+    const existing = await db.getFirstAsync(
+      `SELECT 1 FROM vaults WHERE id = ?
+         UNION ALL SELECT 1 FROM vault_members_mirror WHERE vault_id = ?
+         LIMIT 1`,
+      v.vault_id,
+      v.vault_id,
+    );
+    if (existing) return false;
+    // This publishes a self-ID cache. Keep it outside the rollback boundary.
+    await ensureLocalSelfForRestore();
+    await db.withTransactionAsync(async () => {
+      await insertVaultFromListing(db, v, accountId);
+      await db.runAsync(
+        `INSERT INTO vault_members_mirror (vault_id, account_id, role, accepted_at)
+         VALUES (?, ?, ?, ?)`,
+        v.vault_id,
+        accountId,
+        v.role,
+        Date.now(),
+      );
+      // A dangling cursor from the interrupted join must not skip genesis.
+      await db.runAsync(
+        "UPDATE sync_state SET last_pulled_server_seq = 0, last_pull_at = NULL WHERE vault_id = ?",
+        v.vault_id,
+      );
+      await setAppMetaInTx(db, witnessEmitPendingKey(v.vault_id), "1");
+    });
+    return true;
+  });
 }
 
 /**

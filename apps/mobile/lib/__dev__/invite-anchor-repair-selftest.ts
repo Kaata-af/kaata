@@ -2,7 +2,7 @@
 // network boundaries are synthetic; no phone database or live account is used.
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { compileUI, deferred } from "./ui-fixture";
+import { compileUI, deferred, uiHooks } from "./ui-fixture";
 import { MEMBERSHIP_EVENT_TYPES } from "../trust/chain";
 
 function fixture() {
@@ -17,6 +17,7 @@ function fixture() {
       PRIMARY KEY(vault_id,account_id));
     CREATE TABLE users(id TEXT PRIMARY KEY,is_local_self INTEGER);
     CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT);
+    CREATE TABLE sync_state(vault_id TEXT PRIMARY KEY,last_pulled_server_seq INTEGER,last_pull_at INTEGER);
     CREATE TABLE event_log(event_id TEXT PRIMARY KEY,vault_id TEXT,applied_at INTEGER,
       quarantine_reason TEXT,tombstone_reason TEXT,event_type TEXT DEFAULT 'vault_member_added');
     INSERT INTO users VALUES('self',1);
@@ -147,6 +148,7 @@ function fixture() {
       return { pulled: 0 };
     },
   };
+  const ledgerChanges: string[] = [];
   const recovery = compileUI("../recovery", {
     "./currency-metadata": require("../currency-metadata"),
     "react-native": { Platform: { OS: "android" } },
@@ -259,6 +261,7 @@ function fixture() {
     "./pull": pull,
     "./push": {},
     "../recovery": recovery,
+    "../ledger-events": { emitLedgerApplied: (id: string) => ledgerChanges.push(id) },
   });
   const pin = () =>
     (
@@ -280,6 +283,7 @@ function fixture() {
     sweeps,
     emissions,
     registrations,
+    ledgerChanges,
     currentSession,
     auth,
     listing,
@@ -362,6 +366,88 @@ async function main() {
   assert.deepEqual(upgrade.emissions, ["joined"]);
   assert.deepEqual(upgrade.registrations, [], "a joined vault never registers as owned");
   upgrade.storage.close();
+
+  const vanished = fixture();
+  vanished.setListings([{ ...vanished.listing, joined_by_invite: true }]);
+  vanished.storage.prepare("INSERT INTO sync_state VALUES('joined',20,123)").run();
+  const hooks = uiHooks();
+  let sweep: Promise<void> | undefined;
+  const { AutoSync } = compileUI(
+    "../../components/AutoSync.tsx",
+    {
+      react: hooks.react,
+      "../lib/db": { getAppMeta: async (key: string) => (key === "account_id" ? "joiner" : null) },
+      "../lib/db-tx": { ACTIVE_VAULT_META_KEY: "active_vault_id" },
+      "../lib/sync": {
+        startSyncScheduler: ({ accountId }: { accountId: string }) => {
+          assert.equal(accountId, "joiner");
+          sweep = vanished.reconcile.healMissingServerAnchors();
+          return () => {};
+        },
+      },
+    },
+    { setInterval: () => 1, clearInterval: () => {} },
+  );
+  hooks.render(AutoSync);
+  await new Promise((resolve) => setImmediate(resolve));
+  hooks.render();
+  assert.ok(sweep, "a signed-in guest without a vault must start recovery");
+  await sweep;
+  hooks.unmount();
+  assert.equal(
+    vanished.pin(),
+    "server-anchor",
+    "recover an accepted invite without any local row or journal",
+  );
+  assert.deepEqual(
+    vanished.storage.prepare("SELECT account_id,role FROM vault_members_mirror").all(),
+    [{ account_id: "joiner", role: "editor" }],
+  );
+  assert.deepEqual(
+    vanished.storage.prepare("SELECT last_pulled_server_seq,last_pull_at FROM sync_state").get(),
+    { last_pulled_server_seq: 0, last_pull_at: null },
+  );
+  assert.deepEqual(vanished.ledgerChanges, ["joined"]);
+  assert.deepEqual(
+    vanished.emissions,
+    ["joined"],
+    "finish admission through the ordinary signed path",
+  );
+  await vanished.reconcile.healMissingServerAnchors();
+  assert.equal(vanished.zeroEventPulls, 1, "a later sweep does not reseed or rewind the vault");
+  assert.deepEqual(vanished.emissions, ["joined"]);
+  vanished.storage.close();
+
+  const failedSeed = fixture();
+  failedSeed.setListings([{ ...failedSeed.listing, joined_by_invite: true }]);
+  failedSeed.storage.exec(`CREATE TRIGGER abort_admission_marker BEFORE INSERT ON app_meta
+    WHEN NEW.key = 'witness:joined' BEGIN SELECT RAISE(ABORT, 'test marker write failed'); END`);
+  await failedSeed.reconcile.healMissingServerAnchors();
+  assert.equal(failedSeed.pin(), null, "a failed retry-marker write rolls back the vault seed");
+  assert.deepEqual(failedSeed.storage.prepare("SELECT * FROM vault_members_mirror").all(), []);
+  assert.deepEqual(failedSeed.emissions, []);
+  failedSeed.storage.exec("DROP TRIGGER abort_admission_marker");
+  await failedSeed.reconcile.healMissingServerAnchors();
+  assert.deepEqual(
+    failedSeed.emissions,
+    ["joined"],
+    "the next sweep can finish the same accepted seat",
+  );
+  failedSeed.storage.close();
+
+  const deniedMissing = fixture();
+  deniedMissing.setListings([{ ...deniedMissing.listing, joined_by_invite: true }]);
+  deniedMissing.storage
+    .prepare("INSERT INTO vault_members_mirror VALUES('joined','joiner','editor',1,2,NULL)")
+    .run();
+  await deniedMissing.reconcile.healMissingServerAnchors();
+  assert.equal(
+    deniedMissing.pin(),
+    null,
+    "a stale listing cannot resurrect a locally revoked seat",
+  );
+  assert.deepEqual(deniedMissing.emissions, []);
+  deniedMissing.storage.close();
 
   const pinned = fixture();
   await pinned.seed();
