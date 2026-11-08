@@ -382,6 +382,7 @@ async function exerciseRestoreFailures() {
   );
   assertPending(blocked);
   const failedBoot = await executeRestoreBoot(blocked.backup.finishInterruptedRestore);
+  assert.equal(failedBoot.exportCleanupCalls, 0, "failed restore stops before cache cleanup");
   assert.equal(
     failedBoot.databaseCalls,
     0,
@@ -396,6 +397,7 @@ async function exerciseRestoreFailures() {
   assertPending(blocked);
   blocked.failures.copy.clear();
   const resumedBoot = await executeRestoreBoot(blocked.backup.finishInterruptedRestore);
+  assert.equal(resumedBoot.exportCleanupCalls, 1, "resumed boot clears interrupted backup exports");
   assert.equal(
     resumedBoot.databaseCalls,
     1,
@@ -593,6 +595,7 @@ async function executeRestoreBoot(finishInterruptedRestore: () => boolean) {
   const errors: Array<{ stage: string }> = [];
   let databaseCalls = 0;
   let diagnosticCalls = 0;
+  let exportCleanupCalls = 0;
   const health = compileUI("../db-health", {});
   const boot = compileUI("../boot-error", {});
   new Function(
@@ -612,6 +615,12 @@ async function executeRestoreBoot(finishInterruptedRestore: () => boolean) {
       if (name === "../lib/db-backup") return { finishInterruptedRestore };
       if (name === "../lib/personal-backup-db")
         return { finishPendingPersonalBackupRestore: async () => {} };
+      if (name === "../lib/personal-backup")
+        return {
+          clearInterruptedPersonalBackupExport: () => {
+            exportCleanupCalls++;
+          },
+        };
       if (name === "../lib/crash-report")
         return {
           queueCrashReport: () => {
@@ -633,7 +642,7 @@ async function executeRestoreBoot(finishInterruptedRestore: () => boolean) {
     { error: () => {}, warn: () => {} },
   );
   await exports.run!();
-  return { databaseCalls, diagnosticCalls, errors };
+  return { databaseCalls, diagnosticCalls, exportCleanupCalls, errors };
 }
 
 async function main() {
