@@ -162,6 +162,7 @@ export async function fixture() {
     isOwnDevicePubkey: async (key: string) => key === pubkey,
   };
   const tallyNotePolicy = compileUI("../tally-note-policy", {
+    "./digits": require("../digits"),
     "./effective-account": {
       resolveAccountIdCandidates: async (id: string | null) =>
         id ? [id] : [require("../trust/account-id").buildLocalAccountId(pubkey)],

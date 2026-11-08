@@ -122,7 +122,7 @@ export type EntrySettledEvent = EventEnvelope & {
 /** Contact-scoped reminders for Kaata members. They never enter the balance. */
 export type TallyNoteAddedEvent = EventEnvelope & {
   event_type: "tally_note_added";
-  payload: { note: string };
+  payload: { note: string; number?: string };
 };
 
 export type TallyNoteRemovedEvent = EventEnvelope & {

@@ -20,6 +20,7 @@ const inFlight = new Map<string, Promise<boolean>>();
 type NoteHistory = {
   endpoint: string;
   marker: string;
+  includeNumbers?: true;
   matches: (type: string) => boolean;
   validate: (event: LedgerEvent) => boolean;
 };
@@ -34,7 +35,8 @@ const CONTACT_NOTES: NoteHistory = {
 };
 const TALLY_NOTES: NoteHistory = {
   endpoint: "tally-notes",
-  marker: "tally_notes_history_v1",
+  marker: "tally_notes_history_v2",
+  includeNumbers: true,
   matches: isTallyNoteEventType,
   validate: validTallyNoteEvent,
 };
@@ -94,13 +96,16 @@ async function recover(
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     let body: unknown;
     try {
-      const response = await fetch(
-        `${baseUrl}/v1/sync/${history.endpoint}?vault_id=${encodeURIComponent(vaultId)}&after_server_seq=${after}&limit=${PAGE_LIMIT}`,
-        {
-          headers: { ...headers, Authorization: `Bearer ${session.jwt}` },
-          signal: controller.signal,
-        },
-      );
+      const query = new URLSearchParams({
+        vault_id: vaultId,
+        after_server_seq: String(after),
+        limit: String(PAGE_LIMIT),
+      });
+      if (history.includeNumbers) query.set("include_numbers", "1");
+      const response = await fetch(`${baseUrl}/v1/sync/${history.endpoint}?${query}`, {
+        headers: { ...headers, Authorization: `Bearer ${session.jwt}` },
+        signal: controller.signal,
+      });
       // A server upgrade will be picked up on a later normal sync. Never mark
       // an unsupported, unavailable or denied response as recovered.
       if (!response.ok) return false;

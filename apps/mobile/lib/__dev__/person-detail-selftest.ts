@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { filterTallies, noteSearchTerms } from "../tally-search";
+import type { TallyNote } from "../tally-notes";
+import { filterTallies, filterTalliesByNote, noteSearchTerms } from "../tally-search";
 import {
   filterTalliesByDate,
   dateRangeBetween,
@@ -166,6 +167,9 @@ const backListeners = new Set<() => boolean>();
 let ledgerRefresh = async () => {};
 let person: any, entries: any[], preLink: any[], failed: any[], link: any;
 let staffNote: string | null = null;
+let timelineNotes: TallyNote[] = [];
+let openedNoteComposer = 0;
+let noteToDelete: string | null = null;
 let staffNoteHistory: import("../person-note").PersonNoteRevision[] = [];
 let noteReadGate: Promise<string | null> | null = null;
 const currencyPeriods = new Map<
@@ -332,6 +336,7 @@ const native: any = {
 const components = Object.fromEntries(
   [
     "BottomSheet",
+    "Button",
     "TallyDateFilterSheet",
     "SearchControlSlot",
     "Chip",
@@ -341,7 +346,6 @@ const components = Object.fromEntries(
     "TallyFlowSummary",
     "CustomerBalanceCarousel",
     "CustomerNoteCard",
-    "TallyNotes",
     "BalanceCardGlass",
     "HomeBalanceFilterSwipe",
     "CreditIntentList",
@@ -357,6 +361,16 @@ const components = Object.fromEntries(
 );
 const mocks: Record<string, any> = {
   ...components,
+  "../../components/TallyNotes": {
+    TallyNoteRow: "TallyNoteRow",
+    useTallyNotes: ({ vaultId: noteVault, personId }: any) => ({
+      notes: noteVault === vaultId && personId === person.id ? timelineNotes : [],
+      failed: false,
+      busy: false,
+      openComposer: () => openedNoteComposer++,
+      openDelete: (id: string) => (noteToDelete = id),
+    }),
+  },
   "../../components/SearchKeyboardMotion": {
     SearchKeyboardFrame: "SearchKeyboardFrame",
     SearchKeyboardFooter: "SearchKeyboardFooter",
@@ -554,7 +568,7 @@ const mocks: Record<string, any> = {
       return billLinksReadGate ?? billLinksEnabled;
     },
   },
-  "../../lib/tally-search": { filterTallies, noteSearchTerms },
+  "../../lib/tally-search": { filterTallies, filterTalliesByNote, noteSearchTerms },
   "../../lib/tally-date-filter": { filterTalliesByDate, formatDateRangeLabel },
   "../../lib/tally-summary": { summarizeTallyFlows },
   "../../lib/tally-list-filter": tallyListFilter,
@@ -767,6 +781,9 @@ const tally = (
 });
 function fixture(shared = false) {
   staffNote = null;
+  timelineNotes = [];
+  openedNoteComposer = 0;
+  noteToDelete = null;
   staffNoteHistory = [];
   noteReadGate = null;
   carouselInteractions = 0;
@@ -4350,6 +4367,39 @@ async function main() {
       assert.equal(typeof card.props.onEdit, "function");
       const editThisCustomer = card.props.onEdit;
       const loadThisCustomerHistory = card.props.loadMoreHistory;
+      const flowBefore = find("TallyFlowSummary")?.props.summary;
+      timelineNotes = [
+        {
+          id: "tally-note",
+          note: "Check the delivery",
+          number: "25.00",
+          createdAt: 350,
+          authorAccountId: "account",
+          authorName: "Clerk",
+        },
+      ];
+      dirty = true;
+      await flush();
+      const noteRow = find("TallyNoteRow")!;
+      assert.equal(noteRow.props.note.number, "25.00");
+      assert.deepEqual(
+        visibleNodes(historyRows("current"))
+          .filter((node) => node.type === "EntryRow" || node.type === "TallyNoteRow")
+          .map((node) => (node.props.entry ?? node.props.note).id),
+        ["new-rice", "tally-note", "new-tea"],
+      );
+      assert.deepEqual(find("TallyFlowSummary")?.props.summary, flowBefore);
+      noteRow.props.onDelete();
+      assert.equal(noteToDelete, "tally-note", "Managers can delete directly from the history row");
+      query("delivery");
+      await flush();
+      assert.ok(find("TallyNoteRow"), "The same history search finds tally notes");
+      assert.equal(tallies().length, 0);
+      query("");
+      await flush();
+      const addTallyNoteButton = () =>
+        nodes(searchFooter()).find((node) => node.props.label === "tallyNotes.add");
+      assert.equal(addTallyNoteButton(), undefined, "Writers use the regular tally form");
       const routesBeforeEdit = routes.length;
       editThisCustomer();
       assert.deepEqual(routes.at(-1), { pathname: "/person/[id]/edit", params: { id: "person" } });
@@ -4364,11 +4414,13 @@ async function main() {
         "Clerks and viewers can read the Kaata note",
       );
       assert.equal(find("CustomerNoteCard")!.props.onEdit, undefined);
-      const tallyNotes = find("TallyNotes")!;
-      assert.equal(tallyNotes.props.vaultId, vaultId);
-      assert.equal(tallyNotes.props.personId, "person");
-      assert.equal(tallyNotes.props.canAdd, true, "Viewers can post tally notes");
-      assert.equal(tallyNotes.props.canRemove, false, "Viewers cannot delete tally notes");
+      addTallyNoteButton()!.props.onPress();
+      assert.equal(openedNoteComposer, 1, "Viewers can add tally notes from the bottom dock");
+      assert.equal(
+        find("TallyNoteRow")!.props.canRemove,
+        false,
+        "Viewers cannot delete tally notes",
+      );
       pingButton().props.onPress();
       await flush();
       assert.equal(shares.length, 1);

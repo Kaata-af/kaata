@@ -24,8 +24,8 @@ async function main() {
       INSERT INTO settlements VALUES('paid','shop','contact',1700000000000);
       CREATE TABLE tab_settlements(id, tab_id, settled_at_ms);
       INSERT INTO tab_settlements VALUES('cleared','tab',1700000000000);
-      CREATE TABLE tally_notes(id, vault_id, relationship_id, note, created_at, removed_at);
-      INSERT INTO tally_notes VALUES('note','shop','contact','Check with Ahmad',1700000000000,NULL);
+      CREATE TABLE tally_notes(id, vault_id, relationship_id, note, created_at, removed_at, number_text);
+      INSERT INTO tally_notes VALUES('note','shop','contact','Check with Ahmad',1700000000000,NULL,'5.00');
     `);
     const files = await readDriveBackupTables({
       async *getEachAsync<T>(sql: string) {
@@ -41,7 +41,7 @@ async function main() {
     assert.doesNotMatch(strFromU8(members["Private tallies.csv"]), /Hidden/);
     assert.match(strFromU8(members["Shared tallies.csv"]), /"Gave",10.75,"USD","Bread"/);
     assert.match(strFromU8(members["Settlements.csv"]), /"Shared","cleared"/);
-    assert.match(strFromU8(members["Tally notes.csv"]), /Check with Ahmad/);
+    assert.match(strFromU8(members["Tally notes.csv"]), /"Check with Ahmad","5\.00"/);
     assert.match(strFromU8(members["Read me.txt"]), /unencrypted/);
     const rawDb = new Database(Buffer.from(members["Kaata.sqlite3"]));
     try {

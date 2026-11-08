@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/matee/kaata-backend/internal/auth"
 )
 
 func TestTallyNoteRolesAndPayload(t *testing.T) {
@@ -31,10 +34,23 @@ func TestTallyNoteRolesAndPayload(t *testing.T) {
 		{`{"note":"` + strings.Repeat("💬", 500) + `"}`, true},
 		{`{"note":"` + strings.Repeat("💬", 501) + `"}`, false},
 		{`{"note":"I took 500 from Amin.\nPlease record it."}`, true},
+		{`{"note":"check this","number":"0"}`, true},
+		{`{"note":"check this","number":"0.5"}`, true},
+		{`{"note":"check this","number":"999999999999999999.123456"}`, true},
 		{`{"note":""}`, false},
 		{`{"note":"\u0085 spaces"}`, false},
 		{`{"note":"x\u0000y"}`, false},
 		{`{"note":"check this","amount_afn":500}`, false},
+		{`{"note":"check this","number":"500","currency":"AFN"}`, false},
+		{`{"note":"check this","number":null}`, false},
+		{`{"note":"check this","number":500}`, false},
+		{`{"note":"check this","number":""}`, false},
+		{`{"note":"check this","number":"01"}`, false},
+		{`{"note":"check this","number":"-5"}`, false},
+		{`{"note":"check this","number":"1,000"}`, false},
+		{`{"note":"check this","number":"1000000000000000000"}`, false},
+		{`{"note":"check this","number":"0.1234567"}`, false},
+		{`{"note":"check this","number":"5\n"}`, false},
 		{`{"note":null}`, false},
 		{`[]`, false},
 	} {
@@ -49,9 +65,9 @@ func TestTallyNoteRolesAndPayload(t *testing.T) {
 	if _, ok := normalizeTallyNote(&ev); !ok {
 		t.Fatal("rejected empty removal payload")
 	}
-	ev.Payload = json.RawMessage(`{"note":"rewritten"}`)
+	ev.Payload = json.RawMessage(`{"number":"5"}`)
 	if _, ok := normalizeTallyNote(&ev); ok {
-		t.Fatal("accepted a removal that also changes note text")
+		t.Fatal("accepted a removal with a nonempty payload")
 	}
 }
 
@@ -86,15 +102,20 @@ func TestTallyNotePushRecoveryAndRoleBoundaries(t *testing.T) {
 	person := f.membershipEvent(EventPersonAdded, f.anchorDeviceID, f.ownerAcct, personID, map[string]any{"user_id": personID, "name": "Amin"})
 	person.RelationshipID = &rel
 	requireAccepted(t, f.pushAs(t, f.ownerAcct, person), 1)
-	newNote := func(contact string) PushEvent {
-		ev := f.membershipEvent(EventTallyNoteAdded, viewerDevice, viewer, "", map[string]any{"note": "I took 500 from Amin 💬"})
+	const noteNumber = "500.2500"
+	newNote := func(contact, number string) PushEvent {
+		payload := map[string]any{"note": "I took 500 from Amin 💬"}
+		if number != "" {
+			payload["number"] = number
+		}
+		ev := f.membershipEvent(EventTallyNoteAdded, viewerDevice, viewer, "", payload)
 		ev.TargetID = &ev.EventID
 		ev.RelationshipID = &contact
 		f.signEvent(t, &ev, viewerPriv)
 		return ev
 	}
-	added := newNote(rel)
-	missingContact := newNote(uuid.NewString())
+	added := newNote(rel, noteNumber)
+	missingContact := newNote(uuid.NewString(), noteNumber)
 	requireRejectedReason(t, f.pushAs(t, viewer, missingContact), missingContact.EventID, "tally_note_contact_unavailable")
 	entry := f.membershipEvent(EventEntryCreated, viewerDevice, viewer, uuid.NewString(), map[string]any{"amount_afn": 500})
 	entry.RelationshipID = &rel
@@ -121,16 +142,60 @@ func TestTallyNotePushRecoveryAndRoleBoundaries(t *testing.T) {
 	validDelete := newRemoval(managerDevice, manager, managerPriv)
 	requireAccepted(t, pushRelay(validDelete), 1)     // Mesh relay of a manager's signature.
 	requireAccepted(t, f.pushAs(t, viewer, added), 1) // Arrives after deletion.
+	textOnly := newNote(rel, "")
+	requireAccepted(t, f.pushAs(t, viewer, textOnly), 1)
+	requireNumberedNote := func(pulled PulledEvent) {
+		t.Helper()
+		var payload map[string]string
+		if err := json.Unmarshal(pulled.Payload, &payload); err != nil || payload["number"] != noteNumber {
+			t.Fatalf("note number changed: %s %v", pulled.Payload, err)
+		}
+		ev := added
+		ev.Payload, ev.EventSigB64, ev.SignerDevicePubkeyB64 = pulled.Payload, pulled.EventSigB64, pulled.SignerDevicePubkey
+		if tallyNoteSigner(f.vaultID, &ev) == nil {
+			t.Fatal("note signature did not verify after server round trip")
+		}
+	}
+	pull, err := f.svc.PullEvents(ctx, PullInput{AccountID: viewer, VaultID: f.vaultID})
+	if err != nil || len(pull.Events) != 4 || pull.Events[2].EventID != added.EventID {
+		t.Fatalf("ordinary pull lost numbered note: %+v %v", pull, err)
+	}
+	requireNumberedNote(pull.Events[2])
 
-	page, err := f.svc.noteHistoryEvents(ctx, viewer, f.vaultID, tallyNoteFilter, 0, 1)
-	if err != nil || len(page.Events) != 1 || !page.HasMore || page.Events[0].EventID != validDelete.EventID {
-		t.Fatalf("removal page: %+v %v", page, err)
+	token, err := auth.SignSession(testJWTSecret, viewer, viewerDevice, "google", "tally-notes")
+	if err != nil {
+		t.Fatal(err)
 	}
-	page, err = f.svc.noteHistoryEvents(ctx, viewer, f.vaultID, tallyNoteFilter, page.NextAfterServerSeq, 1)
-	if err != nil || len(page.Events) != 1 || page.HasMore || page.Events[0].EventID != added.EventID ||
-		page.Events[0].EventSigB64 == nil || *page.Events[0].EventSigB64 != *added.EventSigB64 {
-		t.Fatalf("creation page: %+v %v", page, err)
+	historyPage := func(after int64, includeNumbers bool) PersonNotesResponse {
+		t.Helper()
+		path := "/v1/sync/tally-notes?vault_id=" + f.vaultID + "&limit=1&after_server_seq=" + strconv.FormatInt(after, 10)
+		if includeNumbers {
+			path += "&include_numbers=1"
+		}
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		auth.RequireSession(testJWTSecret)(http.HandlerFunc(NewHandler(f.svc).TallyNotes)).ServeHTTP(rec, req)
+		var page PersonNotesResponse
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &page) != nil {
+			t.Fatalf("history response: %d %s", rec.Code, rec.Body.String())
+		}
+		return page
 	}
+	page := historyPage(0, false)
+	if len(page.Events) != 1 || !page.HasMore || page.Events[0].EventID != validDelete.EventID {
+		t.Fatalf("removal page: %+v", page)
+	}
+	afterRemoval := page.NextAfterServerSeq
+	page = historyPage(afterRemoval, false)
+	if len(page.Events) != 1 || page.HasMore || page.Events[0].EventID != textOnly.EventID {
+		t.Fatalf("legacy history should skip numbered notes and continue to text-only notes: %+v", page)
+	}
+	page = historyPage(afterRemoval, true)
+	if len(page.Events) != 1 || !page.HasMore || page.Events[0].EventID != added.EventID {
+		t.Fatalf("numbered creation page: %+v", page)
+	}
+	requireNumberedNote(page.Events[0])
 	if _, err := f.svc.noteHistoryEvents(ctx, outsider, f.vaultID, tallyNoteFilter, 0, 10); !errors.Is(err, ErrNotMember) {
 		t.Fatalf("outsider access: %v", err)
 	}
@@ -138,17 +203,19 @@ func TestTallyNotePushRecoveryAndRoleBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, err := f.svc.LatestSnapshot(ctx, f.vaultID)
-	if err != nil || len(snapshot.Entries) != 0 || len(snapshot.TallyNoteEvents) != 2 || len(snapshot.Events) != 0 {
+	if err != nil || len(snapshot.Entries) != 0 || len(snapshot.TallyNoteEvents) != 3 || len(snapshot.Events) != 0 {
 		t.Fatalf("snapshot lost signed notes or created a financial row: %+v %v", snapshot, err)
 	}
-	if snapshot.TallyNoteEvents[0].EventID != added.EventID || snapshot.TallyNoteEvents[1].EventID != validDelete.EventID {
+	if snapshot.TallyNoteEvents[0].EventID != added.EventID || snapshot.TallyNoteEvents[1].EventID != validDelete.EventID ||
+		snapshot.TallyNoteEvents[2].EventID != textOnly.EventID {
 		t.Fatalf("snapshot did not preserve HLC-ordered note history: %+v", snapshot.TallyNoteEvents)
 	}
+	requireNumberedNote(snapshot.TallyNoteEvents[0])
 	exec(`UPDATE vault_members SET revoked_at=NOW() WHERE vault_id=$1 AND account_id=$2`, f.vaultID, viewer)
 	if _, err := f.svc.noteHistoryEvents(ctx, viewer, f.vaultID, tallyNoteFilter, 0, 10); !errors.Is(err, ErrNotMember) {
 		t.Fatalf("revoked viewer read: %v", err)
 	}
-	afterRevocation := newNote(rel)
+	afterRevocation := newNote(rel, noteNumber)
 	requireRejectedReason(t, f.pushAs(t, manager, afterRevocation), afterRevocation.EventID, "insufficient_role")
 	removedDevice := newRemoval(managerDevice, manager, managerPriv)
 	exec(`UPDATE vault_devices SET removed_at_ms=$3 WHERE vault_id=$1 AND device_id=$2`, f.vaultID, managerDevice, f.pms+1)

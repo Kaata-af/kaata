@@ -281,6 +281,9 @@ func TestCurrencyCapabilities(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &capabilities); err != nil || !capabilities["multi_currency"] || !capabilities["person_default_currency"] || !capabilities["entry_currency_edit"] || !capabilities["notification_only_tallies"] || !capabilities["one_way_tallies"] || !capabilities["notification_preferences"] || !capabilities["vault_account_invites"] || !capabilities["people_profiles"] || !capabilities["friendships"] {
 		t.Fatalf("capabilities: %s, %v", w.Body.String(), err)
 	}
+	if !capabilities["tally_notes"] || !capabilities["tally_note_numbers"] {
+		t.Fatalf("tally note capabilities: %s", w.Body.String())
+	}
 }
 
 func TestEntryCurrencyUpgradeGuardIsBookScopedAndPreventsMutation(t *testing.T) {

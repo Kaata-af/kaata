@@ -1,6 +1,11 @@
 import * as Crypto from "expo-crypto";
 import { loadMemberNames } from "./attribution";
-import { applyForUnchangedLocalSession, captureCurrentSession, SessionChangedError } from "./auth";
+import {
+  applyForUnchangedLocalSession,
+  captureCurrentSession,
+  SessionChangedError,
+  type SessionSnapshot,
+} from "./auth";
 import {
   getActiveVaultIdSyncMaybe,
   getDb,
@@ -11,13 +16,22 @@ import {
 import { RoleGateRejectionError } from "./event-log";
 import type { TallyNoteAddedEvent, TallyNoteRemovedEvent } from "./events";
 import { applyLocalEventsAtomically, AtomicEventRejectionError } from "./projection";
-import { normalizeTallyNote, readCurrentTallyNoteRole } from "./tally-note-policy";
+import {
+  normalizeTallyNote,
+  normalizeTallyNoteNumber,
+  readCurrentTallyNoteRole,
+} from "./tally-note-policy";
 
-export { normalizeTallyNote, TALLY_NOTE_MAX_LENGTH } from "./tally-note-policy";
+export {
+  normalizeTallyNote,
+  normalizeTallyNoteNumber,
+  TALLY_NOTE_MAX_LENGTH,
+} from "./tally-note-policy";
 
 export type TallyNote = {
   id: string;
   note: string;
+  number: string | null;
   createdAt: number;
   authorAccountId: string | null;
   authorName: string | null;
@@ -48,7 +62,7 @@ export async function listTallyNotes(vaultId: string, personId: string): Promise
     const relationship = await activeRelationship(db, vaultId, personId);
     if (!relationship) return [];
     const rows = await db.getAllAsync<Omit<TallyNote, "authorName">>(
-      `SELECT n.id,n.note,n.created_at AS createdAt,
+      `SELECT n.id,n.note,n.number_text AS number,n.created_at AS createdAt,
               COALESCE(
                 n.author_account_id,
                 (SELECT d.account_id FROM vault_device_registry d
@@ -74,10 +88,11 @@ export async function listTallyNotes(vaultId: string, personId: string): Promise
 async function writeTallyNote(
   vaultId: string,
   personId: string,
-  operation: { note: string } | { removeId: string },
+  operation: TallyNoteAddedEvent["payload"] | { removeId: string },
+  expectedSession?: SessionSnapshot,
 ): Promise<void> {
   assertActiveVault(vaultId);
-  const session = await captureCurrentSession();
+  const session = expectedSession ?? (await captureCurrentSession());
   await applyForUnchangedLocalSession(session, async () => {
     const deviceId = getInstallIdSync();
     const authorId = getLocalSelfUserIdSync();
@@ -111,7 +126,7 @@ async function writeTallyNote(
             ...base,
             event_type: "tally_note_added",
             target_id: eventId,
-            payload: { note: operation.note },
+            payload: operation,
           }
         : { ...base, event_type: "tally_note_removed", target_id: operation.removeId, payload: {} };
     const preflight = async (tx: SQLiteTx) => {
@@ -144,10 +159,19 @@ export async function addTallyNote(
   vaultId: string,
   personId: string,
   value: string,
+  numberValue?: string,
+  expectedSession?: SessionSnapshot,
 ): Promise<void> {
   const note = normalizeTallyNote(value);
   if (note === null) throw new Error("Invalid tally note");
-  await writeTallyNote(vaultId, personId, { note });
+  const number = normalizeTallyNoteNumber(numberValue ?? "");
+  if (number === null) throw new Error("Invalid tally note number");
+  await writeTallyNote(
+    vaultId,
+    personId,
+    number === undefined ? { note } : { note, number },
+    expectedSession,
+  );
 }
 
 export function removeTallyNote(vaultId: string, personId: string, noteId: string): Promise<void> {

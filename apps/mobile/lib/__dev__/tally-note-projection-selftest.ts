@@ -20,12 +20,16 @@ const corpus = JSON.parse(
 
 const migration = compile(
   `const MIGRATION_052 = "052_tally_notes";
-   export ${declaration("../db", "runMigration052")}`,
+   const MIGRATION_053 = "053_tally_note_number";
+   ${declaration("../db", "columnExists")}
+   export ${declaration("../db", "runMigration052")}
+   export ${declaration("../db", "runMigration053")}`,
   (name) => {
     throw new Error(`Unexpected note migration dependency ${name}`);
   },
 );
 const policy = compileUI("../tally-note-policy", {
+  "./digits": require("../digits"),
   "./effective-account": {},
   "./events": require("../events"),
   "./vault-roles": require("../vault-roles"),
@@ -40,6 +44,7 @@ async function main() {
   try {
     f.sql.exec("CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at INTEGER)");
     await migration.runMigration052(f.tx);
+    await migration.runMigration053(f.tx);
     const [person, tally, ...notes] = corpus.events;
     assert.equal(person.event_type, "person_added");
     assert.equal(tally.event_type, "entry_created");

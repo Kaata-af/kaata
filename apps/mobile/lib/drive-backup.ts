@@ -102,8 +102,8 @@ const TABLES = [
   },
   {
     file: "Tally notes.csv",
-    columns: ["Kaata", "Contact", "Date UTC", "Note", "Note ID"],
-    sql: `SELECT v.name, u.display_name, ${utc("e.created_at")}, e.note, e.id
+    columns: ["Kaata", "Contact", "Date UTC", "Note", "Number", "Note ID"],
+    sql: `SELECT v.name, u.display_name, ${utc("e.created_at")}, e.note, e.number_text, e.id
           FROM tally_notes e ${CONTACT} WHERE e.removed_at IS NULL AND e.note IS NOT NULL
           ORDER BY v.name, e.created_at, e.id`,
   },

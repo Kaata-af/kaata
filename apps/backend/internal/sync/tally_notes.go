@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -13,6 +14,8 @@ import (
 )
 
 const tallyNoteMaxLength = 500
+
+var tallyNoteNumberPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,17})(\.[0-9]{1,6})?$`)
 
 func isTallyNoteEvent(eventType string) bool {
 	return eventType == EventTallyNoteAdded || eventType == EventTallyNoteRemoved
@@ -23,8 +26,8 @@ func canonicalNoteID(raw string) bool {
 	return err == nil && id != uuid.Nil && id.String() == raw
 }
 
-// Decode only the fields supported by the two note events. Notes are private
-// staff records, with no amount, currency or editable customer-note field.
+// Decode only the fields supported by the two note events. The optional
+// number is a unitless decimal string so it preserves precision and scale.
 func normalizeTallyNote(ev *PushEvent) (json.RawMessage, bool) {
 	noteID, relationshipID := derefStr(ev.TargetID), derefStr(ev.RelationshipID)
 	if ev.SchemaVersion != 1 || !canonicalNoteID(noteID) || !canonicalNoteID(relationshipID) ||
@@ -40,12 +43,20 @@ func normalizeTallyNote(ev *PushEvent) (json.RawMessage, bool) {
 		return json.RawMessage(`{}`), len(fields) == 0 && ev.EventID != noteID
 	}
 	var note string
-	if ev.EventID != noteID || len(fields) != 1 || json.Unmarshal(fields["note"], &note) != nil ||
+	if ev.EventID != noteID || len(fields) > 2 || json.Unmarshal(fields["note"], &note) != nil ||
 		note == "" || note != strings.TrimSpace(note) || strings.ContainsRune(note, 0) ||
 		utf8.RuneCountInString(note) > tallyNoteMaxLength {
 		return nil, false
 	}
-	payload, err := json.Marshal(map[string]string{"note": note})
+	normalized := map[string]string{"note": note}
+	if len(fields) == 2 {
+		var number string
+		if json.Unmarshal(fields["number"], &number) != nil || !tallyNoteNumberPattern.MatchString(number) {
+			return nil, false
+		}
+		normalized["number"] = number
+	}
+	payload, err := json.Marshal(normalized)
 	return payload, err == nil
 }
 

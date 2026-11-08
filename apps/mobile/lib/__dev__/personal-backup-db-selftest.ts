@@ -34,6 +34,7 @@ const jwt = (account: string) =>
   ".signature";
 const handles = new Set<Database.Database>();
 const tallyNotesMigration = "052_tally_notes";
+const tallyNoteNumbersMigration = "053_tally_note_number";
 const migrationNames = [
   ...readFileSync(require.resolve("../db"), "utf8").matchAll(/const MIGRATION_\d+ = "([^"]+)"/g),
 ].map((match) => match[1]);
@@ -60,17 +61,21 @@ CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT REFERENCES tab_links(ta
 CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,attempts INTEGER,next_at INTEGER,last_error TEXT,payload TEXT);
 CREATE TABLE tab_failed_ops(id TEXT PRIMARY KEY,tab_id TEXT,last_error TEXT);
 CREATE TABLE customer_groups(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id));`;
-function fixture(name: string, account: string | null = null, legacy = false) {
+function fixture(name: string, account: string | null = null, schemaVersion = 53) {
   const dir = path.join(temporaryRoot, name);
   mkdirSync(dir);
   const dbPath = path.join(dir, "kaata.db");
   const raw = new Database(dbPath);
   raw.exec(schema);
-  if (legacy) {
+  if (schemaVersion < 53) {
+    raw.prepare("DELETE FROM schema_migrations WHERE name=?").run(tallyNoteNumbersMigration);
+  }
+  if (schemaVersion < 52) {
     raw.prepare("DELETE FROM schema_migrations WHERE name=?").run(tallyNotesMigration);
   } else {
     raw.exec(`CREATE TABLE tally_notes(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),relationship_id TEXT REFERENCES relationships(id),note TEXT);
 CREATE INDEX idx_tally_notes_relationship ON tally_notes(vault_id,relationship_id);`);
+    if (schemaVersion >= 53) raw.exec("ALTER TABLE tally_notes ADD COLUMN number_text TEXT");
   }
   raw.close();
   let cached: ReturnType<typeof open> | null = null;
@@ -330,7 +335,7 @@ async function main() {
     VAULT,
   );
   source.sql("INSERT INTO tab_entries VALUES('shared-tally','shared','Shared history')");
-  source.sql("INSERT INTO tally_notes VALUES('note-1',?,'person','Review this')", VAULT);
+  source.sql("INSERT INTO tally_notes VALUES('note-1',?,'person','Review this','12.500')", VAULT);
   const bytes = await exported(source);
   for (const secret of [
     "PAIR_SECRET_123",
@@ -363,8 +368,9 @@ async function main() {
     "Ninja restore retains data",
   );
   ok(
-    (target.rows("SELECT note FROM tally_notes")[0] as any).note === "Review this",
-    "portable restore retains tally notes",
+    (target.rows("SELECT number_text FROM tally_notes WHERE note='Review this'")[0] as any)
+      .number_text === "12.500",
+    "portable restore retains tally notes and their optional number",
   );
   ok(
     (target.rows("SELECT value FROM app_meta WHERE key='install_id'")[0] as any).value === TARGET,
@@ -386,13 +392,23 @@ async function main() {
   );
   ok(!target.exists("kaata.personal.restore.json"), "successful restore clears pending receipt");
   await errorCode(() => target.module.stagePersonalBackupRestore(bytes), "notEmpty");
-  const oldSource = fixture("before-tally-notes", null, true);
+  const oldSource = fixture("before-tally-notes", null, 51);
   oldSource.seed();
   const oldBackup = await exported(oldSource);
   const updated = fixture("after-tally-notes");
   await updated.module.stagePersonalBackupRestore(oldBackup);
   await updated.boot();
   ok(updated.rows("SELECT * FROM entries").length === 1, "pre-notes backup restores on update");
+  const textOnly = fixture("text-only-tally-notes", null, 52);
+  textOnly.seed();
+  textOnly.sql("INSERT INTO tally_notes VALUES('note-2',?,'person','A text-only note')", VAULT);
+  const upgraded = fixture("after-tally-note-numbers");
+  await upgraded.module.stagePersonalBackupRestore(await exported(textOnly));
+  await upgraded.boot();
+  ok(
+    (upgraded.rows("SELECT note FROM tally_notes")[0] as any).note === "A text-only note",
+    "text-only tally note backups restore on update",
+  );
   const signed = fixture("signed-source", ACCOUNT);
   signed.seed();
   const signedBytes = await exported(signed);
@@ -599,6 +615,14 @@ async function main() {
     () =>
       inconsistentTallyMigration.module.stagePersonalBackupRestore(
         alterBytes("DELETE FROM schema_migrations WHERE name='052_tally_notes'"),
+      ),
+    "unsupported",
+  );
+  const missingNumberColumn = fixture("missing-note-number-column");
+  await errorCode(
+    () =>
+      missingNumberColumn.module.stagePersonalBackupRestore(
+        alterBytes("ALTER TABLE tally_notes DROP COLUMN number_text"),
       ),
     "unsupported",
   );

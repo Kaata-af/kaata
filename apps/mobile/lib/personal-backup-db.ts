@@ -45,6 +45,7 @@ export class PersonalBackupError extends Error {
 const INFO = "personal_backup_info";
 const ORIGINAL_SCHEMA = "051_tally_removal_requests";
 const TALLY_NOTES_SCHEMA = "052_tally_notes";
+const TALLY_NOTE_NUMBERS_SCHEMA = "053_tally_note_number";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TABLES = new Set([
   "app_meta",
@@ -188,7 +189,7 @@ function sqlTokens(sql: string | null): string[] {
 function normalizedSQL(sql: string | null): string {
   return sqlTokens(sql).join(" ");
 }
-function tableDefinition(sql: string | null): string {
+function tableDefinition(sql: string | null, omittedColumn?: string): string {
   const tokens = sqlTokens(sql),
     start = tokens.indexOf("(");
   if (start < 0) fail("unsupported");
@@ -213,7 +214,10 @@ function tableDefinition(sql: string | null): string {
   if (depth !== 0) fail("unsupported");
   // ALTER TABLE appends columns; fresh installs may declare those columns
   // earlier. Preserve every constraint/expression while ignoring that order.
-  return JSON.stringify({ definitions: definitions.sort(), options: tokens.slice(end + 1) });
+  return JSON.stringify({
+    definitions: definitions.filter((definition) => definition !== omittedColumn).sort(),
+    options: tokens.slice(end + 1),
+  });
 }
 async function exclusive<T>(work: () => Promise<T>): Promise<T> {
   if (running || exportHeld) fail("busy");
@@ -326,10 +330,12 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
     name: string;
   }>("SELECT name FROM schema_migrations");
   const hasTallyNotes = migrations.some((row) => row.name === TALLY_NOTES_SCHEMA);
-  const expectedMigrations = hasTallyNotes ? 52 : 51;
+  const hasTallyNoteNumbers = migrations.some((row) => row.name === TALLY_NOTE_NUMBERS_SCHEMA);
+  const expectedMigrations = hasTallyNoteNumbers ? 53 : hasTallyNotes ? 52 : 51;
   if (
     migrations.length !== expectedMigrations ||
     !migrations.some((row) => row.name === ORIGINAL_SCHEMA) ||
+    (hasTallyNoteNumbers && !hasTallyNotes) ||
     names.has("tally_notes") !== hasTallyNotes ||
     new Set(migrations.map((r) => r.name.slice(0, 3))).size !== expectedMigrations ||
     migrations.some(
@@ -340,9 +346,13 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
     )
   )
     fail("unsupported");
+  if (hasTallyNotes) {
+    const columns = await db.getAllAsync<{ name: string }>("PRAGMA table_xinfo(tally_notes)");
+    if (columns.some((column) => column.name === "number_text") !== hasTallyNoteNumbers)
+      fail("unsupported");
+  }
   if (trusted) {
-    // Migration 052 only adds the note projection. An older backup can keep
-    // its original schema until initDb upgrades it after installation.
+    // Older backups keep their original note schema until initDb upgrades it.
     const known = (await catalog(trusted)).filter(
       (row) => hasTallyNotes || row.tbl_name !== "tally_notes",
     );
@@ -354,7 +364,8 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
       JSON.stringify(
         trustedMigrations
           .map((row) => row.name)
-          .filter((name) => hasTallyNotes || name !== TALLY_NOTES_SCHEMA),
+          .filter((name) => hasTallyNotes || name !== TALLY_NOTES_SCHEMA)
+          .filter((name) => hasTallyNoteNumbers || name !== TALLY_NOTE_NUMBERS_SCHEMA),
       )
     )
       fail("unsupported");
@@ -369,20 +380,25 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
       const prior = known.find((r) => r.name === item.name && r.type === item.type);
       if (!prior) fail("unsupported");
       // Includes CHECK, FK, UNIQUE, STRICT and table options, not just columns.
-      const definition = item.type === "table" ? tableDefinition : normalizedSQL;
-      if (definition(prior.sql) !== definition(item.sql)) fail("unsupported");
       if (item.type === "table") {
-        const shape = async (handle: DB) =>
+        const legacyNotes = item.name === "tally_notes" && !hasTallyNoteNumbers;
+        if (
+          tableDefinition(prior.sql, legacyNotes ? "number_text text" : undefined) !==
+          tableDefinition(item.sql)
+        )
+          fail("unsupported");
+        const shape = async (handle: DB, omitNoteNumber = false) =>
           (
             await handle.getAllAsync<Record<string, unknown>>(
               `PRAGMA table_xinfo(${quote(item.name)})`,
             )
           )
+            .filter((row) => !omitNoteNumber || row.name !== "number_text")
             .map(({ cid, ...row }) => row)
             .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-        if (JSON.stringify(await shape(db)) !== JSON.stringify(await shape(trusted)))
+        if (JSON.stringify(await shape(db)) !== JSON.stringify(await shape(trusted, legacyNotes)))
           fail("unsupported");
-      }
+      } else if (normalizedSQL(prior.sql) !== normalizedSQL(item.sql)) fail("unsupported");
     }
   }
 }
@@ -832,7 +848,7 @@ export async function stagePersonalBackupRestore(
   const ownedBytes = bytes.slice();
   return exclusive(async () => {
     if (file(RECEIPT).exists || file(PARKED).exists) fail("busy");
-    const session = expectedSession ?? await captureCurrentSession(),
+    const session = expectedSession ?? (await captureCurrentSession()),
       live = await getDb();
     const target = await meta(live);
     const targetIdentity = identity(target);

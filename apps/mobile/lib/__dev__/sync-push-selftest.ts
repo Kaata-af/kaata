@@ -545,12 +545,12 @@ async function run() {
     const noteVault = randomUUID();
     const noteIDs: string[] = [];
     const notePreferenceIDs: string[] = [];
-    const insertNoteRow = (type: string, payload: unknown, tick: number) => {
+    const insertNoteRow = (type: string, payload: unknown, tick: number, vault = noteVault) => {
       const id = randomUUID();
       insert.run(
         id,
         type,
-        noteVault,
+        vault,
         "relationship",
         tick,
         installId,
@@ -665,6 +665,114 @@ async function run() {
     );
     console.log(
       "PASS customer note push: independent feature gating, 1000 deferred rows cannot starve money, upgrade drains originals and rolling rejection retains notes",
+    );
+
+    const tallyNoteVault = randomUUID();
+    const numberedIDs = Array.from({ length: 500 }, (_, index) =>
+      insertNoteRow(
+        "tally_note_added",
+        { note: "Items taken", number: "12.500" },
+        index + 1,
+        tallyNoteVault,
+      ),
+    );
+    const textOnlyID = insertNoteRow(
+      "tally_note_added",
+      { note: "Delivery complete" },
+      501,
+      tallyNoteVault,
+    );
+    const removalID = insertNoteRow("tally_note_removed", {}, 502, tallyNoteVault);
+    const ordinaryTallyID = insertNoteRow("entry_created", { amount_afn: 7 }, 503, tallyNoteVault);
+    const numberedRows = () =>
+      fixture
+        .prepare(
+          "SELECT * FROM event_log WHERE vault_id=? AND json_type(payload_json, '$.number')='text' ORDER BY event_id",
+        )
+        .all(tallyNoteVault);
+    const originals = numberedRows();
+    let supportsTallyNotes = false;
+    let supportsNumbers = false;
+    let rollingTallyNote = false;
+    let tallyNotePosts = 0;
+    const tallyNoteBackupsBefore = markedBackedUp;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith("/capabilities")) {
+        return Response.json({
+          tally_notes: supportsTallyNotes,
+          ...(supportsNumbers ? { tally_note_numbers: true } : {}),
+        });
+      }
+      tallyNotePosts++;
+      const { events } = JSON.parse(String(init?.body));
+      if (!supportsTallyNotes) {
+        assert.deepEqual(
+          events.map((event: any) => event.event_id),
+          [ordinaryTallyID],
+        );
+      } else if (!supportsNumbers) {
+        assert.deepEqual(
+          events.map((event: any) => event.event_id),
+          [textOnlyID, removalID],
+        );
+      } else if (!rollingTallyNote) {
+        assert.deepEqual(
+          events.map((event: any) => event.event_id),
+          numberedIDs,
+        );
+        assert.ok(
+          events.every(
+            (event: any) =>
+              event.payload.number === "12.500" && event.event_sig_b64 === "note-signature",
+          ),
+        );
+      }
+      return Response.json({
+        accepted: rollingTallyNote
+          ? []
+          : events.map((event: any, index: number) => ({
+              event_id: event.event_id,
+              server_seq: index + 1,
+            })),
+        duplicates: [],
+        rejected: rollingTallyNote
+          ? events.map((event: any) => ({
+              event_id: event.event_id,
+              reason: "invalid_payload",
+            }))
+          : [],
+      });
+    };
+    assert.deepEqual(await pushEvents(tallyNoteVault), { pushed: 1, duplicates: 0, rejected: 0 });
+    supportsTallyNotes = true;
+    assert.deepEqual(await pushEvents(tallyNoteVault), { pushed: 2, duplicates: 0, rejected: 0 });
+    assert.deepEqual(await pushEvents(tallyNoteVault), { pushed: 0, duplicates: 0, rejected: 0 });
+    assert.equal(tallyNotePosts, 2);
+    assert.equal(markedBackedUp, tallyNoteBackupsBefore);
+    assert.deepEqual(
+      numberedRows(),
+      originals,
+      "an older server cannot mutate or ack numbered notes",
+    );
+    supportsNumbers = true;
+    assert.deepEqual(await pushEvents(tallyNoteVault), { pushed: 500, duplicates: 0, rejected: 0 });
+    assert.equal(markedBackedUp, tallyNoteBackupsBefore + 1);
+    const rollingTallyNoteID = insertNoteRow(
+      "tally_note_added",
+      { note: "Check after rollout", number: "0" },
+      504,
+      tallyNoteVault,
+    );
+    rollingTallyNote = true;
+    assert.deepEqual(await pushEvents(tallyNoteVault), { pushed: 0, duplicates: 0, rejected: 1 });
+    assert.deepEqual(
+      fixture
+        .prepare("SELECT rejected_at,server_acked_at,event_sig_b64 FROM event_log WHERE event_id=?")
+        .get(rollingTallyNoteID),
+      { rejected_at: null, server_acked_at: null, event_sig_b64: "note-signature" },
+    );
+    console.log(
+      "PASS tally note push: old servers defer numbers, plain notes and money sync, upgrades send original signed numbers",
     );
 
     const editVault = randomUUID();

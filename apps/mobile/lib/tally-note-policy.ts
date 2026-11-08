@@ -1,4 +1,5 @@
 import type { SQLiteTx } from "./db-tx";
+import { toAsciiDigits } from "./digits";
 import { resolveAccountIdCandidates } from "./effective-account";
 import {
   isTallyNoteEventType,
@@ -10,6 +11,7 @@ import { parseVaultRole, type VaultRole } from "./vault-roles";
 
 export const TALLY_NOTE_MAX_LENGTH = 500;
 const NOTE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const NOTE_NUMBER = /^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,6})?$/;
 
 export function normalizeTallyNote(note: string): string | null {
   // Unicode White_Space matches the server's strings.TrimSpace. Reject NUL
@@ -22,6 +24,17 @@ export function normalizeTallyNote(note: string): string | null {
   )
     return null;
   return text;
+}
+
+/** An empty optional field returns undefined. Keep decimals as text so we
+ * preserve the entered precision without rounding or treating it as money. */
+export function normalizeTallyNoteNumber(raw: string): string | null | undefined {
+  const value = toAsciiDigits(raw.trim())
+    .replace(/[٫,]/g, ".")
+    .replace(/^\./, "0.")
+    .replace(/^0+(?=[0-9])/, "");
+  if (!value) return undefined;
+  return NOTE_NUMBER.test(value) ? value : null;
 }
 
 export function validTallyNoteEvent(
@@ -43,10 +56,14 @@ export function validTallyNoteEvent(
   const keys = Object.keys(event.payload);
   if (event.event_type === "tally_note_removed")
     return event.event_id !== event.target_id && keys.length === 0;
-  const { note } = (event as TallyNoteAddedEvent).payload;
+  const { note, number } = (event as TallyNoteAddedEvent).payload;
+  const validNumber = keys.includes("number")
+    ? keys.length === 2 && typeof number === "string" && normalizeTallyNoteNumber(number) === number
+    : keys.length === 1;
   return (
     event.target_id === event.event_id &&
-    keys.length === 1 &&
+    keys.includes("note") &&
+    validNumber &&
     typeof note === "string" &&
     normalizeTallyNote(note) === note
   );

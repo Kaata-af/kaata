@@ -80,10 +80,14 @@ export async function supportsTallyNotesSync(baseUrl: string, jwt: string): Prom
   return supportsNoteCapability(baseUrl, jwt, "tally_notes");
 }
 
+export async function supportsTallyNoteNumbersSync(baseUrl: string, jwt: string): Promise<boolean> {
+  return supportsNoteCapability(baseUrl, jwt, "tally_note_numbers");
+}
+
 async function supportsNoteCapability(
   baseUrl: string,
   jwt: string,
-  capability: "person_notes" | "tally_notes",
+  capability: "person_notes" | "tally_notes" | "tally_note_numbers",
 ): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);

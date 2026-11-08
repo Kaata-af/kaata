@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import type { LedgerEvent } from "../events";
 import { fixture } from "./person-currency-selftest";
 import { compileUI, deferred } from "./ui-fixture";
@@ -100,10 +101,12 @@ async function main() {
     }
     let requests = 0;
     globalThis.fetch = async (url, init) => {
-      const after = new URL(String(url)).searchParams.get("after_server_seq");
-      assert.equal(new URL(String(url)).pathname, "/v1/sync/person-notes");
-      assert.equal(new URL(String(url)).searchParams.get("vault_id"), "v1");
-      assert.equal(new URL(String(url)).searchParams.get("limit"), "200");
+      const request = new URL(String(url));
+      const after = request.searchParams.get("after_server_seq");
+      assert.equal(request.pathname, "/v1/sync/person-notes");
+      assert.equal(request.searchParams.get("vault_id"), "v1");
+      assert.equal(request.searchParams.get("limit"), "200");
+      assert.equal(request.searchParams.get("include_numbers"), null);
       assert.equal(
         (init?.headers as Record<string, string>).Authorization,
         "Bearer synthetic-session",
@@ -183,6 +186,40 @@ async function main() {
       [true, true],
     );
     assert.equal(sharedRequests, 1, "parallel sync callers share one bootstrap");
+
+    f.sql.exec("INSERT INTO app_meta VALUES('tally_notes_history_v1:account:v1','1')");
+    const noteId = randomUUID();
+    const numbered = {
+      ...wire[0],
+      event_id: noteId,
+      target_id: noteId,
+      relationship_id: randomUUID(),
+      event_type: "tally_note_added",
+      author_seq: null,
+      payload: { note: "Counted boxes", number: "12.00" },
+      server_seq: 8,
+    };
+    const { sign } = await f.device.getDeviceSigner();
+    numbered.event_sig_b64 = await f.signature.signEvent(numbered, sign);
+    let tallyRequests = 0;
+    globalThis.fetch = async (url) => {
+      tallyRequests++;
+      const request = new URL(String(url));
+      assert.equal(request.pathname, "/v1/sync/tally-notes");
+      assert.equal(request.searchParams.get("include_numbers"), "1");
+      assert.equal(request.searchParams.get("after_server_seq"), "0");
+      return Response.json(page([numbered], false, 8));
+    };
+    assert.equal(await history.syncTallyNotesHistory("v1"), true);
+    const recovered = f.rows().find((row) => row.event_id === noteId);
+    assert.deepEqual(JSON.parse(recovered.payload_json), numbered.payload);
+    assert.equal(recovered.event_sig_b64, numbered.event_sig_b64);
+    assert.equal(await history.syncTallyNotesHistory("v1"), true);
+    assert.equal(
+      tallyRequests,
+      1,
+      "v1 markers allow one numbered recovery and v2 markers skip repeats",
+    );
   } finally {
     globalThis.fetch = priorFetch;
     f.sql.close();

@@ -152,6 +152,7 @@ const MIGRATION_049 = "049_credit_alert_rules";
 const MIGRATION_050 = "050_credit_limit_notifications";
 const MIGRATION_051 = "051_tally_removal_requests";
 const MIGRATION_052 = "052_tally_notes";
+const MIGRATION_053 = "053_tally_note_number";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -598,6 +599,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_050))) await runMigration050(db);
   if (!(await hasRunMigration(db, MIGRATION_051))) await runMigration051(db);
   if (!(await hasRunMigration(db, MIGRATION_052))) await runMigration052(db);
+  if (!(await hasRunMigration(db, MIGRATION_053))) await runMigration053(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3909,6 +3911,18 @@ async function runMigration052(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
       MIGRATION_052,
+      Date.now(),
+    );
+  });
+}
+
+async function runMigration053(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "tally_notes", "number_text")))
+      await db.execAsync("ALTER TABLE tally_notes ADD COLUMN number_text TEXT");
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_053,
       Date.now(),
     );
   });

@@ -26,6 +26,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { TallyDateFilterSheet } from "../../components/TallyDateFilterSheet";
 import { BottomSheet } from "../../components/BottomSheet";
+import { Button } from "../../components/Button";
 import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { EmptyState } from "../../components/EmptyState";
@@ -38,7 +39,7 @@ import { CreditIntentList } from "../../components/CreditIntentList";
 import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
 import { CustomerNoteCard } from "../../components/CustomerNoteCard";
-import { TallyNotes } from "../../components/TallyNotes";
+import { TallyNoteRow, useTallyNotes } from "../../components/TallyNotes";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { SearchControlSlot } from "../../components/SearchControlSlot";
 import { SearchKeyboardFooter, SearchKeyboardFrame } from "../../components/SearchKeyboardMotion";
@@ -115,7 +116,8 @@ import { formatSettlementDate } from "../../lib/jalali";
 import { useCalendar } from "../../lib/calendar";
 import { shareKaataCurrenciesViaWhatsApp, type WhatsAppShareStage } from "../../lib/share";
 import { getBillLinksEnabled } from "../../lib/bill-link-settings";
-import { filterTallies, noteSearchTerms } from "../../lib/tally-search";
+import type { TallyNote } from "../../lib/tally-notes";
+import { filterTallies, filterTalliesByNote, noteSearchTerms } from "../../lib/tally-search";
 import {
   filterTalliesByDate,
   formatDateRangeLabel,
@@ -783,6 +785,24 @@ export default function PersonDetailScreen() {
   // again if it stops being.
   const activeVaultId = getActiveVaultIdSyncMaybe();
   const { canAddTallyNote, canRemoveTallyNote } = useTallyNoteAccess(activeVaultId);
+  const screenIsCurrent = useCallback(
+    () =>
+      loadMounted.current &&
+      keyboardRouteFocused.current &&
+      screenScope.current === flowScope &&
+      `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}:${getCurrentCurrencyCode()}` ===
+        flowScope,
+    [flowScope, id],
+  );
+  const tallyNotes = useTallyNotes({
+    vaultId: activeVaultId,
+    personId: person?.id === id ? id : null,
+    canAdd: canAddTallyNote,
+    canRemove: canRemoveTallyNote,
+    scopeKey: flowScope,
+    isCurrent: screenIsCurrent,
+  });
+  const showNoteAction = roleResolved && canAddTallyNote && !(canCreate && writableEntryCurrency);
   // Every role sees which groups a customer is in; only managers edit them.
   const customerGroups = useCustomerGroups(activeVaultId);
   const personGroupNames = (customerGroups.groupsByPerson[id] ?? [])
@@ -899,10 +919,28 @@ export default function PersonDetailScreen() {
       ? matched
       : sortTallyEntries(matched, tallyFilter.sort, selectedCurrency);
   }, [failedTallies, searchTerms, dateRange, tallyFilterKey, selectedCurrency]);
-  const hasTallies = entries.length > 0 || preLink.length > 0 || failedTallies.length > 0;
+  const matchedNotes = useMemo(() => {
+    if (directionalFiltering) return [];
+    const notes = tallyNotes.notes.map((note) => ({
+      value: note,
+      note: note.number == null ? note.note : `${note.note} ${note.number}`,
+      created_at: note.createdAt,
+    }));
+    return filterTalliesByDate(filterTalliesByNote(notes, searchTerms), dateRange).map(
+      ({ value }) => value,
+    );
+  }, [tallyNotes.notes, directionalFiltering, searchTerms, dateRange]);
+  const hasHistory =
+    entries.length > 0 ||
+    preLink.length > 0 ||
+    failedTallies.length > 0 ||
+    tallyNotes.notes.length > 0;
   const dateRangeLabel = formatDateRangeLabel(dateRange, locale, calendar);
   const searchResultCount =
-    matchedEntries.length + matchedPreLink.length + matchedFailedTallies.length;
+    matchedEntries.length +
+    matchedPreLink.length +
+    matchedFailedTallies.length +
+    matchedNotes.length;
   const chapterEntries = useMemo(
     () =>
       displayedEntries.filter((entry) => {
@@ -945,12 +983,15 @@ export default function PersonDetailScreen() {
   // Full history keeps each row in its recorded chapter and uses business
   // dates only to order rows within that chapter. Adjacent empty settlement
   // markers collapse; a later backdated row cannot move beneath an old line.
-  type HistoryItem =
+  type FinancialHistoryItem =
     | { kind: "entry"; entry: Entry }
     | { kind: "marker"; ms: number; settlement?: TabSettlement; currency?: string };
+  type HistoryItem = FinancialHistoryItem | { kind: "note"; note: TallyNote };
+  const historyStamp = (item: FinancialHistoryItem) =>
+    item.kind === "marker" ? item.ms : item.entry.created_at;
   const withLocalMarkers = useCallback(
-    (list: Entry[], localBoundaries = boundaries): HistoryItem[] => {
-      const items: HistoryItem[] = [];
+    (list: Entry[], localBoundaries = boundaries): FinancialHistoryItem[] => {
+      const items: FinancialHistoryItem[] = [];
       const desc = [...new Set(localBoundaries)].sort((a, b) => b - a);
       const chapter = (recordedAt: number) => {
         let first = 0;
@@ -986,10 +1027,10 @@ export default function PersonDetailScreen() {
   );
   // Expanding history uses this same timeline. Search and view filters always
   // span settled chapters without changing balances or stored records.
-  const allHistoryItems = useMemo<HistoryItem[]>(() => {
+  const allHistoryItems = useMemo<FinancialHistoryItem[]>(() => {
     if (currencyPeriods.length > 1) {
       const list = searching ? matchedEntries : visibleEntries;
-      const streams: HistoryItem[][] = currencyPeriods.map((period) => {
+      const streams: FinancialHistoryItem[][] = currencyPeriods.map((period) => {
         const rows = list.filter(
           (entry) => (entry.currency ?? person?.currency ?? selectedCurrency) === period.currency,
         );
@@ -1008,14 +1049,16 @@ export default function PersonDetailScreen() {
       // Merge the currency timelines without reordering either one's chapter
       // markers (or a shared period's authoritative server sequences).
       const positions = streams.map(() => 0);
-      const merged: HistoryItem[] = [];
-      const stamp = (item: HistoryItem) =>
-        item.kind === "marker" ? item.ms : item.entry.created_at;
+      const merged: FinancialHistoryItem[] = [];
       for (;;) {
         let next = -1;
         for (let i = 0; i < streams.length; i++) {
           const head = streams[i][positions[i]];
-          if (head && (next < 0 || stamp(head) > stamp(streams[next][positions[next]]))) next = i;
+          if (
+            head &&
+            (next < 0 || historyStamp(head) > historyStamp(streams[next][positions[next]]))
+          )
+            next = i;
         }
         if (next < 0) break;
         merged.push(streams[next][positions[next]++]);
@@ -1057,14 +1100,36 @@ export default function PersonDetailScreen() {
   ]);
   // Settlement lines describe chronological chapters. Alternate view ordering
   // must never place those lines beside an unrelated amount or reversed date.
-  const historyItems: HistoryItem[] =
-    tallyFilter.sort === "recent"
-      ? allHistoryItems
-      : sortTallyEntries(
-          allHistoryItems.flatMap((item) => (item.kind === "entry" ? [item.entry] : [])),
-          tallyFilter.sort,
-          selectedCurrency,
-        ).map((entry) => ({ kind: "entry" as const, entry }));
+  const historyItems = useMemo<HistoryItem[]>(() => {
+    const sort = tallyFilter.sort;
+    const tallies =
+      sort === "recent"
+        ? allHistoryItems
+        : sortTallyEntries(
+            allHistoryItems.flatMap((item) => (item.kind === "entry" ? [item.entry] : [])),
+            sort,
+            selectedCurrency,
+          ).map((entry) => ({ kind: "entry" as const, entry }));
+    if (matchedNotes.length === 0) return tallies;
+    const ascending = sort === "date_asc";
+    const notes = matchedNotes
+      .map((note) => ({ kind: "note" as const, note }))
+      .sort((a, b) => (a.note.createdAt - b.note.createdAt) * (ascending ? 1 : -1));
+    if (sort === "amount_asc" || sort === "amount_desc") return [...tallies, ...notes];
+    // Keep the existing settlement chapter order while weaving in the notes.
+    const merged: HistoryItem[] = [];
+    let index = 0;
+    for (const tally of tallies) {
+      const stamp = historyStamp(tally);
+      while (
+        index < notes.length &&
+        (ascending ? notes[index].note.createdAt <= stamp : notes[index].note.createdAt >= stamp)
+      )
+        merged.push(notes[index++]);
+      merged.push(tally);
+    }
+    return merged.concat(notes.slice(index));
+  }, [allHistoryItems, matchedNotes, tallyFilter.sort, selectedCurrency]);
   // Retain only Android rows already shown in this screen's active chapter.
   // Repeated filtering can reuse native text views; settled/deleted/moved rows
   // leave the authoritative chapter immediately and are never cached snapshots.
@@ -1296,15 +1361,6 @@ export default function PersonDetailScreen() {
         dismissSearchKeyboard();
       };
     }, [dismissSearchKeyboard]),
-  );
-  const screenIsCurrent = useCallback(
-    () =>
-      loadMounted.current &&
-      keyboardRouteFocused.current &&
-      screenScope.current === flowScope &&
-      `${getAccountIdSync() ?? "local"}:${getActiveVaultIdSyncMaybe() ?? "none"}:${id}:${getCurrentCurrencyCode()}` ===
-        flowScope,
-    [flowScope, id],
   );
   const visibleRemovalConfirmation =
     removalConfirmation && removalIsCurrent(removalConfirmation) ? removalConfirmation : null;
@@ -2506,6 +2562,23 @@ export default function PersonDetailScreen() {
             </View>
           );
         }
+        if (item.kind === "note") {
+          return (
+            <View key={`note-${item.note.id}`}>
+              {index > 0 && historyItems[index - 1].kind !== "marker" ? (
+                <View style={styles.divider} />
+              ) : null}
+              <TallyNoteRow
+                note={item.note}
+                canRemove={canRemoveTallyNote && !selecting}
+                busy={tallyNotes.busy}
+                onDelete={() => {
+                  if (tallyInteractionEnabled) tallyNotes.openDelete(item.note.id);
+                }}
+              />
+            </View>
+          );
+        }
         const entry = item.entry;
         // Settled history is READ-ONLY (review fix): editing or
         // deleting a ruled-off entry would un-zero a closed chapter.
@@ -3355,16 +3428,6 @@ export default function PersonDetailScreen() {
                         }
                       </CustomerBalanceCarousel>
                     </View>
-                    {!selecting && !searching && activeVaultId && person.id === id ? (
-                      <TallyNotes
-                        key={JSON.stringify([getAccountIdSync(), activeVaultId, id])}
-                        vaultId={activeVaultId}
-                        personId={id}
-                        canAdd={canAddTallyNote}
-                        canRemove={canRemoveTallyNote}
-                        isCurrent={screenIsCurrent}
-                      />
-                    ) : null}
                     {pingNudge && person.phone && !link && entries.length > 0 && !pinging ? (
                       <View style={[styles.pingNudge, rowDir(isRTL)]}>
                         <Ionicons name="logo-whatsapp" size={18} color={colors.textEmphasis} />
@@ -3611,6 +3674,14 @@ export default function PersonDetailScreen() {
                     <CreditIntentList personId={person.id} vaultId={activeVaultId} allCurrencies />
                   ) : null}
 
+                  {tallyNotes.failed && !selecting ? (
+                    <Button
+                      variant="secondary"
+                      label={t("tallyNotes.loadFailed")}
+                      icon="refresh-outline"
+                      onPress={tallyNotes.reload}
+                    />
+                  ) : null}
                   {historyItems.length === 0 ? (
                     searching ? (
                       searchResultCount === 0 ? (
@@ -3765,7 +3836,7 @@ export default function PersonDetailScreen() {
           included. It still lifts above toasts, over its own DOCK_SKIRT, but not
           above an open keyboard. Received LEFT, gave RIGHT regardless of
           language. */}
-            {canCreate || hasTallies ? (
+            {canCreate || showNoteAction || hasHistory ? (
               <Animated.View
                 onLayout={(event) => {
                   measuredActionsHeight.current = Math.max(
@@ -3857,7 +3928,18 @@ export default function PersonDetailScreen() {
                       </View>
                     </View>
                   ) : null}
-                  {hasTallies ? (
+                  {!selecting && showNoteAction && !compactDock ? (
+                    <Button
+                      label={t("tallyNotes.add")}
+                      icon="document-text-outline"
+                      variant="secondary"
+                      loading={tallyNotes.busy}
+                      onPress={() => {
+                        if (tallyInteractionEnabled) tallyNotes.openComposer();
+                      }}
+                    />
+                  ) : null}
+                  {hasHistory ? (
                     <View style={styles.searchArea}>
                       <View style={styles.searchControls}>
                         <View style={styles.searchBox}>
@@ -3971,6 +4053,7 @@ export default function PersonDetailScreen() {
           </View>
         </SearchKeyboardFrame>
       </View>
+      {tallyNotes.dialogs}
       <TallyDateFilterSheet
         visible={dateSheetVisible}
         contextKey={flowScope}

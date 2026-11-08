@@ -20,8 +20,9 @@ type PersonNotesResponse struct {
 }
 
 const (
-	personNoteFilter = "event_type = 'person_note_set'"
-	tallyNoteFilter  = "event_type IN ('tally_note_added', 'tally_note_removed')"
+	personNoteFilter    = "event_type = 'person_note_set'"
+	tallyNoteFilter     = "event_type IN ('tally_note_added', 'tally_note_removed')"
+	textTallyNoteFilter = tallyNoteFilter + " AND NOT (payload ? 'number')"
 )
 
 // PersonNotes serves a separate, bounded recovery stream. Clients that restored
@@ -36,7 +37,12 @@ func (h *Handler) PersonNotes(w http.ResponseWriter, r *http.Request) {
 
 // TallyNotes recovers notes skipped by a snapshot or an older app version.
 func (h *Handler) TallyNotes(w http.ResponseWriter, r *http.Request) {
-	h.noteHistory(w, r, tallyNoteFilter)
+	// Older clients reject the whole recovery page if it contains a number.
+	filter := textTallyNoteFilter
+	if r.URL.Query().Get("include_numbers") == "1" {
+		filter = tallyNoteFilter
+	}
+	h.noteHistory(w, r, filter)
 }
 
 func (h *Handler) noteHistory(w http.ResponseWriter, r *http.Request, filter string) {

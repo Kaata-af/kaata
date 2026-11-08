@@ -21,14 +21,16 @@ export async function applyTallyNote(
 
   if (event.event_type === "tally_note_added") {
     await tx.runAsync(
-      `INSERT INTO tally_notes (vault_id,relationship_id,id,note,created_at,author_account_id,author_device_id)
-       VALUES (?,?,?,?,?,?,?)
+      `INSERT INTO tally_notes
+         (vault_id,relationship_id,id,note,number_text,created_at,author_account_id,author_device_id)
+       VALUES (?,?,?,?,?,?,?,?)
        ON CONFLICT (vault_id,relationship_id,id) DO UPDATE SET
-         note=excluded.note, created_at=excluded.created_at,
+         note=excluded.note, number_text=excluded.number_text, created_at=excluded.created_at,
          author_account_id=excluded.author_account_id, author_device_id=excluded.author_device_id
        WHERE tally_notes.note IS NULL`,
       ...scope,
       event.payload.note,
+      event.payload.number ?? null,
       event.hlc.pms,
       authenticatedAccountId,
       event.device_id,

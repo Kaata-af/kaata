@@ -117,6 +117,7 @@ function fixture({
     notices: any[] = [],
     queued: any[] = [],
     writes: any[] = [],
+    tallyNotes: any[] = [],
     creditChecks: any[] = [],
     reviewTallies: any[] = [];
   let params = { personId: "customer", type: "debt" },
@@ -349,6 +350,22 @@ function fixture({
       "../../lib/recent-entry": {
         noteSavedEntry: (personId: string, entryId: string) => savedNotes.push([personId, entryId]),
       },
+      "../../lib/tally-notes": {
+        TALLY_NOTE_MAX_LENGTH: 500,
+        normalizeTallyNote: (value: string) => value.trim() || null,
+        addTallyNote: async (
+          vaultId: string,
+          personId: string,
+          note: string,
+          number: undefined,
+          snapshot: any,
+        ) => {
+          if (snapshot.bindingVersion !== sessionVersion || snapshot.accountId !== account)
+            throw new SessionChangedError();
+          tallyNotes.push([vaultId, personId, note, number]);
+          if (saveError) throw saveError;
+        },
+      },
       "../../lib/store-review": {
         noteReviewableTally: (...args: any[]) => {
           reviewTallies.push(args);
@@ -428,17 +445,13 @@ function fixture({
     return result;
   };
   const accessory = () => nodes(hooks.tree).find((n) => n.type === "InputAccessoryView");
-  const accessoryButton = () =>
-    nodes(accessory()).find(
-      (n) =>
-        n.type === "Button" &&
-        n.props.label === (editingEntry ? "entry.saveChanges" : "entry.save"),
-    );
+  const isSaveButton = (n: { type: string; props: any }) =>
+    n.type === "Button" &&
+    ["entry.saveChanges", "entry.save", "tallyNotes.save"].includes(n.props.label);
+  const accessoryButton = () => nodes(accessory()).find(isSaveButton);
   const bodyButton = () =>
     nodes(nodes(hooks.tree).find((n) => n.props.testID === "entry-keyboard-viewport")).find(
-      (n) =>
-        n.type === "Button" &&
-        n.props.label === (editingEntry ? "entry.saveChanges" : "entry.save"),
+      isSaveButton,
     );
   const button = () => (bodyButton() ?? accessoryButton())!;
   const input = () => nodes(hooks.tree).find((n) => n.type === "TextInput")!;
@@ -561,6 +574,7 @@ function fixture({
     notices,
     queued,
     writes,
+    tallyNotes,
     creditChecks,
     reviewTallies,
     defaultCurrencyReads,
@@ -813,6 +827,65 @@ const layoutEvent = (height: number, width = 390) => ({
 const savedNotes: [string, string][] = [];
 async function main() {
   let cases = 0;
+  for (const os of ["android", "ios"] as const) {
+    const form = fixture({ os });
+    form.setCurrencyLink("AFN", { role: "a", recording_mode: "review", recording_mode_known: 1 });
+    await form.ready();
+    assert.ok(words(form.hooks.tree).includes("tallyNotes.blankAmountHint"));
+    form.note().props.onChangeText("  Check the delivery  ");
+    for (const invalid of ["0", "3+", "1/0"]) {
+      form.input().props.onChangeText(invalid);
+      form.render();
+      assert.equal(form.button().props.label, "entry.save");
+      assert.equal(form.button().props.disabled, true);
+      await form.button().props.onPress();
+    }
+    assert.deepEqual(form.tallyNotes, []);
+    form.input().props.onChangeText(" ");
+    form.render();
+    assert.equal(form.button().props.label, "tallyNotes.save");
+    assert.equal(form.button().props.disabled, false);
+    await form.button().props.onPress();
+    assert.deepEqual(form.tallyNotes, [["vault", "customer", "Check the delivery", undefined]]);
+    assert.deepEqual(form.writes, []);
+    assert.deepEqual(form.reviewTallies, []);
+    assert.deepEqual(form.notices, [["customerNote.saved", "success"]]);
+    assert.deepEqual(form.routes, ["back"]);
+    form.hooks.unmount();
+    cases++;
+  }
+  {
+    const edit = editFixture("android", false, "Keep my existing tally");
+    await edit.ready();
+    assert.ok(!words(edit.hooks.tree).includes("tallyNotes.blankAmountHint"));
+    edit.input().props.onChangeText("");
+    edit.render();
+    assert.equal(edit.button().props.label, "entry.saveChanges");
+    assert.equal(edit.button().props.disabled, true);
+    await edit.button().props.onPress();
+    assert.deepEqual(edit.tallyNotes, []);
+    assert.deepEqual(edit.writes, []);
+    edit.hooks.unmount();
+    cases++;
+  }
+  {
+    const form = fixture();
+    await form.ready();
+    form.input().props.onChangeText("");
+    form.note().props.onChangeText("Check the delivery");
+    form.render();
+    const guard = form.delayedGuard();
+    const saving = form.button().props.onPress();
+    await settleUI();
+    form.transitions.session();
+    guard.resolve({ state: "active" });
+    await saving;
+    assert.deepEqual(form.tallyNotes, []);
+    assert.deepEqual(form.writes, []);
+    assert.deepEqual(form.routes, []);
+    form.hooks.unmount();
+    cases++;
+  }
   for (const os of ["android", "ios"] as const)
     for (const rtl of [false, true]) {
       const f = fixture({ os, rtl });

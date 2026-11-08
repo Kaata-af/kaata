@@ -72,6 +72,7 @@ import type { TabLink } from "../../lib/tabs/types";
 import { creditWarning, creditWarningForEdit } from "../../lib/credit-limits";
 import { noteSavedEntry } from "../../lib/recent-entry";
 import { noteReviewableTally } from "../../lib/store-review";
+import { addTallyNote, normalizeTallyNote, TALLY_NOTE_MAX_LENGTH } from "../../lib/tally-notes";
 import {
   TabAuthUnavailableError,
   TabApiError,
@@ -132,6 +133,7 @@ export default function EntryFormScreen({
     (calculationResult.status === "incomplete" && calculationResult.normalizedExpression === "");
   const amount = calculationResult.canApply ? calculationResult.amount : "";
   const [note, setNote] = useState(editingEntry?.note ?? "");
+  const noteOnly = !editingEntry && calculation.expression.trim() === "" && note.trim() !== "";
   const [currency, setCurrency] = useState<string>(editingEntry?.currency ?? DEFAULT_CURRENCY);
   const [enabledCurrencies, setEnabledCurrencies] = useState<readonly string[]>([]);
   const enabledCurrencyRef = useRef<readonly string[]>([]);
@@ -550,13 +552,21 @@ export default function EntryFormScreen({
 
   async function onSave() {
     const attempt = { ...scope, focus: focusGeneration.current };
-    if (savingRef.current || !attempt.personId || !isCurrent(attempt) || !isCurrent(renderAttempt))
+    if (
+      savingRef.current ||
+      !person ||
+      !attempt.personId ||
+      !isCurrent(attempt) ||
+      !isCurrent(renderAttempt)
+    )
       return;
     // Evaluate the latest key synchronously. A pending operator or bad result
     // must never save the previous valid preview, even before React repaints.
-    const result = evaluateCalculation(calculationRef.current.expression);
+    const expression = calculationRef.current.expression;
+    const result = evaluateCalculation(expression);
     const parsedAmount = result.canApply ? parseAmountInput(result.amount) : null;
-    if (parsedAmount === null) {
+    const noteOnly = !editingEntry && expression.trim() === "" && note.trim() !== "";
+    if (parsedAmount === null && !noteOnly) {
       setAmountError(t("entry.invalidAmount"));
       return;
     }
@@ -595,6 +605,21 @@ export default function EntryFormScreen({
         await present(() => {
           toast.push(t("entry.vaultArchived"), "error");
           router.replace("/vault/archived");
+        });
+        return;
+      }
+      if (parsedAmount === null) {
+        const text = normalizeTallyNote(note);
+        if (text === null) {
+          await present(() =>
+            setSaveError(t("tallyNotes.invalidText", { count: TALLY_NOTE_MAX_LENGTH })),
+          );
+          return;
+        }
+        await addTallyNote(vaultId, attempt.personId, text, undefined, session);
+        await present(() => {
+          toast.push(t("customerNote.saved"), "success");
+          router.back();
         });
         return;
       }
@@ -1003,10 +1028,10 @@ export default function EntryFormScreen({
       }}
     >
       <Button
-        label={t(editingEntry ? "entry.saveChanges" : "entry.save")}
+        label={t(noteOnly ? "tallyNotes.save" : editingEntry ? "entry.saveChanges" : "entry.save")}
         onPress={onSave}
         loading={busy}
-        disabled={!calculationResult.canApply || !currencyWritable}
+        disabled={!noteOnly && (!calculationResult.canApply || !currencyWritable)}
         fullWidth
       />
     </View>
@@ -1127,7 +1152,7 @@ export default function EntryFormScreen({
                 <View style={[styles.amountHeader, rowDir(isRTL)]}>
                   <Text style={[styles.label, { flex: 1, marginBottom: 0 }, textDir(isRTL)]}>
                     {t("entry.amount.labelTemplate", { code: getCurrencyLabel(currency) })}{" "}
-                    <Text style={styles.required}>*</Text>
+                    {editingEntry ? <Text style={styles.required}>*</Text> : null}
                   </Text>
                 </View>
                 <View style={[styles.amountCard, amountError ? styles.inputError : null]}>
@@ -1240,15 +1265,17 @@ export default function EntryFormScreen({
                     />
                     <Text
                       testID="entry-calculation-result"
-                      accessible={hasCalculationPreview}
+                      accessible={hasCalculationPreview && !noteOnly}
                       accessibilityLabel={
-                        hasCalculationPreview ? t("calculator.result") : undefined
+                        hasCalculationPreview && !noteOnly ? t("calculator.result") : undefined
                       }
                       style={styles.calculatedValue}
                       numberOfLines={1}
                       adjustsFontSizeToFit
                     >
-                      {hasCalculationPreview ? `= ${calculationResult.display ?? "0"}` : ""}
+                      {hasCalculationPreview && !noteOnly
+                        ? `= ${calculationResult.display ?? "0"}`
+                        : ""}
                     </Text>
                   </View>
                 </View>
@@ -1323,6 +1350,11 @@ export default function EntryFormScreen({
                   submitBehavior="newline"
                   scrollEnabled
                 />
+                {editingEntry ? null : (
+                  <Text style={[styles.calculationHint, textDir(isRTL)]}>
+                    {t("tallyNotes.blankAmountHint")}
+                  </Text>
+                )}
               </View>
               <Pressable
                 testID="entry-more-options"

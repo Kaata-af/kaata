@@ -25,6 +25,7 @@ import {
   supportsPersonDefaultCurrencySync,
   supportsPersonNotesSync,
   supportsEntryCurrencyEditSync,
+  supportsTallyNoteNumbersSync,
   supportsTallyNotesSync,
 } from "../currency-sync";
 import { getSessionJWT } from "../auth";
@@ -49,6 +50,10 @@ const PUSH_TIMEOUT_MS = 20_000; // See PULL_TIMEOUT_MS.
 // Max events per push request. The backend caps decompressed body at 16 MiB;
 // the average event payload is well under 1 KiB so 500 is a safe ceiling.
 const MAX_BATCH_SIZE = 500;
+const TALLY_NOTE_HAS_NUMBER_SQL = `CASE
+  WHEN event_type = 'tally_note_added' AND json_valid(payload_json)
+  THEN json_type(payload_json, '$.number') IS NOT NULL
+  ELSE 0 END`;
 
 // Exponential backoff for rows the server keeps rejecting with a
 // permanent-looking reason (insufficient_role / unauthored_pre_binding /
@@ -86,6 +91,7 @@ type EventRow = {
   event_sig_b64: string | null;
   signer_device_pubkey: string | null;
   push_attempts: number;
+  has_tally_note_number: 0 | 1;
 };
 
 type WireEvent = {
@@ -180,7 +186,8 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
             hlc_physical_ms, hlc_logical, hlc_device_id,
             device_id, author_user_id_local_only, actor_account_id,
             payload_json, payload_schema, appended_at, author_seq,
-            event_sig_b64, signer_device_pubkey, push_attempts
+            event_sig_b64, signer_device_pubkey, push_attempts,
+            (${TALLY_NOTE_HAS_NUMBER_SQL}) AS has_tally_note_number
        FROM event_log
       WHERE vault_id = ?
         AND server_acked_at IS NULL
@@ -200,26 +207,29 @@ export async function pushEvents(vaultId: string): Promise<PushResult> {
   let baseUrl: string | undefined;
   const capabilities = new Set([
     {
-      matches: (type: string) => type === "person_default_currency_set",
+      matches: (row: EventRow) => row.event_type === "person_default_currency_set",
       supports: supportsPersonDefaultCurrencySync,
       exclude: "AND event_type <> 'person_default_currency_set'",
     },
     {
-      matches: (type: string) => type === "person_note_set",
+      matches: (row: EventRow) => row.event_type === "person_note_set",
       supports: supportsPersonNotesSync,
       exclude: "AND event_type <> 'person_note_set'",
     },
     {
-      matches: isTallyNoteEventType,
+      matches: (row: EventRow) => isTallyNoteEventType(row.event_type),
       supports: supportsTallyNotesSync,
       exclude: "AND event_type NOT IN ('tally_note_added','tally_note_removed')",
+    },
+    {
+      matches: (row: EventRow) => row.has_tally_note_number === 1,
+      supports: supportsTallyNoteNumbersSync,
+      exclude: `AND NOT (${TALLY_NOTE_HAS_NUMBER_SQL})`,
     },
   ]);
   const exclusions: string[] = [];
   for (;;) {
-    const capability = [...capabilities].find((rule) =>
-      rows.some((row) => rule.matches(row.event_type)),
-    );
+    const capability = [...capabilities].find((rule) => rows.some(rule.matches));
     if (!capability) break;
     capabilities.delete(capability);
     baseUrl ??= await getBackendUrl();

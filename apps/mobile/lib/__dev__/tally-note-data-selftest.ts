@@ -8,8 +8,12 @@ async function main() {
   const f = await fixture();
   try {
     f.sql.exec("CREATE TABLE schema_migrations(name TEXT PRIMARY KEY, applied_at INTEGER)");
-    const { runMigration052 } = compile(
-      `const MIGRATION_052="052_tally_notes";export ${declaration("../db", "runMigration052")}`,
+    const { runMigration052, runMigration053 } = compile(
+      `const MIGRATION_052="052_tally_notes";
+       const MIGRATION_053="053_tally_note_number";
+       ${declaration("../db", "columnExists")}
+       export ${declaration("../db", "runMigration052")}
+       export ${declaration("../db", "runMigration053")}`,
       () => ({}),
     );
     await runMigration052(f.tx);
@@ -27,6 +31,15 @@ async function main() {
     const originalMoney = f.sql.prepare("SELECT * FROM entries").all();
     const ninjaRelationship = randomUUID();
     f.sql.prepare("UPDATE relationships SET id=? WHERE id='r1'").run(ninjaRelationship);
+    f.sql
+      .prepare(
+        "INSERT INTO tally_notes(vault_id,relationship_id,id,note,created_at) VALUES ('v1',?,?,?,1)",
+      )
+      .run(ninjaRelationship, randomUUID(), "Note from before the number field");
+    await runMigration053(f.tx);
+    const [legacy] = await notes.listTallyNotes("v1", "person");
+    assert.equal(legacy.note, "Note from before the number field");
+    assert.equal(legacy.number, null);
     await notes.addTallyNote("v1", "person", "A Ninja note");
     const ninja = f.rows().find((row) => row.event_type === "tally_note_added");
     assert.equal(ninja.actor_account_id, null);
@@ -44,16 +57,34 @@ async function main() {
     assert.equal(notes.normalizeTallyNote("🙂".repeat(501)), null);
     assert.equal(notes.normalizeTallyNote("\u0085  "), null);
     assert.equal(notes.normalizeTallyNote("bad\u0000note"), null);
-    await notes.addTallyNote("v2", "person", " \u0085I took 10 from Ahmad 🙂\n");
+    assert.equal(notes.normalizeTallyNoteNumber(" \n"), undefined);
+    assert.equal(notes.normalizeTallyNoteNumber("۰۰۱۲٫۵۰"), "12.50");
+    assert.equal(notes.normalizeTallyNoteNumber(",25"), "0.25");
+    for (const invalid of ["-1", "1e2", "1٬000", "1.0000001", "1234567890123456789", "1.2.3"])
+      assert.equal(notes.normalizeTallyNoteNumber(invalid), null, invalid);
+    await assert.rejects(notes.addTallyNote("v2", "person", "Bad number", "1e2"), /number/);
+    assert.equal(eventCount(), 0);
+    const staleSession = await f.auth.captureCurrentSession();
+    await f.auth.switchSession(staleSession.accountId, staleSession.jwt);
+    await assert.rejects(
+      notes.addTallyNote("v2", "person", "Opened before sign-in", undefined, staleSession),
+      /session_changed/,
+    );
+    assert.equal(eventCount(), 0, "a rebound session cannot save an already-open form");
+    await notes.addTallyNote("v2", "person", " \u0085I took 10 from Ahmad 🙂\n", "۱۰٫۰۰");
     const [added] = await notes.listTallyNotes("v2", "person");
     assert.equal(added.note, "I took 10 from Ahmad 🙂");
+    assert.equal(added.number, "10.00");
     assert.equal(added.authorName, "Viewer");
     assert.equal(added.authorAccountId, "member");
     const written = f.rows().find((row) => row.event_id === added.id);
     assert.equal(written.target_id, written.event_id);
     assert.equal(written.relationship_id, relationship);
+    const wire = f.wire(written);
+    assert(wire.event_type === "tally_note_added");
+    assert.equal(wire.payload.number, "10.00");
     assert.equal(
-      f.signature.verifyEventSignature(f.wire(written), written.event_sig_b64, f.pubkey).valid,
+      f.signature.verifyEventSignature(wire, written.event_sig_b64, f.pubkey).valid,
       true,
     );
     await assert.rejects(notes.removeTallyNote("v2", "person", added.id), /role_gate_rejected/);
@@ -92,7 +123,7 @@ async function main() {
       ...f.wire(written),
       event_id: noteId,
       target_id: noteId,
-      payload: { note: "Synced history" },
+      payload: { note: "Synced history", number: "123456789012345678.001230" },
     } as TallyNoteAddedEvent;
     const historyRemove: TallyNoteRemovedEvent = {
       ...historyAdd,
@@ -104,10 +135,11 @@ async function main() {
     await f.tallyProjection.applyTallyNote(f.tx, historyRemove);
     await f.tallyProjection.applyTallyNote(f.tx, historyAdd, "verified-member");
     const tombstone = f.sql
-      .prepare("SELECT note,removed_at,author_account_id FROM tally_notes WHERE id=?")
+      .prepare("SELECT note,number_text,removed_at,author_account_id FROM tally_notes WHERE id=?")
       .get(noteId);
     assert.deepEqual(tombstone, {
       note: "Synced history",
+      number_text: "123456789012345678.001230",
       removed_at: historyRemove.hlc.pms,
       author_account_id: "verified-member",
     });
@@ -120,9 +152,14 @@ async function main() {
       f.tallyProjection.applyTallyNote(f.tx, { ...historyAdd, target_id: randomUUID() }),
       /Invalid tally note/,
     );
+    for (const number of ["", "01", ".5", "۲", "1\n", "1e2", 1, null])
+      assert.equal(
+        f.tallyNotePolicy.validTallyNoteEvent({ ...historyAdd, payload: { note: "Wire", number } }),
+        false,
+      );
     assert.deepEqual(f.sql.prepare("SELECT * FROM entries").all(), originalMoney);
     console.log(
-      "PASS tally notes data: migration, signatures, viewer-only notes, active roles, scope, manager removal and sticky replay",
+      "PASS tally notes data: migration, signed optional numbers, active roles, scope, manager removal and sticky replay",
     );
   } finally {
     f.sql.close();
