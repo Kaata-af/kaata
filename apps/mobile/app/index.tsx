@@ -228,7 +228,6 @@ export default function HomeScreen() {
     currencies: string[];
   } | null>(null);
   const [customerQuery, setCustomerQuery] = useState("");
-  const clearSearchOnReturn = useRef(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const filtersExpandedRef = useRef(filtersExpanded);
   filtersExpandedRef.current = filtersExpanded;
@@ -769,36 +768,31 @@ export default function HomeScreen() {
     };
   }, [settingsVisible]);
 
-  const clearSearchOnBack = useCallback(() => {
-    lastBackPressRef.current = 0;
-    setCustomerQuery("");
-  }, []);
-
-  // Home Back clears search before arming the two-press exit shortcut.
   useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
         // The popup's own listener consumes Back; never exit behind it.
         const interaction = homeInteraction.current;
         if (interaction.filtersExpanded) return false;
-        if (interaction.hasSearchText) {
-          if (!interaction.confirming && !selectionBusyRef.current) {
-            clearSearchOnBack();
-            dismissKeyboard();
-          }
+        if (interaction.confirming || selectionBusyRef.current) return true;
+        if (interaction.searchOpen || Keyboard.isVisible()) {
+          dismissKeyboard();
+        } else if (interaction.selecting) {
+          closeSelection();
+        } else if (interaction.hasSearchText) {
+          setCustomerQuery("");
+        } else {
+          const now = Date.now();
+          if (now - lastBackPressRef.current < 2000) return false;
+          lastBackPressRef.current = now;
+          toast.push(t("home.exit.hint"), "info");
           return true;
         }
-        const now = Date.now();
-        if (now - lastBackPressRef.current < 2000) {
-          // Second press inside the window → let RN handle (exits the app).
-          return false;
-        }
-        lastBackPressRef.current = now;
-        toast.push(t("home.exit.hint"), "info");
-        return true; // intercept
+        lastBackPressRef.current = 0;
+        return true;
       });
       return () => sub.remove();
-    }, [clearSearchOnBack, dismissKeyboard, toast]),
+    }, [closeSelection, dismissKeyboard, toast]),
   );
 
   // Search, balance direction, groups and sort share the list; totals keep the full book snapshot.
@@ -976,10 +970,6 @@ export default function HomeScreen() {
       friendsOpening.current = false;
       dismissingSearchKeyboard.current = false;
       selectionOwnerActive.current = true;
-      if (clearSearchOnReturn.current) {
-        clearSearchOnReturn.current = false;
-        clearSearchOnBack();
-      }
       return () => {
         setKeyboardShown(false);
         setSearchFocused(false);
@@ -993,7 +983,7 @@ export default function HomeScreen() {
         setSelectedPersonIds([]);
         setConfirmRemoveIds(null);
       };
-    }, [clearSearchOnBack]),
+    }, []),
   );
   const startSelection = useCallback(
     (person?: PersonWithBalance) => {
@@ -1344,18 +1334,9 @@ export default function HomeScreen() {
       const requestedDismissal = dismissingSearchKeyboard.current;
       dismissingSearchKeyboard.current = false;
       if (stillFocused && (Platform.OS === "ios" || requestedDismissal)) return;
-      // Android can send Back to the keyboard before JS sees it. That native
-      // dismissal leaves the field focused. Our own dismiss actions blur it.
-      if (
-        Platform.OS === "android" &&
-        stillFocused &&
-        AppState.currentState === "active" &&
-        homeInteraction.current.hasSearchText &&
-        !homeInteraction.current.confirming &&
-        !filtersExpandedRef.current &&
-        !selectionBusyRef.current
-      )
-        clearSearchOnBack();
+      // Android may handle Back in the keyboard before Home sees the press.
+      // Release its input focus while keeping the query and results visible.
+      lastBackPressRef.current = 0;
       searchInputRef.current?.blur();
       setSearchFocused(false);
       setKeyboardShown(false);
@@ -1391,7 +1372,6 @@ export default function HomeScreen() {
     activeVaultId,
     homeRequest,
     selectedCurrency,
-    clearSearchOnBack,
     dismissKeyboard,
     updateFilterAnchor,
   ]);
@@ -1424,7 +1404,6 @@ export default function HomeScreen() {
         );
         return;
       }
-      clearSearchOnReturn.current = current.hasSearchText;
       dismissKeyboard();
       router.push({ pathname: "/person/[id]", params: { id: person.id } });
     },
@@ -2176,7 +2155,6 @@ export default function HomeScreen() {
                       opensProfile
                       onSelect={(person) => {
                         if (!isCurrentHome() || selecting) return;
-                        clearSearchOnReturn.current = homeInteraction.current.hasSearchText;
                         dismissKeyboard();
                         router.push({
                           pathname: "/people/[accountId]",
