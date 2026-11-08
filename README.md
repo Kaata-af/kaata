@@ -30,6 +30,8 @@ bun dev
 
 This runs the backend (Go), web (Vite + React), and mobile (Expo) via `concurrently`. To run a single app instead, see below.
 
+An optional `.env.development.local` at the repo root overrides environment settings for these three dev processes. Use it to point a checkout at a local test database and keep Expo Go and Vite on the same backend. Git ignores the file.
+
 ### Backend only
 
 ```
