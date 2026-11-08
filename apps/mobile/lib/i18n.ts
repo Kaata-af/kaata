@@ -537,7 +537,6 @@ const en = {
   "common.more": "more",
   "common.less": "less",
   "person.action.iGave": "I gave",
-  "readonly.badge": "View only",
   "person.action.iReceived": "I received",
   "person.balance.theyOwe": "THEY OWE YOU",
   "person.balance.youOwe": "YOU OWE THEM",
@@ -911,6 +910,20 @@ const en = {
   "customerNote.historyFailed": "Could not load older changes. Try again.",
   "customerNote.changed":
     "Someone changed this customer's note. Close and reopen this page to read the latest note before editing.",
+  "tallyNotes.title": "Tally notes",
+  "tallyNotes.add": "Add note",
+  "tallyNotes.hint": "Leave a message for the people who record tallies in this Kaata.",
+  "tallyNotes.placeholder": "What should the team record?",
+  "tallyNotes.invalidText": "Enter a note with up to {count} characters.",
+  "tallyNotes.loadFailed": "Couldn't load tally notes.",
+  "tallyNotes.delete": "Delete note",
+  "tallyNotes.deleteTitle": "Delete this tally note?",
+  "tallyNotes.deleteBody":
+    "This removes the note from the customer's tally notes for everyone in this Kaata.",
+  "tallyNotes.deleted": "Note deleted",
+  "tallyNotes.showMore": "Show older notes",
+  "tallyNotes.showFewer": "Show fewer notes",
+  "tallyNotes.emptyLedger": "Tap Add note above to leave a message for the team.",
   "personEdit.currency.label": "Default tally currency",
   "personEdit.currency.inherit": "Automatic (otherwise {currency})",
   "personEdit.currency.inherited": "Automatic",
@@ -1841,8 +1854,7 @@ const en = {
   "vaultPair.role.editor.body":
     "Day-to-day staff. Can add and edit entries, but cannot manage members.",
   "vaultPair.role.viewer": "Viewer",
-  "vaultPair.role.viewer.body":
-    "Read-only. Can see balances and entries, but cannot change anything.",
+  "vaultPair.role.viewer.body": "Can view balances and entries and leave tally notes.",
   "vaultPair.role.continue": "Show pairing code",
   "vaultPair.role.committed": "This code grants the role: {role}",
 
@@ -2190,7 +2202,7 @@ const en = {
   "invite.link.create": "Create link",
   "invite.link.createAnother": "Create another link",
   "invite.link.viewerDisclosure":
-    "Viewers can see everything in this Kaata — all balances and phone numbers — but can't make changes.",
+    "Viewers can see the ledger, including all balances and phone numbers, and leave tally notes.",
   "invite.link.editorDisclosure":
     "Editors can add, edit and delete tallies in this Kaata. In shared accounts they can also accept or reject the other side's tallies (final) and unlink the account.",
   "invite.managerNote":
@@ -2237,7 +2249,7 @@ const en = {
   "invite.role.editor": "Editor",
   "invite.role.editor.hint": "Add, edit, and delete entries",
   "invite.role.viewer": "Viewer",
-  "invite.role.viewer.hint": "Read-only access",
+  "invite.role.viewer.hint": "View the ledger and leave tally notes",
   "invite.role.clerk": "Clerk",
   "invite.role.clerk.hint": "Add entries only — never edit or delete",
   "invite.submit": "Create invitation",
@@ -3293,7 +3305,6 @@ const fa: Partial<Record<Key, string>> = {
   "common.more": "بیشتر",
   "common.less": "کمتر",
   "person.action.iGave": "دادم",
-  "readonly.badge": "فقط دیدن",
   "person.action.iReceived": "گرفتم",
   "person.balance.theyOwe": "از شما قرضدار",
   "person.balance.youOwe": "از او قرضدار",
@@ -3650,6 +3661,19 @@ const fa: Partial<Record<Key, string>> = {
   "customerNote.historyFailed": "تغییرات قبلی باز نشد. دوباره تلاش کنید.",
   "customerNote.changed":
     "کسی یادداشت این مشتری را تغییر داده است. این صفحه را ببندید و دوباره باز کنید تا پیش از ویرایش، یادداشت تازه را بخوانید.",
+  "tallyNotes.title": "یادداشت‌های ثبت",
+  "tallyNotes.add": "افزودن یادداشت",
+  "tallyNotes.hint": "برای کسانی که در این کاتا ثبت می‌کنند، پیام بگذارید.",
+  "tallyNotes.placeholder": "همکاران‌تان چه چیزی را ثبت کنند؟",
+  "tallyNotes.invalidText": "یادداشتی با حداکثر {count} نویسه وارد کنید.",
+  "tallyNotes.loadFailed": "یادداشت‌های ثبت باز نشد.",
+  "tallyNotes.delete": "حذف یادداشت",
+  "tallyNotes.deleteTitle": "این یادداشت حذف شود؟",
+  "tallyNotes.deleteBody": "یادداشت از فهرست یادداشت‌های این مشتری برای همه اعضای کاتا حذف می‌شود.",
+  "tallyNotes.deleted": "یادداشت حذف شد",
+  "tallyNotes.showMore": "نمایش یادداشت‌های قدیمی‌تر",
+  "tallyNotes.showFewer": "نمایش یادداشت‌های کمتر",
+  "tallyNotes.emptyLedger": "برای گذاشتن پیام به همکاران‌تان، روی «افزودن یادداشت» بزنید.",
   "personEdit.currency.label": "ارز پیش‌فرض ثبت‌ها",
   "personEdit.currency.inherit": "خودکار (در غیر آن {currency})",
   "personEdit.currency.inherited": "خودکار",
@@ -4457,8 +4481,7 @@ const fa: Partial<Record<Key, string>> = {
   "vaultPair.role.editor.body":
     "کارمند روزمره. می‌تواند ورودی‌ها را اضافه و ویرایش کند، اما اعضا را مدیریت نمی‌کند.",
   "vaultPair.role.viewer": "بیننده",
-  "vaultPair.role.viewer.body":
-    "فقط مشاهده. می‌تواند موجودی‌ها و ورودی‌ها را ببیند ولی چیزی را تغییر نمی‌دهد.",
+  "vaultPair.role.viewer.body": "می‌تواند مانده‌ها و ثبت‌ها را ببیند و یادداشت بگذارد.",
   "vaultPair.role.continue": "نمایش کود جفت‌سازی",
   "vaultPair.role.committed": "این کود نقش زیر را می‌دهد: {role}",
 
@@ -4779,7 +4802,7 @@ const fa: Partial<Record<Key, string>> = {
   "invite.link.create": "ساختن لینک",
   "invite.link.createAnother": "ساختن لینک دیگر",
   "invite.link.viewerDisclosure":
-    "بیننده‌ها همه‌چیز این کاتا را می‌بینند — همه مانده‌ها و شماره‌ها — اما نمی‌توانند تغییری بدهند.",
+    "بیننده‌ها می‌توانند دفتر کاتا، از جمله همهٔ مانده‌ها و شماره‌های تلفن را ببینند و یادداشت بگذارند.",
   "invite.link.editorDisclosure":
     "ویرایشگرها می‌توانند در این کاتا ثبت اضافه، ویرایش و حذف کنند. در حساب‌های مشترک، ثبت‌های طرف مقابل را تأیید یا رد (نهایی) و حساب مشترک را قطع هم می‌توانند.",
   "invite.managerNote":
@@ -4830,7 +4853,7 @@ const fa: Partial<Record<Key, string>> = {
   "invite.role.clerk": "ثبت‌کننده",
   "invite.role.clerk.hint": "فقط افزودن ثبت — بدون ویرایش و حذف",
   "invite.role.viewer": "بیننده",
-  "invite.role.viewer.hint": "دسترسی فقط‌خواندنی",
+  "invite.role.viewer.hint": "دیدن دفتر و گذاشتن یادداشت",
   "invite.submit": "ایجاد دعوت",
   "invite.created": "دعوت ایجاد شد",
   "invite.failed": "ایجاد دعوت ناکام شد",
@@ -6074,7 +6097,6 @@ const ps: Record<Key, string> = {
   "home.from.many": "له {count} کسانو څخه",
   "common.more": "نور",
   "common.less": "لږ",
-  "readonly.badge": "یوازې کتل",
   "customers.listOptions": "ترتیب او چاڼ",
   "customers.search": "پېرودونکي ولټوئ",
   "search.openHint": "لټون او چاڼ له اړوندو پایلو سره پرانیزي.",
@@ -6253,6 +6275,20 @@ const ps: Record<Key, string> = {
   "customerNote.historyFailed": "پخواني بدلونونه را خلاص نه شول. بیا هڅه وکړئ.",
   "customerNote.changed":
     "چا د دې پېرودونکي یادښت بدل کړی دی. دا پاڼه وتړئ او بیا یې پرانیزئ، څو تر سمولو مخکې نوی یادښت ولولئ.",
+  "tallyNotes.title": "د راکړو ورکړو یادښتونه",
+  "tallyNotes.add": "یادښت زیات کړئ",
+  "tallyNotes.hint": "هغو کسانو ته پیغام پرېږدئ چې په دې کاټه کې راکړې ورکړې ثبتوي.",
+  "tallyNotes.placeholder": "ستاسې همکاران څه ثبت کړي؟",
+  "tallyNotes.invalidText": "تر {count} تورو پورې یادښت ولیکئ.",
+  "tallyNotes.loadFailed": "د راکړو ورکړو یادښتونه را خلاص نه شول.",
+  "tallyNotes.delete": "یادښت ړنګ کړئ",
+  "tallyNotes.deleteTitle": "دا یادښت ړنګ شي؟",
+  "tallyNotes.deleteBody":
+    "یادښت به د کاټې د ټولو غړو لپاره د دې پېرودونکي د یادښتونو له لېست څخه ړنګ شي.",
+  "tallyNotes.deleted": "یادښت ړنګ شو",
+  "tallyNotes.showMore": "پخواني یادښتونه وښایئ",
+  "tallyNotes.showFewer": "لږ یادښتونه وښایئ",
+  "tallyNotes.emptyLedger": "همکارانو ته د پیغام پرېښودو لپاره «یادښت زیات کړئ» ووهئ.",
   "personEdit.currency.label": "د راکړو ورکړو اصلي اسعار",
   "personEdit.currency.inherit": "اتومات (که نه، {currency})",
   "personEdit.currency.inherited": "اتومات",
@@ -7126,7 +7162,7 @@ const ps: Record<Key, string> = {
   "invite.link.create": "لینک جوړ کړئ",
   "invite.link.createAnother": "بل لینک جوړ کړئ",
   "invite.link.viewerDisclosure":
-    "کتونکي په دې کاټه کې هر څه لیدلای شي — ټول پاتې حسابونه او د ټیلیفون شمېرې — خو بدلون نه شي راوستلای.",
+    "کتونکي د دې کاټې دفتر، ټول پاتې حسابونه او د ټیلیفون شمېرې لیدلای شي او یادښت پرېښودلای شي.",
   "invite.link.editorDisclosure":
     "سمونګر په دې کاټه کې راکړې ورکړې زیاتولای، سمولای او ړنګولای شي. په ګډو حسابونو کې د بل لوري راکړې ورکړې هم منلای یا ردولای شي؛ دا پرېکړه وروستۍ ده. د حساب اړیکه هم پرېکولای شي.",
   "invite.managerNote":
@@ -7175,7 +7211,7 @@ const ps: Record<Key, string> = {
   "invite.role.editor": "سمونګر",
   "invite.role.editor.hint": "راکړې ورکړې زیاتې، سمې او ړنګې کړئ",
   "invite.role.viewer": "کتونکی",
-  "invite.role.viewer.hint": "یوازې د لیدلو لاسرسی",
+  "invite.role.viewer.hint": "دفتر وګورئ او یادښت پرېږدئ",
   "invite.role.clerk": "کارکوونکی",
   "invite.role.clerk.hint": "یوازې راکړې ورکړې زیاتول — سمول او ړنګول نشي کولای",
   "invite.submit": "بلنه جوړه کړئ",
@@ -7298,8 +7334,7 @@ const ps: Record<Key, string> = {
   "vaultPair.role.editor.body":
     "د ورځنیو کارونو کارکوونکی. راکړې ورکړې ورزیاتولی او سمولی شي، خو غړي نه شي اداره کولی.",
   "vaultPair.role.viewer": "کتونکی",
-  "vaultPair.role.viewer.body":
-    "یوازې د کتلو اجازه لري. پاتې حسابونه او راکړې ورکړې لیدلی شي، خو هېڅ بدلون نه شي راوستلی.",
+  "vaultPair.role.viewer.body": "پاتې حسابونه او راکړې ورکړې لیدلای شي او یادښت پرېښودلای شي.",
   "vaultPair.role.continue": "د نښلولو کوډ وښایئ",
   "vaultPair.role.committed": "دا کوډ دا واک ورکوي: {role}",
   "vaultPairScan.title": "د نښلولو کوډ سکین کړئ",

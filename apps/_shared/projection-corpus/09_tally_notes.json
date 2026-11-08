@@ -1,0 +1,187 @@
+{
+  "name": "tally_notes",
+  "description": "Viewer notes leave the financial projection intact. A removal stays effective after a delayed copy of the original note arrives.",
+  "events": [
+    {
+      "event_id": "11111111-1111-4111-8111-111111111111",
+      "event_type": "person_added",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "dddddddd-1111-4111-8111-111111111111",
+      "relationship_id": "cccccccc-1111-4111-8111-111111111111",
+      "hlc": {
+        "pms": 1700000000000,
+        "l": 0,
+        "did": "aaaaaaaa-3333-4333-8333-333333333333"
+      },
+      "device_id": "aaaaaaaa-3333-4333-8333-333333333333",
+      "author_user_id_local_only": "self-aaaaaaaa-1111-4111-8111",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "user_id": "dddddddd-1111-4111-8111-111111111111",
+        "name": "Ahmad",
+        "phone_e164": "+93701234567",
+        "relationship_context": "peer"
+      }
+    },
+    {
+      "event_id": "22222222-2222-4222-8222-222222222222",
+      "event_type": "entry_created",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "eeeeeeee-1111-4111-8111-111111111111",
+      "relationship_id": "cccccccc-1111-4111-8111-111111111111",
+      "hlc": {
+        "pms": 1700000000500,
+        "l": 0,
+        "did": "aaaaaaaa-3333-4333-8333-333333333333"
+      },
+      "device_id": "aaaaaaaa-3333-4333-8333-333333333333",
+      "author_user_id_local_only": "self-aaaaaaaa-1111-4111-8111",
+      "actor_account_id": null,
+      "payload_schema": 1,
+      "payload": {
+        "entry_id": "eeeeeeee-1111-4111-8111-111111111111",
+        "relationship_id": "cccccccc-1111-4111-8111-111111111111",
+        "type": "debt",
+        "amount_afn": 500,
+        "note": "tea",
+        "occurred_at_ms": 1700000000500
+      }
+    },
+    {
+      "event_id": "aaaaaaaa-2222-4222-8222-222222222222",
+      "event_type": "tally_note_added",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "aaaaaaaa-2222-4222-8222-222222222222",
+      "relationship_id": "cccccccc-1111-4111-8111-111111111111",
+      "hlc": {
+        "pms": 1700000001000,
+        "l": 0,
+        "did": "bbbbbbbb-3333-4333-8333-333333333333"
+      },
+      "device_id": "bbbbbbbb-3333-4333-8333-333333333333",
+      "author_user_id_local_only": "self-aaaaaaaa-1111-4111-8111",
+      "actor_account_id": "99999999-1111-4111-8111-111111111111",
+      "payload_schema": 1,
+      "payload": {
+        "note": "I took two boxes from Ahmad.\nلطفاً ثبت کنید."
+      }
+    },
+    {
+      "event_id": "44444444-2222-4222-8222-222222222222",
+      "event_type": "tally_note_removed",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "bbbbbbbb-2222-4222-8222-222222222222",
+      "relationship_id": "cccccccc-1111-4111-8111-111111111111",
+      "hlc": {
+        "pms": 1700000002000,
+        "l": 0,
+        "did": "cccccccc-3333-4333-8333-333333333333"
+      },
+      "device_id": "cccccccc-3333-4333-8333-333333333333",
+      "author_user_id_local_only": "self-aaaaaaaa-1111-4111-8111",
+      "actor_account_id": "88888888-1111-4111-8111-111111111111",
+      "payload_schema": 1,
+      "payload": {}
+    },
+    {
+      "event_id": "bbbbbbbb-2222-4222-8222-222222222222",
+      "event_type": "tally_note_added",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "target_id": "bbbbbbbb-2222-4222-8222-222222222222",
+      "relationship_id": "cccccccc-1111-4111-8111-111111111111",
+      "hlc": {
+        "pms": 1700000001500,
+        "l": 0,
+        "did": "bbbbbbbb-3333-4333-8333-333333333333"
+      },
+      "device_id": "bbbbbbbb-3333-4333-8333-333333333333",
+      "author_user_id_local_only": "self-aaaaaaaa-1111-4111-8111",
+      "actor_account_id": "99999999-1111-4111-8111-111111111111",
+      "payload_schema": 1,
+      "payload": {
+        "note": "Already recorded."
+      }
+    }
+  ],
+  "expected_projection": {
+    "users": {
+      "dddddddd-1111-4111-8111-111111111111": {
+        "id": "dddddddd-1111-4111-8111-111111111111",
+        "phone_e164": "+93701234567",
+        "display_name": "Ahmad",
+        "is_local_self": false,
+        "google_sub": null,
+        "account_id": null,
+        "created_at": 1700000000000,
+        "updated_at": 1700000000000,
+        "archived_at": null
+      }
+    },
+    "relationships": {
+      "cccccccc-1111-4111-8111-111111111111": {
+        "id": "cccccccc-1111-4111-8111-111111111111",
+        "user_a_id": "self-aaaaaaaa-1111-4111-8111",
+        "user_b_id": "dddddddd-1111-4111-8111-111111111111",
+        "context": "peer",
+        "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "created_at": 1700000000000,
+        "updated_at": 1700000000000,
+        "archived_at": null
+      }
+    },
+    "entries": {
+      "eeeeeeee-1111-4111-8111-111111111111": {
+        "id": "eeeeeeee-1111-4111-8111-111111111111",
+        "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "relationship_id": "cccccccc-1111-4111-8111-111111111111",
+        "type": "debt",
+        "amount_afn": 500,
+        "amount_hlc": {
+          "pms": 1700000000500,
+          "l": 0,
+          "did": "aaaaaaaa-3333-4333-8333-333333333333"
+        },
+        "note": "tea",
+        "created_at": 1700000000500,
+        "updated_at": 1700000000500,
+        "deleted_at": null,
+        "proposed_by_user_id": "self-aaaaaaaa-1111-4111-8111",
+        "accepted_at": null,
+        "disputed_at": null,
+        "disputed_reason": null,
+        "settled_at": null,
+        "current_event_id": "22222222-2222-4222-8222-222222222222",
+        "recorded_at_ms": 1700000000500,
+        "occurred_at_hlc": {
+          "pms": 1700000000500,
+          "l": 0,
+          "did": "aaaaaaaa-3333-4333-8333-333333333333"
+        },
+        "is_deleted": false,
+        "is_settled": false
+      }
+    },
+    "shop_profile": null,
+    "members": {},
+    "vault_settings": {}
+  },
+  "expected_tally_notes": [
+    {
+      "id": "aaaaaaaa-2222-4222-8222-222222222222",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "relationship_id": "cccccccc-1111-4111-8111-111111111111",
+      "note": "I took two boxes from Ahmad.\nلطفاً ثبت کنید.",
+      "created_at": 1700000001000,
+      "author_account_id": "99999999-1111-4111-8111-111111111111",
+      "author_device_id": "bbbbbbbb-3333-4333-8333-333333333333",
+      "removed_at": null
+    },
+    {
+      "id": "bbbbbbbb-2222-4222-8222-222222222222",
+      "vault_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "relationship_id": "cccccccc-1111-4111-8111-111111111111",
+      "removed_at": 1700000002000
+    }
+  ]
+}

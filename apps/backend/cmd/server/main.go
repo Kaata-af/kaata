@@ -656,6 +656,7 @@ func main() {
 		pr.Get("/v1/sync/pull", syncH.Pull)
 		pr.Get("/v1/sync/capabilities", syncH.CurrencyCapabilities)
 		pr.With(httpx.RateLimitPerAccount(600, time.Hour)).Get("/v1/sync/person-notes", syncH.PersonNotes)
+		pr.With(httpx.RateLimitPerAccount(600, time.Hour)).Get("/v1/sync/tally-notes", syncH.TallyNotes)
 		pr.Get("/v1/sync/snapshot", syncH.Snapshot)
 		// Desktop workspace reads a fresh projection instead of a stale snapshot.
 		pr.With(httpx.RateLimitPerAccount(600, time.Hour)).Get("/v1/sync/ledger", syncH.Ledger)

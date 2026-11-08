@@ -119,6 +119,17 @@ export type EntrySettledEvent = EventEnvelope & {
   payload: { settled_at_ms: number; currency?: string };
 };
 
+/** Contact-scoped reminders for Kaata members. They never enter the balance. */
+export type TallyNoteAddedEvent = EventEnvelope & {
+  event_type: "tally_note_added";
+  payload: { note: string };
+};
+
+export type TallyNoteRemovedEvent = EventEnvelope & {
+  event_type: "tally_note_removed";
+  payload: Record<string, never>;
+};
+
 // ---------- Person events (Phase 2/3) ----------
 
 export type PersonAddedEvent = EventEnvelope & {
@@ -280,6 +291,8 @@ export type LedgerEvent =
   | EntryAmendedEvent
   | EntryDeletedEvent
   | EntrySettledEvent
+  | TallyNoteAddedEvent
+  | TallyNoteRemovedEvent
   | PersonAddedEvent
   | PersonRenamedEvent
   | PersonPhoneChangedEvent
@@ -309,6 +322,8 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<EventType> = new Set([
   "entry_amended",
   "entry_deleted",
   "entry_settled",
+  "tally_note_added",
+  "tally_note_removed",
   "person_added",
   "person_renamed",
   "person_phone_changed",
@@ -335,6 +350,12 @@ export function isKnownEventType(t: string): t is EventType {
   return (KNOWN_EVENT_TYPES as ReadonlySet<string>).has(t);
 }
 
+export function isTallyNoteEventType(
+  type: string,
+): type is TallyNoteAddedEvent["event_type"] | TallyNoteRemovedEvent["event_type"] {
+  return type === "tally_note_added" || type === "tally_note_removed";
+}
+
 // Event types that carry the user's actual LEDGER DATA (tallies, contacts, shop
 // profile) — as opposed to membership / device / vault-config / account events.
 // These must NEVER be permanently discarded (push rejected_at, or a sweep
@@ -343,6 +364,8 @@ export function isKnownEventType(t: string): t is EventType {
 // holds their canonical copy and a genuinely-bad one of those must not loop or
 // resurface forever.
 const USER_LEDGER_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
+  "tally_note_added",
+  "tally_note_removed",
   "person_default_currency_set",
   "person_note_set",
   "group_created",

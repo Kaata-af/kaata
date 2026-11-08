@@ -81,6 +81,9 @@ type SnapshotResponse struct {
 	// Private staff notes retain their signed authority and explicit clears.
 	// Do not synthesize this metadata from unsigned relationship snapshot rows.
 	PersonNoteEvents []PulledEvent `json:"person_note_events,omitempty"`
+	// Keep original signed note creations and sticky removals apart from the
+	// financial projection. Older clients can ignore this additive field.
+	TallyNoteEvents []PulledEvent `json:"tally_note_events,omitempty"`
 	// SettlementEvents (2026-07-27): every entry_settled chapter marker for
 	// the vault, cursor-independent like MembershipEvents — the settlements
 	// projection is mobile-only, so a snapshot restore would otherwise lose
@@ -273,6 +276,10 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		return nil, fmt.Errorf("read person note events: %w", err)
 	}
 	s.resolveBindingsOnPulled(ctx, vaultID, personNotes)
+	tallyNotes, err := pullSnapshotNoteEvents(ctx, s.pool, vaultID, tallyNoteFilter)
+	if err != nil {
+		return nil, fmt.Errorf("read tally note events: %w", err)
+	}
 
 	settlements, err := s.pullSettlementEvents(ctx, vaultID)
 	if err != nil {
@@ -287,6 +294,11 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 	// any membership event also present in the tail is already counted.
 	hlcLast := snapshotMaxHLC(&projection, tail)
 	for _, event := range personNotes {
+		if CompareHLC(event.HLC, hlcLast) > 0 {
+			hlcLast = event.HLC
+		}
+	}
+	for _, event := range tallyNotes {
 		if CompareHLC(event.HLC, hlcLast) > 0 {
 			hlcLast = event.HLC
 		}
@@ -349,6 +361,7 @@ func (s *Service) LatestSnapshot(ctx context.Context, vaultID string) (*Snapshot
 		BillLinkEvents:        billLinks,
 		PersonCurrencyEvents:  personCurrencies,
 		PersonNoteEvents:      personNotes,
+		TallyNoteEvents:       tallyNotes,
 		SettlementEvents:      settlements,
 	}
 	return resp, nil
@@ -731,12 +744,16 @@ func pullPersonCurrencyEvents(ctx context.Context, query snapshotEventQuerier, v
 // Independent of the saved snapshot cursor: even old cached projections must
 // recover note edits/clears with their original signatures and field clocks.
 func pullPersonNoteEvents(ctx context.Context, query snapshotEventQuerier, vaultID string) ([]PulledEvent, error) {
+	return pullSnapshotNoteEvents(ctx, query, vaultID, personNoteFilter)
+}
+
+func pullSnapshotNoteEvents(ctx context.Context, query snapshotEventQuerier, vaultID, filter string) ([]PulledEvent, error) {
 	rows, err := query.Query(ctx, `
 		SELECT`+pulledEventColumns+`
 		FROM events
 		WHERE vault_id = $1::uuid
 		  AND redacted_at IS NULL
-		  AND event_type = 'person_note_set'
+		  AND `+filter+`
 		ORDER BY hlc_physical_ms ASC, hlc_logical ASC, hlc_device_id ASC, event_id ASC
 	`, vaultID)
 	if err != nil {

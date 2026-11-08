@@ -324,7 +324,10 @@ function pullFixture(f: ReturnType<typeof fixture>, response: Promise<any>) {
     "../sync/pull",
     {
       "../api": { getBackendUrl: async () => "https://test.invalid" },
-      "../person-note-sync": { syncPersonNotesHistory: async () => false },
+      "../person-note-sync": {
+        syncPersonNotesHistory: async () => false,
+        syncTallyNotesHistory: async () => false,
+      },
       "../auth": f.auth,
       "../db": f.dbModule,
       "../db-tx": f.dbTx,

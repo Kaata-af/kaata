@@ -25,6 +25,8 @@ export type VaultAction =
   | "entry.create"
   | "entry.amend"
   | "entry.delete"
+  | "tally_note.add"
+  | "tally_note.remove"
   // People writes
   | "person.add"
   | "person.rename"
@@ -55,6 +57,8 @@ export const PERMISSIONS: Readonly<Record<VaultAction, Readonly<Record<VaultRole
     "entry.create": { owner: true, manager: true, editor: true, clerk: true, viewer: false },
     "entry.amend": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
     "entry.delete": { owner: true, manager: true, editor: true, clerk: false, viewer: false },
+    "tally_note.add": { owner: true, manager: true, editor: true, clerk: true, viewer: true },
+    "tally_note.remove": { owner: true, manager: true, editor: false, clerk: false, viewer: false },
 
     "person.add": { owner: true, manager: true, editor: true, clerk: true, viewer: false },
     "person.rename": { owner: true, manager: true, editor: true, clerk: false, viewer: false },

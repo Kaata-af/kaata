@@ -238,7 +238,7 @@ export async function applyAlreadyIngestedEvent(
         // the throw outside the await so the verdict survives the rollback.
         try {
           await captureCreditMutationBaseline(db, event);
-          await applier(db as SQLiteTx, event);
+          await applier(db as SQLiteTx, event, gate.current_account_id ?? null);
         } catch (err) {
           verdict = classifyApplierThrow(err);
           // Re-throw so the txn rolls back — we don't want a half-applied

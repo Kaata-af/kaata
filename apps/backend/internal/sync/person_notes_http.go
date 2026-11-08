@@ -19,6 +19,11 @@ type PersonNotesResponse struct {
 	NextAfterServerSeq int64         `json:"next_after_server_seq"`
 }
 
+const (
+	personNoteFilter = "event_type = 'person_note_set'"
+	tallyNoteFilter  = "event_type IN ('tally_note_added', 'tally_note_removed')"
+)
+
 // PersonNotes serves a separate, bounded recovery stream. Clients that restored
 // an older snapshot can recover ignored notes without rewinding financial sync.
 func (h *Handler) PersonNotes(w http.ResponseWriter, r *http.Request) {
@@ -26,6 +31,15 @@ func (h *Handler) PersonNotes(w http.ResponseWriter, r *http.Request) {
 		h.webPersonNotes(w, r)
 		return
 	}
+	h.noteHistory(w, r, personNoteFilter)
+}
+
+// TallyNotes recovers notes skipped by a snapshot or an older app version.
+func (h *Handler) TallyNotes(w http.ResponseWriter, r *http.Request) {
+	h.noteHistory(w, r, tallyNoteFilter)
+}
+
+func (h *Handler) noteHistory(w http.ResponseWriter, r *http.Request, filter string) {
 	w.Header().Set("Cache-Control", "no-store")
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok {
@@ -56,27 +70,27 @@ func (h *Handler) PersonNotes(w http.ResponseWriter, r *http.Request) {
 	if !h.allowCurrencyClient(w, r, vaultID.String(), claims.AccountID) {
 		return
 	}
-	response, err := h.svc.PersonNoteEvents(r.Context(), claims.AccountID, vaultID.String(), after, limit)
+	response, err := h.svc.noteHistoryEvents(r.Context(), claims.AccountID, vaultID.String(), filter, after, limit)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotMember), errors.Is(err, ErrVaultNotFound), errors.Is(err, ErrVaultArchived):
 			writeMembershipDenied(w, err)
 		default:
-			log.Printf("sync.person-notes failed for account=%s vault=%s: %v", claims.AccountID, vaultID, err)
-			httpx.Error(w, http.StatusServiceUnavailable, "customer notes recovery failed")
+			log.Printf("sync note history failed for account=%s vault=%s: %v", claims.AccountID, vaultID, err)
+			httpx.Error(w, http.StatusServiceUnavailable, "notes recovery failed")
 		}
 		return
 	}
 	httpx.JSON(w, http.StatusOK, response)
 }
 
-func (s *Service) PersonNoteEvents(ctx context.Context, accountID, vaultID string, after int64, limit int) (*PersonNotesResponse, error) {
+func (s *Service) noteHistoryEvents(ctx context.Context, accountID, vaultID, filter string, after int64, limit int) (*PersonNotesResponse, error) {
 	// Same uncached ACL as ordinary pull: revoked/invited/nonmember contacts
 	// cannot obtain staff notes, including notes on a linked shared account.
 	if err := s.checkMembershipFresh(ctx, accountID, vaultID); err != nil {
 		return nil, err
 	}
-	response, err := readPersonNotePage(ctx, s.pool, vaultID, after, limit)
+	response, err := readNoteHistoryPage(ctx, s.pool, vaultID, filter, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +99,12 @@ func (s *Service) PersonNoteEvents(ctx context.Context, accountID, vaultID strin
 }
 
 func readPersonNotePage(ctx context.Context, query snapshotEventQuerier, vaultID string, after int64, limit int) (*PersonNotesResponse, error) {
+	return readNoteHistoryPage(ctx, query, vaultID, personNoteFilter, after, limit)
+}
+
+// filter is one of the fixed internal SQL predicates above. It is never
+// supplied by the request.
+func readNoteHistoryPage(ctx context.Context, query snapshotEventQuerier, vaultID, filter string, after int64, limit int) (*PersonNotesResponse, error) {
 	if after < 0 {
 		return nil, errors.New("invalid note recovery cursor")
 	}
@@ -100,7 +120,7 @@ func readPersonNotePage(ctx context.Context, query snapshotEventQuerier, vaultID
 		WHERE vault_id = $1::uuid
 		  AND server_seq > $2
 		  AND redacted_at IS NULL
-		  AND event_type = 'person_note_set'
+		  AND `+filter+`
 		ORDER BY server_seq ASC
 		LIMIT $3
 	`, vaultID, after, limit+1)

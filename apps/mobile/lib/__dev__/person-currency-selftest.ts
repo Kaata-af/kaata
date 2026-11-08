@@ -161,9 +161,23 @@ export async function fixture() {
     getDevicePubkey: () => pubkey,
     isOwnDevicePubkey: async (key: string) => key === pubkey,
   };
+  const tallyNotePolicy = compileUI("../tally-note-policy", {
+    "./effective-account": {
+      resolveAccountIdCandidates: async (id: string | null) =>
+        id ? [id] : [require("../trust/account-id").buildLocalAccountId(pubkey)],
+    },
+    "./events": require("../events"),
+    "./vault-roles": require("../vault-roles"),
+  });
+  const tallyProjection = compileUI("../projection/tally_notes", {
+    "../tally-note-policy": tallyNotePolicy,
+    "./errors": require("../projection/errors"),
+  });
   const roleGate = load("../projection/role-gate", (name) => {
     if (name === "../db-tx") return dbTx;
     if (name === "../event-sig") return signature;
+    if (name === "../events") return require("../events");
+    if (name === "../tally-note-policy") return tallyNotePolicy;
     if (name === "../mesh/device-key") return device;
     if (name === "../effective-account")
       return { resolveAccountIdCandidates: async (id: string) => [id] };
@@ -211,6 +225,7 @@ export async function fixture() {
     if (name === "./role-gate") return roleGate;
     if (name === "./persons") return persons;
     if (name === "./entries") return entries;
+    if (name === "./tally_notes") return tallyProjection;
     if (name === "./vault_members") return members;
     if (name === "./vault_settings") return settings;
     if (name === "../use-vault-role") return roleNotifications;
@@ -331,6 +346,9 @@ export async function fixture() {
     persons,
     personCurrency,
     eventLog,
+    tallyNotePolicy,
+    tallyProjection,
+    roleGate,
     auth,
     currency,
     pubkey,

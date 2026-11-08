@@ -38,7 +38,8 @@ import type { SQLiteTx } from "../db-tx";
 import { getAccountIdSync } from "../db-tx";
 import { resolveAccountIdCandidates } from "../effective-account";
 import { verifyEventSignature, type SignableEvent } from "../event-sig";
-import type { EventType, LedgerEvent, VaultRole } from "../events";
+import { isTallyNoteEventType, type EventType, type LedgerEvent, type VaultRole } from "../events";
+import { readCurrentTallyNoteRole } from "../tally-note-policy";
 import { compareHLC, type HLC } from "../hlc";
 import {
   deviceWitnessTuple,
@@ -64,13 +65,15 @@ import {
 // "none" = no role check (the event is its own self-binding). Currently:
 //   - account_bound: it IS the binding, can't check itself.
 
-type RoleRequirement = "owner" | "manager" | "editor" | "clerk" | "none";
+type RoleRequirement = VaultRole | "none";
 
 const REQUIRED_ROLE: Record<EventType, RoleRequirement> = {
   // Append-only ledger writes — clerk or above (roles v2: a clerk writes
   // new entries/people but can never amend or delete history).
   entry_created: "clerk",
   person_added: "clerk",
+  tally_note_added: "viewer",
+  tally_note_removed: "manager",
 
   // History mutations — editor or above.
   entry_amended: "editor",
@@ -760,6 +763,16 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
     // events with null vault_id are legacy pre-migration-007 rows that
     // the gate cannot reason about. Bypass.
     return { ok: true };
+  }
+  if (event.origin === "local" && isTallyNoteEventType(event.event_type)) {
+    const current = await readCurrentTallyNoteRole(tx, event.vault_id, getAccountIdSync());
+    if (!current || !meetsRequirement(current, requirement))
+      return {
+        ok: false,
+        reason: current ? "insufficient_role" : "unknown_actor",
+        current_role: current,
+        required_role: requirement,
+      };
   }
   if (hasOwnershipTransferPayload(event)) {
     const proof = verifyOwnershipTransferEvent(

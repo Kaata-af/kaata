@@ -79,6 +79,8 @@ const (
 	EventPersonPhoneChanged       = "person_phone_changed"
 	EventPersonDefaultCurrencySet = "person_default_currency_set"
 	EventPersonNoteSet            = "person_note_set"
+	EventTallyNoteAdded           = "tally_note_added"
+	EventTallyNoteRemoved         = "tally_note_removed"
 	EventPersonArchived           = "person_archived"
 	EventPersonUnarchived         = "person_unarchived"
 	EventGroupCreated             = "group_created"
@@ -373,6 +375,10 @@ func applyOne(p *Projection, e *LedgerEvent) error {
 		return applyPersonDefaultCurrencySet(p, e)
 	case EventPersonNoteSet:
 		return applyPersonNoteSet(p, e)
+	case EventTallyNoteAdded, EventTallyNoteRemoved:
+		// Internal notes use their signed history for recovery. They never
+		// contribute to the financial or customer projection.
+		return nil
 	case EventPersonArchived:
 		return applyPersonArchived(p, e)
 	case EventPersonUnarchived:

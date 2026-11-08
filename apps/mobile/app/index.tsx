@@ -1901,7 +1901,7 @@ export default function HomeScreen() {
             hugs its content (name + chevron) instead of flex:1-ing across the
             whole row, so tapping the empty middle no longer opens the kaata
             picker (it used to: the switcher's tap target spanned to the avatar). */}
-            {/* Read-only badge — shown when I'm a viewer on this (shared) kaata, so
+            {/* Viewer badge — shown when I'm a viewer on this (shared) kaata, so
             the absent FAB / write actions are explained rather than mysterious. */}
             {caps.resolved && !caps.canCreate && currentVaultScope ? (
               <View style={[styles.readOnlyBadge, isRTL ? { marginRight: 8 } : { marginLeft: 8 }]}>
@@ -1911,7 +1911,7 @@ export default function HomeScreen() {
                 the label it annotates. */}
                 <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
                 <Text style={styles.readOnlyBadgeText} allowFontScaling={false}>
-                  {t("readonly.badge")}
+                  {t("vaultSettings.role.viewer")}
                 </Text>
               </View>
             ) : null}

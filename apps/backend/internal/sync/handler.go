@@ -282,12 +282,12 @@ func (h *Handler) push(w http.ResponseWriter, r *http.Request, readmission bool)
 			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].hlc.device_id must be a uuid")
 			return
 		}
-		// Audit-log integrity: the actor_account_id stamped on the wire
-		// MUST equal the JWT claim. Otherwise a malicious client could
-		// attribute writes (within their own vault membership) to a
-		// different account, poisoning the audit trail and any future
-		// "lawful at HLC" ACL check that keys off events.account_id.
-		if ev.ActorAccountID != nil && *ev.ActorAccountID != "" && *ev.ActorAccountID != claims.AccountID {
+		// A note relayed over mesh carries the original author's signature.
+		// Its dedicated admission path verifies the signer against that
+		// account and checks the live role. Keep the existing actor/session
+		// requirement for event types without that proof.
+		noteRelay := !readmission && isTallyNoteEvent(ev.EventType)
+		if ev.ActorAccountID != nil && *ev.ActorAccountID != "" && *ev.ActorAccountID != claims.AccountID && !noteRelay {
 			httpx.Error(w, http.StatusBadRequest, "events["+strconv.Itoa(i)+"].actor_account_id does not match session account")
 			return
 		}

@@ -276,10 +276,14 @@ function audit(directory: string) {
 }
 audit(join(mobile, "components"));
 audit(join(mobile, "app"));
-assert.equal(guardedConsumers.size, 14, "every existing sensitive modal host uses the common gate");
+assert.equal(guardedConsumers.size, 15, "every existing sensitive modal host uses the common gate");
 assert.ok(
   guardedConsumers.has("components/CustomerNoteCard.tsx"),
   "private note history uses the same lock protection",
+);
+assert.ok(
+  guardedConsumers.has("components/TallyNotes.tsx"),
+  "the tally note composer uses the same lock protection",
 );
 console.log(
   "PASS protected modals: Android windows hidden, iOS presentations retained without private children, deferred native readiness replayed once after unlock, stale/unmount callbacks blocked, controlled drafts preserved and all sensitive modal imports audited",

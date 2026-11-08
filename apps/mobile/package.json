@@ -60,6 +60,7 @@
     "selftest:notification-navigation": "tsx lib/__dev__/notification-navigation-selftest.ts",
     "selftest:auth-redirect": "tsx lib/__dev__/auth-redirect-selftest.ts",
     "selftest:tally-ui": "tsx lib/__dev__/tally-ui-selftest.ts",
+    "selftest:tally-notes": "tsx lib/__dev__/tally-note-projection-selftest.ts && tsx lib/__dev__/tally-note-data-selftest.ts && tsx lib/__dev__/tally-notes-ui-selftest.ts",
     "selftest:selection-ui": "tsx lib/__dev__/selection-ui-selftest.ts",
     "selftest:toast-host": "tsx lib/__dev__/toast-host-selftest.ts",
     "selftest:selection-gesture": "tsx lib/__dev__/selection-gesture-selftest.ts",

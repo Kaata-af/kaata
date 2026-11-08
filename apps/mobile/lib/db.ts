@@ -151,6 +151,7 @@ const MIGRATION_048 = "048_customer_notes";
 const MIGRATION_049 = "049_credit_alert_rules";
 const MIGRATION_050 = "050_credit_limit_notifications";
 const MIGRATION_051 = "051_tally_removal_requests";
+const MIGRATION_052 = "052_tally_notes";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -596,6 +597,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_049))) await runMigration049(db);
   if (!(await hasRunMigration(db, MIGRATION_050))) await runMigration050(db);
   if (!(await hasRunMigration(db, MIGRATION_051))) await runMigration051(db);
+  if (!(await hasRunMigration(db, MIGRATION_052))) await runMigration052(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3886,6 +3888,32 @@ async function runMigration051(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration052(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE tally_notes (
+        vault_id TEXT NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+        relationship_id TEXT NOT NULL REFERENCES relationships(id) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        note TEXT,
+        created_at INTEGER,
+        author_account_id TEXT,
+        author_device_id TEXT,
+        removed_at INTEGER,
+        PRIMARY KEY (vault_id, relationship_id, id)
+      );
+      CREATE INDEX idx_tally_notes_active
+        ON tally_notes(vault_id, relationship_id, created_at DESC, id)
+        WHERE removed_at IS NULL;
+    `);
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_052,
+      Date.now(),
+    );
+  });
+}
+
 async function getLocalSelfUserId(db: SQLite.SQLiteDatabase): Promise<string | null> {
   const row = await db.getFirstAsync<{ id: string }>(
     "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
@@ -3942,6 +3970,7 @@ export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {
     DROP TABLE IF EXISTS event_log;
     DROP TABLE IF EXISTS entries;
     DROP TABLE IF EXISTS entries_new;
+    DROP TABLE IF EXISTS tally_notes;
     DROP TABLE IF EXISTS relationships;
     DROP TABLE IF EXISTS relationships_new;
     DROP TABLE IF EXISTS shop_profile;

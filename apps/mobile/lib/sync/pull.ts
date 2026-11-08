@@ -13,7 +13,7 @@
 
 import { getBackendUrl } from "../api";
 import { currencyRequestHeaders } from "../currency-sync";
-import { syncPersonNotesHistory } from "../person-note-sync";
+import { syncPersonNotesHistory, syncTallyNotesHistory } from "../person-note-sync";
 import { applyForCurrentSession, getSessionJWT, type SessionSnapshot } from "../auth";
 import { healActiveVaultId } from "../db";
 import { getAccountIdSync, getDb } from "../db-tx";
@@ -187,10 +187,12 @@ export async function pullEvents(
 
   // Additive recovery for clients whose older snapshots predated internal
   // notes. It never alters the regular pull cursor or prevents tally sync.
-  try {
-    await syncPersonNotesHistory(vaultId, session);
-  } catch {
-    if (__DEV__) console.warn("[sync.pull] customer note recovery will retry");
+  for (const recover of [syncPersonNotesHistory, syncTallyNotesHistory]) {
+    try {
+      await recover(vaultId, session);
+    } catch {
+      if (__DEV__) console.warn("[sync.pull] note history recovery will retry");
+    }
   }
   return { pulled: totalPulled };
 }

@@ -33,6 +33,7 @@ const jwt = (account: string) =>
   Buffer.from(JSON.stringify({ account_id: account })).toString("base64url") +
   ".signature";
 const handles = new Set<Database.Database>();
+const tallyNotesMigration = "052_tally_notes";
 const migrationNames = [
   ...readFileSync(require.resolve("../db"), "utf8").matchAll(/const MIGRATION_\d+ = "([^"]+)"/g),
 ].map((match) => match[1]);
@@ -59,12 +60,18 @@ CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT REFERENCES tab_links(ta
 CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,attempts INTEGER,next_at INTEGER,last_error TEXT,payload TEXT);
 CREATE TABLE tab_failed_ops(id TEXT PRIMARY KEY,tab_id TEXT,last_error TEXT);
 CREATE TABLE customer_groups(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id));`;
-function fixture(name: string, account: string | null = null) {
+function fixture(name: string, account: string | null = null, legacy = false) {
   const dir = path.join(temporaryRoot, name);
   mkdirSync(dir);
   const dbPath = path.join(dir, "kaata.db");
   const raw = new Database(dbPath);
   raw.exec(schema);
+  if (legacy) {
+    raw.prepare("DELETE FROM schema_migrations WHERE name=?").run(tallyNotesMigration);
+  } else {
+    raw.exec(`CREATE TABLE tally_notes(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),relationship_id TEXT REFERENCES relationships(id),note TEXT);
+CREATE INDEX idx_tally_notes_relationship ON tally_notes(vault_id,relationship_id);`);
+  }
   raw.close();
   let cached: ReturnType<typeof open> | null = null;
   let version = 0,
@@ -322,6 +329,7 @@ async function main() {
     VAULT,
   );
   source.sql("INSERT INTO tab_entries VALUES('shared-tally','shared','Shared history')");
+  source.sql("INSERT INTO tally_notes VALUES('note-1',?,'person','Review this')", VAULT);
   const bytes = await exported(source);
   for (const secret of [
     "PAIR_SECRET_123",
@@ -350,6 +358,10 @@ async function main() {
     "Ninja restore retains data",
   );
   ok(
+    (target.rows("SELECT note FROM tally_notes")[0] as any).note === "Review this",
+    "portable restore retains tally notes",
+  );
+  ok(
     (target.rows("SELECT value FROM app_meta WHERE key='install_id'")[0] as any).value === TARGET,
     "target install identity survives",
   );
@@ -369,6 +381,13 @@ async function main() {
   );
   ok(!target.exists("kaata.personal.restore.json"), "successful restore clears pending receipt");
   await errorCode(() => target.module.stagePersonalBackupRestore(bytes), "notEmpty");
+  const oldSource = fixture("before-tally-notes", null, true);
+  oldSource.seed();
+  const oldBackup = await exported(oldSource);
+  const updated = fixture("after-tally-notes");
+  await updated.module.stagePersonalBackupRestore(oldBackup);
+  await updated.boot();
+  ok(updated.rows("SELECT * FROM entries").length === 1, "pre-notes backup restores on update");
   const signed = fixture("signed-source", ACCOUNT);
   signed.seed();
   const signedBytes = await exported(signed);
@@ -567,6 +586,14 @@ async function main() {
     () =>
       missingMigration.module.stagePersonalBackupRestore(
         alterBytes("DELETE FROM schema_migrations WHERE name LIKE '001_%'"),
+      ),
+    "unsupported",
+  );
+  const inconsistentTallyMigration = fixture("inconsistent-tally-migration");
+  await errorCode(
+    () =>
+      inconsistentTallyMigration.module.stagePersonalBackupRestore(
+        alterBytes("DELETE FROM schema_migrations WHERE name='052_tally_notes'"),
       ),
     "unsupported",
   );

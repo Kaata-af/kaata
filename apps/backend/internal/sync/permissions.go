@@ -161,6 +161,11 @@ func CheckEventPermissionByRole(role, eventType string) bool {
 // reject rather than silently accept.
 func requiredRoleFor(eventType string) (string, bool) {
 	switch eventType {
+	case EventTallyNoteAdded:
+		return "viewer", true
+	case EventTallyNoteRemoved:
+		return "manager", true
+
 	// Append-only writes — clerk or above (roles v2: a clerk writes new
 	// entries/people into the book but can never amend or delete history).
 	case "entry_created",

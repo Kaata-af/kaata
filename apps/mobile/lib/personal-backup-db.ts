@@ -38,7 +38,8 @@ export class PersonalBackupError extends Error {
 }
 export const PERSONAL_BACKUP_MAX_BYTES = 64 * 1024 * 1024;
 const INFO = "personal_backup_info";
-const LATEST_SCHEMA = "051_tally_removal_requests";
+const ORIGINAL_SCHEMA = "051_tally_removal_requests";
+const TALLY_NOTES_SCHEMA = "052_tally_notes";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TABLES = new Set([
   "app_meta",
@@ -47,6 +48,7 @@ const TABLES = new Set([
   "shop_profile",
   "relationships",
   "entries",
+  "tally_notes",
   "event_log",
   "vaults",
   "vault_members_mirror",
@@ -317,26 +319,37 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
   const migrations = await db.getAllAsync<{
     name: string;
   }>("SELECT name FROM schema_migrations");
+  const hasTallyNotes = migrations.some((row) => row.name === TALLY_NOTES_SCHEMA);
+  const expectedMigrations = hasTallyNotes ? 52 : 51;
   if (
-    migrations.length !== 51 ||
-    !migrations.some((r) => r.name === LATEST_SCHEMA) ||
-    new Set(migrations.map((r) => r.name.slice(0, 3))).size !== 51 ||
+    migrations.length !== expectedMigrations ||
+    !migrations.some((row) => row.name === ORIGINAL_SCHEMA) ||
+    names.has("tally_notes") !== hasTallyNotes ||
+    new Set(migrations.map((r) => r.name.slice(0, 3))).size !== expectedMigrations ||
     migrations.some(
       (r) =>
         !/^\d{3}_/.test(r.name) ||
         Number(r.name.slice(0, 3)) < 1 ||
-        Number(r.name.slice(0, 3)) > 51,
+        Number(r.name.slice(0, 3)) > expectedMigrations,
     )
   )
     fail("unsupported");
   if (trusted) {
-    const known = await catalog(trusted);
+    // Migration 052 only adds the note projection. An older backup can keep
+    // its original schema until initDb upgrades it after installation.
+    const known = (await catalog(trusted)).filter(
+      (row) => hasTallyNotes || row.tbl_name !== "tally_notes",
+    );
     const trustedMigrations = await trusted.getAllAsync<{
       name: string;
     }>("SELECT name FROM schema_migrations ORDER BY name");
     if (
       JSON.stringify(migrations.map((r) => r.name).sort()) !==
-      JSON.stringify(trustedMigrations.map((r) => r.name))
+      JSON.stringify(
+        trustedMigrations
+          .map((row) => row.name)
+          .filter((name) => hasTallyNotes || name !== TALLY_NOTES_SCHEMA),
+      )
     )
       fail("unsupported");
     const keys = (rows: CatalogRow[]) =>
@@ -456,6 +469,7 @@ async function ownedVaults(db: DB, accountId: string | null): Promise<Vault[]> {
   for (const table of [
     "relationships",
     "entries",
+    "tally_notes",
     "event_log",
     "shop_profile",
     "tab_links",
@@ -539,6 +553,7 @@ async function assertEmpty(db: DB): Promise<void> {
   for (const table of [
     "relationships",
     "entries",
+    "tally_notes",
     "tab_links",
     "tab_entries",
     "tab_outbox",

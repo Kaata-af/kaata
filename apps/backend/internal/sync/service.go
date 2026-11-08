@@ -623,6 +623,20 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		if ev.ActorAccountID != nil && *ev.ActorAccountID != "" {
 			eventActor = *ev.ActorAccountID
 		}
+		if isTallyNoteEvent(ev.EventType) {
+			author := accountUUID
+			if storedActor != nil {
+				author = *storedActor
+			}
+			refusal, err := admitTallyNote(ctx, tx, vaultUUID, author, &ev)
+			if err != nil {
+				return nil, fmt.Errorf("tally note admission: %w", err)
+			}
+			if refusal != nil {
+				rejected = append(rejected, *refusal)
+				continue
+			}
+		}
 		privateShared, err := privateSharedGroupMutation(ctx, tx, in.VaultID, ev, sharedScopes, creditState)
 		if err != nil {
 			return nil, fmt.Errorf("shared account admission: %w", err)

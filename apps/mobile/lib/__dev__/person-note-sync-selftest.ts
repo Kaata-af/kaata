@@ -46,8 +46,10 @@ async function main() {
     "./customer-note": require("../customer-note"),
     "./db-tx": f.dbTx,
     "./event-sig": f.signature,
+    "./events": require("../events"),
     "./projection": f.projection,
     "./projection/ingest-row": ingester,
+    "./tally-note-policy": f.tallyNotePolicy,
     "./projection/sweep": {
       sweepVaultNow: async () => {
         sweeps++;

@@ -16,7 +16,7 @@
 // corpus in apps/_shared/projection-corpus/.
 
 import { getAppMetaInTx, getDb, getInstallIdSync, setAppMetaInTx, type SQLiteTx } from "../db-tx";
-import type { EventType, LedgerEvent } from "../events";
+import type { EventType, LedgerEvent, VaultRole } from "../events";
 import { isKnownEventType } from "../events";
 import { signEvent } from "../event-sig";
 import { DeviceKeyUnavailableError, getDeviceSigner, type DeviceSigner } from "../mesh/device-key";
@@ -41,6 +41,7 @@ import {
 } from "./persons";
 import { checkRoleForEvent, recordRoleGateReject, type RoleGateResult } from "./role-gate";
 import { applyShopProfileUpdated } from "./shop";
+import { applyTallyNote } from "./tally_notes";
 import { applyVaultDeviceAdded, applyVaultDeviceRemoved } from "./vault_devices";
 import {
   applyVaultMemberAdded,
@@ -101,7 +102,11 @@ export class EventSigningUnavailableError extends Error {
 
 // ---------- applier registry ----------
 
-export type Applier = (tx: SQLiteTx, event: LedgerEvent) => Promise<void>;
+export type Applier = (
+  tx: SQLiteTx,
+  event: LedgerEvent,
+  authenticatedAccountId?: string | null,
+) => Promise<void>;
 
 // Cast through unknown so each typed applier slots into the homogeneous
 // registry without losing its own narrow event-type signature at call sites.
@@ -118,6 +123,8 @@ export const APPLIERS: Partial<Record<EventType, Applier>> = {
   // was reserved; old clients quarantine it (known-type-no-applier) and
   // self-heal on upgrade — see replay.ts.
   entry_settled: applyEntrySettled as unknown as Applier,
+  tally_note_added: applyTallyNote,
+  tally_note_removed: applyTallyNote,
 
   // Phase 2 — users / relationships / shop_profile. account_bound is
   // registered too even though its local applier is a no-op: dispatching
@@ -198,7 +205,7 @@ export type ApplyEventResult =
       role_gate?: {
         reason: "insufficient_role" | "unknown_actor" | "unsigned_event" | "bad_signature";
         current_role: string | null;
-        required_role: "owner" | "manager" | "editor" | "clerk";
+        required_role: VaultRole;
       };
     };
 
@@ -627,7 +634,7 @@ async function applyEventInTransaction(
   }
 
   // 4. Dispatch to projection applier. Throws roll the entire tx back.
-  await applier(db, stamped);
+  await applier(db, stamped, gate.current_account_id ?? null);
 
   // 5. Advance the HLC cursor. Done last so a failed applier doesn't burn
   //    the frontier.

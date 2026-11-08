@@ -14,10 +14,11 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
-import { getAccountIdSync, getDb } from "./db-tx";
+import { getAccountIdSync, getDb, onAccountIdentityChanged } from "./db-tx";
 import { resolveAccountIdCandidates } from "./effective-account";
 import { useLedgerRefresh } from "./ledger-events";
 import { invalidateRoleGateCache } from "./projection/role-gate";
+import { readCurrentTallyNoteRole } from "./tally-note-policy";
 import { canPerformAction, type VaultAction, type VaultRole } from "./vault-roles";
 
 // Process-local cache. Account resets and applied membership/device events
@@ -128,13 +129,17 @@ function useLiveRoleRefresh(
 const LOCAL_OWNER_DEFAULT: VaultRole = "owner";
 
 async function readRoleFromDb(vaultId: string, accountId: string | null): Promise<VaultRole> {
+  return readStableRole(() => readRoleSnapshotFromDb(vaultId, accountId));
+}
+
+async function readStableRole<T>(read: () => Promise<T>): Promise<T> {
   // A read already awaiting SQLite can overlap an atomic handover on Expo's
   // shared connection. Never publish that intermediate snapshot. Retry after
   // the batch commits or rolls back; no projection mutex nesting is needed.
   for (;;) {
     if (roleReadsSettled) await roleReadsSettled;
     const epoch = roleReadEpoch;
-    const role = await readRoleSnapshotFromDb(vaultId, accountId);
+    const role = await read();
     if (deferredRoleNotifications === 0 && epoch === roleReadEpoch) return role;
   }
 }
@@ -361,6 +366,58 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
 /** Back-compat sugar: the append capability (hides creation for viewers). */
 export function useActiveVaultCanWrite(vaultId: string | null): boolean {
   return useActiveVaultWriteCaps(vaultId).canCreate;
+}
+
+/** Notes use active membership, including viewers. Keep both actions hidden
+ * during a scope change, revocation refresh or database read failure. */
+export function useTallyNoteAccess(vaultId: string | null): {
+  canAddTallyNote: boolean;
+  canRemoveTallyNote: boolean;
+} {
+  const [snapshot, setSnapshot] = useState<{
+    vaultId: string;
+    accountId: string | null;
+    role: VaultRole | null;
+  } | null>(null);
+  const generation = useRef(0);
+  const reread = useCallback(
+    (invalidate = true) => {
+      const run = ++generation.current;
+      if (invalidate) setSnapshot(null);
+      if (!vaultId || AppState.currentState !== "active") return () => {};
+      const accountId = getAccountIdSync();
+      void readStableRole(async () => readCurrentTallyNoteRole(await getDb(), vaultId, accountId))
+        .then((role) => {
+          if (run === generation.current && getAccountIdSync() === accountId)
+            setSnapshot({ vaultId, accountId, role });
+        })
+        .catch(() => {});
+      return () => {
+        if (run === generation.current) generation.current++;
+      };
+    },
+    [vaultId],
+  );
+  useLiveRoleRefresh(vaultId, reread);
+  useEffect(() => {
+    let cancel: (() => void) | undefined;
+    const unsubscribe = onAccountIdentityChanged(() => {
+      cancel?.();
+      cancel = reread();
+    });
+    return () => {
+      unsubscribe();
+      cancel?.();
+    };
+  }, [reread]);
+  const role =
+    snapshot && snapshot.vaultId === vaultId && snapshot.accountId === getAccountIdSync()
+      ? snapshot.role
+      : null;
+  return {
+    canAddTallyNote: role != null && canPerformAction(role, "tally_note.add"),
+    canRemoveTallyNote: role != null && canPerformAction(role, "tally_note.remove"),
+  };
 }
 
 // Re-exported for callers that want the pure function without pulling in

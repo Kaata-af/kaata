@@ -341,6 +341,7 @@ const components = Object.fromEntries(
     "TallyFlowSummary",
     "CustomerBalanceCarousel",
     "CustomerNoteCard",
+    "TallyNotes",
     "BalanceCardGlass",
     "HomeBalanceFilterSwipe",
     "CreditIntentList",
@@ -671,6 +672,7 @@ const mocks: Record<string, any> = {
       canConfigureCredit: true,
       resolved: true,
     }),
+    useTallyNoteAccess: () => ({ canAddTallyNote: true, canRemoveTallyNote: canAmend }),
   },
   "../../lib/use-vault-summary": { useMembersCount: () => 1 },
   "../../lib/tally-viewport": { tallyScrollTarget },
@@ -4353,6 +4355,7 @@ async function main() {
       assert.deepEqual(routes.at(-1), { pathname: "/person/[id]/edit", params: { id: "person" } });
       routes.splice(routesBeforeEdit);
       canAmend = false;
+      canCreate = false;
       dirty = true;
       await flush();
       assert.equal(
@@ -4361,6 +4364,11 @@ async function main() {
         "Clerks and viewers can read the Kaata note",
       );
       assert.equal(find("CustomerNoteCard")!.props.onEdit, undefined);
+      const tallyNotes = find("TallyNotes")!;
+      assert.equal(tallyNotes.props.vaultId, vaultId);
+      assert.equal(tallyNotes.props.personId, "person");
+      assert.equal(tallyNotes.props.canAdd, true, "Viewers can post tally notes");
+      assert.equal(tallyNotes.props.canRemove, false, "Viewers cannot delete tally notes");
       pingButton().props.onPress();
       await flush();
       assert.equal(shares.length, 1);

@@ -73,6 +73,18 @@ export async function supportsPersonDefaultCurrencySync(
 
 /** Keep private contact notes queued until the server can retain and restore them. */
 export async function supportsPersonNotesSync(baseUrl: string, jwt: string): Promise<boolean> {
+  return supportsNoteCapability(baseUrl, jwt, "person_notes");
+}
+
+export async function supportsTallyNotesSync(baseUrl: string, jwt: string): Promise<boolean> {
+  return supportsNoteCapability(baseUrl, jwt, "tally_notes");
+}
+
+async function supportsNoteCapability(
+  baseUrl: string,
+  jwt: string,
+  capability: "person_notes" | "tally_notes",
+): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);
   try {
@@ -81,7 +93,7 @@ export async function supportsPersonNotesSync(baseUrl: string, jwt: string): Pro
       signal: controller.signal,
     });
     const body = response.ok ? await response.json() : null;
-    return body?.person_notes === true;
+    return body?.[capability] === true;
   } catch {
     return false;
   } finally {

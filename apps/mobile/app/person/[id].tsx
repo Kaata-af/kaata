@@ -38,6 +38,7 @@ import { CreditIntentList } from "../../components/CreditIntentList";
 import { CreditStatusBadge } from "../../components/CreditStatusBadge";
 import { EntryRow } from "../../components/EntryRow";
 import { CustomerNoteCard } from "../../components/CustomerNoteCard";
+import { TallyNotes } from "../../components/TallyNotes";
 import { SharedAccountBadge } from "../../components/SharedAccountBadge";
 import { SearchControlSlot } from "../../components/SearchControlSlot";
 import { SearchKeyboardFooter, SearchKeyboardFrame } from "../../components/SearchKeyboardMotion";
@@ -160,7 +161,7 @@ import { applyEventMutex } from "../../lib/projection";
 import type { TabLink, TabSettlement } from "../../lib/tabs/types";
 import { afterSharedSettlement, sharedHistory, visibleTally } from "../../lib/tabs/chapters";
 import { icon, radius, TOUCH_MIN, typography } from "../../lib/tokens";
-import { useActiveVaultWriteCaps } from "../../lib/use-vault-role";
+import { useActiveVaultWriteCaps, useTallyNoteAccess } from "../../lib/use-vault-role";
 import { useMembersCount } from "../../lib/use-vault-summary";
 import { tallyScrollTarget } from "../../lib/tally-viewport";
 import { compareTallyReviews, type ReviewSnapshot } from "../../lib/tally-review-feedback";
@@ -781,6 +782,7 @@ export default function PersonDetailScreen() {
   // the feature switches itself on the moment a kaata becomes shared and off
   // again if it stops being.
   const activeVaultId = getActiveVaultIdSyncMaybe();
+  const { canAddTallyNote, canRemoveTallyNote } = useTallyNoteAccess(activeVaultId);
   // Every role sees which groups a customer is in; only managers edit them.
   const customerGroups = useCustomerGroups(activeVaultId);
   const personGroupNames = (customerGroups.groupsByPerson[id] ?? [])
@@ -3353,6 +3355,16 @@ export default function PersonDetailScreen() {
                         }
                       </CustomerBalanceCarousel>
                     </View>
+                    {!selecting && !searching && activeVaultId && person.id === id ? (
+                      <TallyNotes
+                        key={JSON.stringify([getAccountIdSync(), activeVaultId, id])}
+                        vaultId={activeVaultId}
+                        personId={id}
+                        canAdd={canAddTallyNote}
+                        canRemove={canRemoveTallyNote}
+                        isCurrent={screenIsCurrent}
+                      />
+                    ) : null}
                     {pingNudge && person.phone && !link && entries.length > 0 && !pinging ? (
                       <View style={[styles.pingNudge, rowDir(isRTL)]}>
                         <Ionicons name="logo-whatsapp" size={18} color={colors.textEmphasis} />
@@ -3611,7 +3623,13 @@ export default function PersonDetailScreen() {
                     ) : settledTallyCount > 0 && !effectiveShowFull ? null : (
                       <EmptyState
                         title={t("person.empty.title")}
-                        subtitle={t("person.empty.subtitle")}
+                        subtitle={
+                          canCreate
+                            ? t("person.empty.subtitle")
+                            : canAddTallyNote
+                              ? t("tallyNotes.emptyLedger")
+                              : undefined
+                        }
                         isRTL={isRTL}
                       />
                     )

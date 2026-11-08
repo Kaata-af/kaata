@@ -138,11 +138,11 @@ export class RoleGateRejectionError extends Error {
   readonly kind = "role_gate" as const;
   readonly reason: "insufficient_role" | "unknown_actor" | "unsigned_event" | "bad_signature";
   readonly current_role: string | null;
-  readonly required_role: "owner" | "manager" | "editor" | "clerk";
+  readonly required_role: VaultRole;
   constructor(detail: {
     reason: "insufficient_role" | "unknown_actor" | "unsigned_event" | "bad_signature";
     current_role: string | null;
-    required_role: "owner" | "manager" | "editor" | "clerk";
+    required_role: VaultRole;
   }) {
     super(`role_gate_rejected (reason=${detail.reason}, required=${detail.required_role})`);
     this.name = "RoleGateRejectionError";
