@@ -1006,16 +1006,19 @@ function RootLayoutContent() {
                     over it as modals instead of opening behind it. */}
                     <Stack.Screen name="groups" options={{ presentation: "modal" }} />
                     <Stack.Screen name="group-members" options={{ presentation: "modal" }} />
-                    <Stack.Screen name="person/new" options={{ presentation: "modal" }} />
-                    {/* Profiles can open from Add contact's modal; full-screen
-                    presentation keeps the page above that native surface. */}
+                    {/* Keep Add contact and the profiles it opens in the same
+                    iOS push stack so swipe-back returns to the form. */}
+                    <Stack.Screen
+                      name="person/new"
+                      options={{ presentation: Platform.OS === "ios" ? "card" : "modal" }}
+                    />
                     <Stack.Screen
                       name="people/[accountId]"
-                      options={{ presentation: "fullScreenModal" }}
+                      options={{ presentation: Platform.OS === "ios" ? "card" : "fullScreenModal" }}
                     />
                     <Stack.Screen
                       name="people/friends"
-                      options={{ presentation: "fullScreenModal" }}
+                      options={{ presentation: Platform.OS === "ios" ? "card" : "fullScreenModal" }}
                     />
                     <Stack.Screen name="people/qr" options={{ presentation: "fullScreenModal" }} />
                     <Stack.Screen name="profile" options={{ presentation: "modal" }} />
