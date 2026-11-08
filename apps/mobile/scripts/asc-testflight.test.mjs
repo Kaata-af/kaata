@@ -6,13 +6,13 @@ import { readFileSync } from "node:fs";
 import { enableBuild, makeClient, parseArgs, setNotes, status } from "./asc-testflight.mjs";
 
 const APP_ID = "6789651127";
-const BUILD_ID = "test-build-55";
+const BUILD_ID = "test-build-56";
 const GROUP_ID = "fcb33597-43b6-42ba-8582-b85d26fc3895";
 const cfg = {
   appId: APP_ID,
   bundleId: "af.kaata.app",
   version: "2.3.2",
-  buildNumber: "55",
+  buildNumber: "56",
 };
 const opts = {
   command: "enable",
@@ -36,7 +36,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     type: "builds",
     id: BUILD_ID,
     attributes: {
-      version: "55",
+      version: "56",
       processingState: "VALID",
       expired: false,
       usesNonExemptEncryption: false,
@@ -70,7 +70,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     assert.equal(url.origin, "https://api.appstoreconnect.apple.com");
     assert.equal(init.redirect, "error");
     if (init.method === "POST" && route === "/betaBuildLocalizations") {
-      const localization = { ...body.data, id: "english-notes-55" };
+      const localization = { ...body.data, id: "english-notes-56" };
       localizations.push(localization);
       return Response.json({ data: localization }, { status: 201 });
     }
@@ -131,7 +131,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
       return Response.json({
         data: {
           type: "buildBetaDetails",
-          id: "detail-55",
+          id: "detail-56",
           attributes: {
             internalBuildState: state,
             externalBuildState: "READY_FOR_BETA_SUBMISSION",
@@ -394,7 +394,7 @@ test("notes creates only English beta metadata for the verified test build, pres
     ],
   );
   assert.equal(result.locale, "en-US");
-  assert.equal(result.localizationId, "english-notes-55");
+  assert.equal(result.localizationId, "english-notes-56");
   assert.equal(result.characters, notes.text.length);
   assert.equal(result.changed, true);
   assert.equal(result.production.versions[0].buildId, "production-build-39");
@@ -404,7 +404,7 @@ test("notes creates only English beta metadata for the verified test build, pres
 test("notes updates only the exact build's existing English localization and is idempotent", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-55",
+    id: "english-notes-56",
     attributes: { locale: "en-US", whatsNew: "Old test notes" },
   };
   const otherLocale = {
@@ -419,11 +419,11 @@ test("notes updates only the exact build's existing English localization and is 
     [
       {
         method: "PATCH",
-        route: "/betaBuildLocalizations/english-notes-55",
+        route: "/betaBuildLocalizations/english-notes-56",
         body: {
           data: {
             type: "betaBuildLocalizations",
-            id: "english-notes-55",
+            id: "english-notes-56",
             attributes: { whatsNew: notes.text },
           },
         },
@@ -458,7 +458,7 @@ test("notes rejects unrelated builds, invalid readiness, ambiguous locales and i
   for (const invalid of [
     { ...cfg, version: "2.1.1" },
     { ...cfg, buildNumber: "39" },
-    { ...cfg, buildNumber: "41" },
+    { ...cfg, buildNumber: "55" },
   ]) {
     const { asc, calls } = fixture({}, null, notes);
     await assert.rejects(setNotes(asc, invalid, notes));
@@ -476,13 +476,13 @@ test("notes capability cannot be granted to another local version or build", () 
     { ...cfg, buildNumber: "39" },
     { ...cfg, buildNumber: "41" },
   ])
-    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.2 \/ 55/);
+    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.2 \/ 56/);
 });
 
 test("notes capability requires preflight and blocks unrelated IDs, changed payloads and App Store metadata", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-55",
+    id: "english-notes-56",
     attributes: { locale: "en-US", whatsNew: "Old" },
   };
   const { asc, calls } = fixture({ localizations: [english] }, null, notes);

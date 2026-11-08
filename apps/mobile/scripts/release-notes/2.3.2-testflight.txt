@@ -1,7 +1,6 @@
-Kaata 2.3.2 testing build 55
+Kaata 2.3.2 testing build 56
 
-- Start a shared account from Search or Kaata Network. Require approval should be selected by default, and you can choose a different mode before sending.
-- In the bell popup and full notification list, tap an invitation card to review it. Accept goes straight to choosing the Kaata and contact, where you confirm the link. Reject declines the invitation from the inbox.
-- Test QR friendship, viewer notes on tallies, and requests to remove shared tallies by agreement with a second account.
-- Save a Google Drive backup with test data and open the CSV files inside its ZIP. Restore the original ZIP on an empty setup and verify the contact and tally history.
-- Save and restore a password-protected iCloud Drive backup with test data. Check that a wrong password is refused.
+- In a customer ledger, enter a note and leave the amount blank to save a paper-beige tally note. Viewers can use Add note and include an optional number. Open a note to read it in the bottom sheet, and check that it stays out of the balance.
+- Accept an in-app Kaata invitation with a second account. Check the member count on both phones and verify that updates arrive on the joining phone.
+- Check the Friends shortcut on Home and swipe back from Friends and Profile.
+- Enable automatic backup in Backups. Check the latest backup time and try restoring from iCloud Drive or a personal backup on an empty test setup.
