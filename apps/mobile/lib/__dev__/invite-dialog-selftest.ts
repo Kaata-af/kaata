@@ -277,6 +277,10 @@ async function main() {
     deliveryFailure = new TabApiError(status, code, "Synthetic delivery failure");
     await settle();
     assert.equal(directDeliveries.length, 0, "opening discovery does not send an invitation");
+    const selectedMode = nodes(tree).find(
+      (node) => node.props.accessibilityRole === "radio" && node.props.accessibilityState.checked,
+    );
+    assert.equal(selectedMode?.props.accessibilityLabel, "tab.recordingMode.review");
     await tap("peopleSearch.send");
     assert.ok(
       nodes(tree).some(
@@ -285,6 +289,7 @@ async function main() {
     );
     assert.equal(dismissals, 0);
     assert.equal(createCalls, 1);
+    assert.equal(createArguments[0][1].recordingMode, "review");
     assert.equal(
       shares.length + copied.length,
       0,

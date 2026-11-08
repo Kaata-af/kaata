@@ -90,7 +90,8 @@ export function LinkAccountDialog(props: {
   const [askLanguage, setAskLanguage] = useState(false);
   const [languageReady, setLanguageReady] = useState(false);
   const [pendingSettingsReady, setPendingSettingsReady] = useState(false);
-  const [recordingMode, setRecordingMode] = useState<TabRecordingMode>("notify_one_way");
+  const defaultRecordingMode = props.recipientAccountId ? "review" : "notify_one_way";
+  const [recordingMode, setRecordingMode] = useState<TabRecordingMode>(defaultRecordingMode);
   const [sharedCurrencies, setSharedCurrencies] = useState<readonly string[]>([]);
   const [savedRecipient, setSavedRecipient] = useState<string | undefined>();
   const [deliveryReady, setDeliveryReady] = useState(false);
@@ -156,7 +157,7 @@ export function LinkAccountDialog(props: {
     setLanguageReady(false);
     setLanguage(getLocale());
     setAskLanguage(false);
-    setRecordingMode(props.link ? (props.link.recording_mode ?? "review") : "notify_one_way");
+    setRecordingMode(props.link ? (props.link.recording_mode ?? "review") : defaultRecordingMode);
     const modeRead = ++modeVersion.current;
     pendingMode.current = null;
     setPendingSettingsReady(!!props.link);
