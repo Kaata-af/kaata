@@ -2987,14 +2987,11 @@ async function main() {
   const initialFriends = friendsButton()!;
   assert.ok(initialFriends, "signed-in Home exposes the existing Friends destination");
   assert.equal(initialFriends.props.accessibilityRole, "button");
+  assert.equal(initialFriends.props.accessibilityLabel, "friends.title");
   const friendsStyle = flattenStyle(initialFriends.props.style({ pressed: false }));
   assert.ok(friendsStyle.minWidth >= 44 && friendsStyle.minHeight >= 44);
-  assert.ok(
-    nodes(initialFriends).some(
-      (node) => node.type === "Text" && node.props.children === "friends.title",
-    ),
-    "Friends has a visible localized label",
-  );
+  assert.equal(initialFriends.props.children.type, "Icon");
+  assert.equal(initialFriends.props.children.props.name, "people-outline");
   const headerActions = homeNodes();
   assert.ok(
     headerActions.indexOf(initialFriends) <

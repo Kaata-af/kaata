@@ -1925,9 +1925,6 @@ export default function HomeScreen() {
                 ]}
               >
                 <Ionicons name="people-outline" size={icon.row} color={colors.textEmphasis} />
-                <Text style={[styles.friendsShortcutLabel, textDir(isRTL)]}>
-                  {t("friends.title")}
-                </Text>
               </Pressable>
             ) : null}
             <NotificationBell
@@ -3046,15 +3043,8 @@ const styles = StyleSheet.create({
   friendsShortcut: {
     minWidth: TOUCH_MIN,
     minHeight: TOUCH_MIN,
-    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
-  },
-  friendsShortcutLabel: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 11,
-    lineHeight: sansLineHeight(11, 14),
-    color: colors.textEmphasis,
   },
   // Read-only badge in the header (viewer on a shared kaata).
   readOnlyBadge: {
