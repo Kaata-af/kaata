@@ -70,6 +70,7 @@ async function main() {
     },
     "./chain": chain,
     "./crypto-runtime": runtime,
+    "./dev-witness-key": require("../dev-witness-key"),
   });
   let seq = 0;
   const events = new Map<string, chain.MembershipEventLike>();

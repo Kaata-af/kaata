@@ -35,7 +35,7 @@
 // transitions are not collapsed (engineering critique #1 fix).
 
 import type { SQLiteTx } from "../db-tx";
-import { getAccountIdSync } from "../db-tx";
+import { getAccountIdSync, getAppMetaInTx } from "../db-tx";
 import { resolveAccountIdCandidates } from "../effective-account";
 import { verifyEventSignature, type SignableEvent } from "../event-sig";
 import { isTallyNoteEventType, type EventType, type LedgerEvent, type VaultRole } from "../events";
@@ -48,6 +48,7 @@ import {
   type MembershipWitnessLike,
 } from "../trust/chain";
 import { runtimeChainCrypto } from "../trust/crypto-runtime";
+import { devWitnessPublicKeys, hasDevWitnessConfig } from "../trust/dev-witness-key";
 import {
   hasOwnershipTransferPayload,
   verifyOwnershipTransferEvent,
@@ -466,6 +467,70 @@ async function isGenesisBootstrapEvent(
   return bound == null;
 }
 
+// Older replays could commit the genesis projection before marking the event
+// applied. Its own registry row then made it look like an ordinary owner
+// mutation, but role history could not authenticate it until genesis applied.
+async function isInterruptedGenesisReplay(
+  tx: SQLiteTx,
+  event: LedgerEvent,
+  signerPubkey: string,
+  accountId: string,
+): Promise<boolean> {
+  if (
+    event.event_type !== "vault_member_added" ||
+    event.vault_id == null ||
+    event.payload.role !== "owner" ||
+    event.payload.account_id !== accountId ||
+    // Pre-sign-in genesis signs a null actor and the exact local account ID.
+    (event.actor_account_id !== accountId &&
+      !(event.actor_account_id == null && accountId.startsWith("local:"))) ||
+    event.payload.witness ||
+    !(await isVaultAnchorPubkey(tx, event.vault_id, signerPubkey))
+  )
+    return false;
+
+  const binding = await tx.getFirstAsync(
+    `SELECT 1 FROM vault_device_registry d
+       JOIN vault_members_mirror m ON m.vault_id = d.vault_id AND m.account_id = d.account_id
+      WHERE d.vault_id = ? AND d.device_pubkey = ? AND d.device_id = ? AND d.account_id = ?
+        AND d.added_at_ms = ? AND d.removed_at_ms IS NULL
+        AND m.role = 'owner' AND m.accepted_at IS NOT NULL AND m.revoked_at IS NULL`,
+    event.vault_id,
+    signerPubkey,
+    event.device_id,
+    accountId,
+    event.hlc.pms,
+  );
+  if (!binding) return false;
+
+  const first = await tx.getFirstAsync<{ event_id: string }>(
+    `SELECT event_id FROM event_log WHERE vault_id = ? AND signer_device_pubkey = ?
+      AND event_type = 'vault_member_added' AND event_sig_b64 IS NOT NULL AND tombstone_reason IS NULL
+      AND json_valid(payload_json) AND json_extract(payload_json, '$.role') = 'owner'
+      AND json_extract(payload_json, '$.witness') IS NULL
+      AND json_extract(payload_json, '$.ownership_transfer') IS NULL
+      ORDER BY hlc_physical_ms, hlc_logical, hlc_device_id, event_id LIMIT 1`,
+    event.vault_id,
+    signerPubkey,
+  );
+  if (first?.event_id !== event.event_id) return false;
+
+  // This exception only completes an already-projected admission. It never
+  // replaces a later role change, removal, or ownership transfer.
+  const authorityChange = await tx.getFirstAsync(
+    `SELECT 1 FROM event_log WHERE vault_id = ? AND event_id != ?
+      AND applied_at IS NOT NULL AND quarantine_reason IS NULL
+      AND ((target_id = ? AND event_type IN
+        ('vault_member_added', 'vault_member_role_changed', 'vault_member_removed'))
+        OR (event_type = 'vault_member_added'
+          AND json_extract(payload_json, '$.ownership_transfer') IS NOT NULL)) LIMIT 1`,
+    event.vault_id,
+    event.event_id,
+    accountId,
+  );
+  return !authorityChange;
+}
+
 // M2: membership events that may authenticate via a server witness instead
 // of a pre-existing local device binding (docs/m2-membership-chain.md §2).
 function isWitnessCapableMembershipEvent(event: LedgerEvent): boolean {
@@ -590,6 +655,10 @@ async function hasOwnershipAuthorityChange(tx: SQLiteTx, vaultId: string): Promi
 }
 
 async function serverWitnessKeys(tx: SQLiteTx): Promise<string[]> {
+  if (hasDevWitnessConfig()) {
+    const devKeys = devWitnessPublicKeys(await getAppMetaInTx(tx, "backend_url_override"));
+    if (devKeys) return devKeys;
+  }
   const rows = await tx.getAllAsync<{ value: string }>(
     `SELECT value FROM app_meta
       WHERE key IN ('mesh_server_pubkey_primary', 'mesh_server_pubkey_rotation')
@@ -986,6 +1055,9 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
       }
       signerPubkey = cred.device_pubkey;
       authenticatedAccountId = cred.account_id;
+      if (event.event_type === "vault_member_added") {
+        genesisBootstrap = await isInterruptedGenesisReplay(tx, event, signerPubkey, cred.account_id);
+      }
     } else if (signerPubkey != null) {
       if (isWitnessCapableMembershipEvent(event)) {
         // Defer the unknown-actor verdict: verify the envelope signature

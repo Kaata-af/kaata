@@ -5,6 +5,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import * as ed from "@noble/ed25519";
 import * as chain from "../trust/chain";
+import * as defaultDevWitness from "../trust/dev-witness-key";
 import * as verificationCache from "../trust/successful-verification-cache";
 import * as ownershipTransfer from "../trust/ownership-transfer";
 import { compileUI, deferred, settleUI, uiHooks, jsx, nodes } from "./ui-fixture";
@@ -29,7 +30,7 @@ const ownerKey = key(ownerSeed),
   peerKey = key(peerSeed),
   serverKey = key(serverSeed);
 
-async function fixture() {
+async function fixture(devWitness = defaultDevWitness) {
   const store = new Database(":memory:");
   store.exec(`
     CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT);
@@ -123,6 +124,7 @@ async function fixture() {
     "../db": dbModule,
     "./chain": chain,
     "./crypto-runtime": runtime,
+    "./dev-witness-key": devWitness,
   });
   let seq = 0,
     dropNext = false;
@@ -274,6 +276,7 @@ async function fixture() {
       "./account-id": { buildLocalAccountId: () => "local" },
       "./proof": proof,
       "./chain": chain,
+      "./crypto-runtime": runtime,
       "../recovery": {
         pinServerWitnessKeys: async (before: any) => {
           assert.equal(locked, false, "key check-in must not hold session mutex");
@@ -539,8 +542,70 @@ async function fixture() {
 
 async function main() {
   await readmissionCases();
+  const localOrigin = "http://192.168.1.9:8080";
+  const devEnv = {
+    EXPO_PUBLIC_BACKEND_URL: localOrigin,
+    EXPO_PUBLIC_DEV_WITNESS_ORIGIN: localOrigin,
+    EXPO_PUBLIC_DEV_WITNESS_PUBKEY: serverKey,
+    EXPO_PUBLIC_DEV_WITNESS_ROTATION_PUBKEY: peerKey,
+  };
+  const devWitness = compileUI(
+    "../trust/dev-witness-key",
+    {},
+    {
+      __DEV__: true,
+      process: { env: devEnv },
+    },
+  );
+  assert.deepEqual(devWitness.devWitnessPublicKeys(null), [serverKey, peerKey]);
+  assert.deepEqual(devWitness.devWitnessPublicKeys(`${localOrigin}/v1`), [serverKey, peerKey]);
+  for (const different of [
+    "https://api.kaata.af",
+    "http://192.168.1.9:8081",
+    "http://192.168.1.9.evil.test:8080",
+  ])
+    assert.equal(devWitness.devWitnessPublicKeys(different), null);
+  const releaseWitness = compileUI(
+    "../trust/dev-witness-key",
+    {},
+    {
+      __DEV__: false,
+      process: { env: devEnv },
+    },
+  );
+  assert.equal(releaseWitness.devWitnessPublicKeys(null), null);
+  const unconfiguredWitness = compileUI(
+    "../trust/dev-witness-key",
+    {},
+    {
+      __DEV__: true,
+      process: { env: { ...devEnv, EXPO_PUBLIC_DEV_WITNESS_PUBKEY: "bad-key" } },
+    },
+  );
+  assert.equal(unconfiguredWitness.devWitnessPublicKeys(null), null);
+  const reusedPhone = await fixture(devWitness);
+  await reusedPhone.setMeta("mesh_server_pubkey_primary", ownerKey);
+  assert.deepEqual(await reusedPhone.proof.loadPinnedWitnessPubkeysB64(), [serverKey, peerKey]);
+  assert.equal(await reusedPhone.proof.persistPinnedServerPubkeys(serverKey, null), "no_change");
+  assert.equal(await reusedPhone.getMeta("mesh_server_pubkey_primary"), ownerKey);
+  await assert.rejects(
+    reusedPhone.backfill.emitWitnessedSelfAdmission("vault"),
+    reusedPhone.backfill.JoinProofPendingError,
+  );
+  reusedPhone.ack();
+  await reusedPhone.backfill.emitWitnessedSelfAdmission("vault");
+  assert.equal(
+    reusedPhone.attempts(),
+    1,
+    "a reused phone verifies the same local test join without reissuing witnesses",
+  );
+  await reusedPhone.setMeta("backend_url_override", "https://api.kaata.af");
+  assert.deepEqual(await reusedPhone.proof.loadPinnedWitnessPubkeysB64(), [ownerKey]);
   const healthy = await fixture();
-  await assert.rejects(healthy.backfill.emitWitnessedSelfAdmission("vault"), /server confirmation/);
+  await assert.rejects(
+    healthy.backfill.emitWitnessedSelfAdmission("vault"),
+    healthy.backfill.JoinProofPendingError,
+  );
   const folded = await healthy.proof.getLocalMembershipState("vault");
   assert.equal(folded.members.get("peer").role, "viewer");
   assert.equal(folded.devices.get(peerKey).account_id, "peer");
@@ -742,6 +807,20 @@ async function main() {
   assert.equal(
     (await unpinned.proof.getLocalMembershipState("vault")).members.get("peer").role,
     "viewer",
+  );
+  const wrongPin = await fixture();
+  await wrongPin.setMeta("mesh_server_pubkey_primary", ownerKey);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(
+      wrongPin.backfill.emitWitnessedSelfAdmission("vault"),
+      /does not match the trusted server key/,
+    );
+    wrongPin.advance();
+  }
+  assert.equal(
+    (wrongPin.store.prepare("SELECT COUNT(*) n FROM event_log").get() as any).n,
+    1,
+    "a mismatched witness key never queues another member or device event",
   );
   const rejected = await fixture();
   await assert.rejects(
@@ -1122,6 +1201,8 @@ async function screenCases() {
     const posts: string[] = [],
       toasts: string[] = [],
       navigations: string[] = [];
+    const warnings: unknown[][] = [];
+    class JoinProofPendingError extends Error {}
     const gate = deferred<any>();
     const router = { replace: (path: string) => navigations.push(path) };
     const toast = { push: (label: string) => toasts.push(label) };
@@ -1174,10 +1255,13 @@ async function screenCases() {
         "../../lib/tokens": { gutter: 16, icon: { hero: 40 }, typography: {} },
         "../../lib/trust/backfill": {
           JoinAdmissionBlockedError: class extends Error {},
+          JoinProofPendingError,
           isSelfAdmissionPublished: async () => published,
           witnessEmitPendingKey: (id: string) => id,
           emitWitnessedSelfAdmission: async () => {
-            if (!published) throw Error("still pending");
+            if (published) return;
+            if (mode === "late-error") throw new Error("unexpected witness error");
+            throw new JoinProofPendingError("still pending");
           },
         },
         "../../lib/recovery": {
@@ -1204,6 +1288,7 @@ async function screenCases() {
         },
       },
       {
+        console: { warn: (...args: unknown[]) => warnings.push(args) },
         setTimeout: () => 1,
         clearTimeout: () => {},
         setInterval: (fn: () => void) => {
@@ -1251,6 +1336,7 @@ async function screenCases() {
     );
     assert.equal(toasts.length, 0, "unfinished proof never shows joined success");
     assert.ok(nodes(hooks.tree).some((n) => n.props.children === "inviteAccept.pending.title"));
+    assert.equal(warnings.length, mode === "late-error" ? 1 : 0, "only unexpected failures warn");
     published = true;
     assert.ok(poll);
     poll();
@@ -1366,6 +1452,7 @@ async function targetedScreenFixture() {
       "../../lib/tokens": { gutter: 16, icon: { hero: 40 }, typography: {} },
       "../../lib/trust/backfill": {
         JoinAdmissionBlockedError: class extends Error {},
+        JoinProofPendingError: class extends Error {},
         isSelfAdmissionPublished: async () => false,
         witnessEmitPendingKey: (id: string) => id,
         emitWitnessedSelfAdmission: async () => {},

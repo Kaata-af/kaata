@@ -44,8 +44,9 @@ import {
 } from "../mesh/device-key";
 import { buildLocalAccountId } from "./account-id";
 import { ApiError, fetchMembershipWitness } from "../vault-api";
-import { getLocalMembershipState, PROOF_BUNDLE_CAP } from "./proof";
-import { MEMBERSHIP_EVENT_TYPES } from "./chain";
+import { getLocalMembershipState, loadPinnedWitnessPubkeysB64, PROOF_BUNDLE_CAP } from "./proof";
+import { deviceWitnessTuple, memberWitnessTuple, MEMBERSHIP_EVENT_TYPES } from "./chain";
+import { runtimeChainCrypto } from "./crypto-runtime";
 
 // Once per app session per vault — guards against useFocusEffect-driven
 // re-entry from app/index.tsx's load().
@@ -61,6 +62,12 @@ const witnessRequestTimes = new Map<string, number[]>();
 const keyPinAttempts = new Map<string, { at: number; done: Promise<void> }>();
 
 export class JoinAdmissionBlockedError extends Error {}
+export class JoinProofPendingError extends Error {
+  constructor() {
+    super("join proof is waiting for server confirmation");
+    this.name = "JoinProofPendingError";
+  }
+}
 
 // A device-key rotation (lib/mesh/device-key.ts) raises ONE app_meta flag;
 // this expands it into a witnessed re-bind request per vault, once per
@@ -153,7 +160,8 @@ export async function ensureChainBackfill(vaultId: string): Promise<void> {
       }
     }
   } catch (err) {
-    console.warn("[trust/backfill] pending witness emission retry failed", err);
+    if (!(err instanceof JoinProofPendingError))
+      console.warn("[trust/backfill] pending witness emission retry failed", err);
   }
 
   // Part 2 — owner-side one-shot genesis backfill.
@@ -415,7 +423,7 @@ export async function emitWitnessedSelfAdmission(
   // Waiting for join success to trigger the next check-in creates a cycle:
   // proof cannot verify, so success/check-in never happens. Repair that
   // prerequisite independently, using the existing TOFU/rotation rules.
-  if (!(await getAppMeta("mesh_server_pubkey_primary"))) {
+  if (!(await loadPinnedWitnessPubkeysB64()).length) {
     const key = `${session.bindingVersion}:${session.accountId}`;
     let attempt = keyPinAttempts.get(key);
     if (!attempt || Date.now() - attempt.at >= WITNESS_RETRY_MS) {
@@ -428,7 +436,7 @@ export async function emitWitnessedSelfAdmission(
     }
     await attempt.done;
     await applyForCurrentSession(session, async () => {
-      if (!(await getAppMeta("mesh_server_pubkey_primary")))
+      if (!(await loadPinnedWitnessPubkeysB64()).length)
         throw new Error("join is waiting for server verification keys");
       const { sweepVaultNow } = await import("../projection/sweep");
       await sweepVaultNow(vaultId);
@@ -540,12 +548,46 @@ export async function emitWitnessedSelfAdmission(
     // brokered an invite (member_witness proves owner intent). Swallow a
     // RoleGateRejectionError on a member_added the role-gate considers already
     // present — the device_added below is what we actually need to complete.
-    if (res.member_witness && !selfIsActiveMember) {
+    const member = selfIsActiveMember ? null : res.member_witness;
+    const device = selfDeviceBound ? null : res.device_witness;
+    const keys = await loadPinnedWitnessPubkeysB64();
+    const verifies = (tuple: Record<string, unknown>, signature: string) => {
+      const bytes = new TextEncoder().encode(runtimeChainCrypto.canonicalize(tuple));
+      return keys.some((key) => runtimeChainCrypto.verifyRaw(bytes, signature, key));
+    };
+    // The local append rules can provision a first-time mirror or device
+    // binding. Verify the server's attestation before either write so a phone
+    // with the wrong pin cannot enqueue a new unverified admission each retry.
+    const validMemberWitness = !member || verifies(
+      memberWitnessTuple({
+        vault_id: vaultId,
+        account_id: accountId,
+        inviter_account_id: member.inviter_account_id,
+        role: member.role,
+        issued_at_ms: member.issued_at_ms,
+      }),
+      member.sig_b64,
+    );
+    const validDeviceWitness = !device || verifies(
+      deviceWitnessTuple({
+        vault_id: vaultId,
+        account_id: accountId,
+        device_id: getInstallIdSync(),
+        device_pubkey_b64: devicePubkey,
+        issued_at_ms: device.issued_at_ms,
+      }),
+      device.sig_b64,
+    );
+    if (!validMemberWitness || !validDeviceWitness) {
+      throw new Error("join witness does not match the trusted server key");
+    }
+
+    if (member) {
       const memberWitness: MembershipWitness = {
-        sig_b64: res.member_witness.sig_b64,
+        sig_b64: member.sig_b64,
         server_key_id: res.server_key_id,
-        issued_at_ms: res.member_witness.issued_at_ms,
-        inviter_account_id: res.member_witness.inviter_account_id,
+        issued_at_ms: member.issued_at_ms,
+        inviter_account_id: member.inviter_account_id,
       };
       // Self name for the payload: explicit opts win; otherwise derive from
       // getLocalSelf so the recovery/backfill retry paths also carry it.
@@ -560,7 +602,7 @@ export async function emitWitnessedSelfAdmission(
         await appendVaultMemberAdded({
           targetVaultId: vaultId,
           accountId,
-          role: res.member_witness.role,
+          role: member.role,
           witness: memberWitness,
           displayName: selfDisplayName ?? undefined,
         });
@@ -578,12 +620,12 @@ export async function emitWitnessedSelfAdmission(
     // Emit device_added ONLY when our pubkey isn't already an active bound
     // device. If it's already bound the retry is complete — return so the
     // caller clears witness_emit_pending.
-    if (selfDeviceBound) return;
+    if (!device) return;
 
     const deviceWitness: MembershipWitness = {
-      sig_b64: res.device_witness.sig_b64,
+      sig_b64: device.sig_b64,
       server_key_id: res.server_key_id,
-      issued_at_ms: res.device_witness.issued_at_ms,
+      issued_at_ms: device.issued_at_ms,
     };
     await appendVaultDeviceAdded({
       targetVaultId: vaultId,
@@ -593,16 +635,16 @@ export async function emitWitnessedSelfAdmission(
       witness: deviceWitness,
     });
     const verified = await getLocalMembershipState(vaultId);
-    const member = verified?.members.get(accountId);
-    const device = verified?.devices.get(devicePubkey);
+    const verifiedMember = verified?.members.get(accountId);
+    const verifiedDevice = verified?.devices.get(devicePubkey);
     if (
       !verified?.hasGenesis ||
-      !member ||
-      member.removed ||
-      !device ||
-      device.removed ||
-      device.account_id !== accountId ||
-      device.device_id !== getInstallIdSync()
+      !verifiedMember ||
+      verifiedMember.removed ||
+      !verifiedDevice ||
+      verifiedDevice.removed ||
+      verifiedDevice.account_id !== accountId ||
+      verifiedDevice.device_id !== getInstallIdSync()
     ) {
       throw new Error("join proof has not verified; keep it queued for retry");
     }
@@ -677,7 +719,7 @@ async function publishSelfAdmission(
   if (await applyForCurrentSession(session, unpublished)) {
     // The regular outbox scheduler publishes these immutable signed events.
     // Do not open a second account-unguarded push from inside admission repair.
-    throw new Error("join proof is waiting for server confirmation");
+    throw new JoinProofPendingError();
   }
 }
 

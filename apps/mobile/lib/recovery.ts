@@ -53,7 +53,11 @@ import { scheduleSweep, sweepVaultNow } from "./projection/sweep";
 import { syncAllTabs } from "./tabs/sync";
 import { fetchMine } from "./tabs/api";
 import { getTabLink } from "./tabs/db";
-import { emitWitnessedSelfAdmission, witnessEmitPendingKey } from "./trust/backfill";
+import {
+  emitWitnessedSelfAdmission,
+  JoinProofPendingError,
+  witnessEmitPendingKey,
+} from "./trust/backfill";
 import { persistPinnedServerPubkeys } from "./trust/proof";
 import { listVaults, type VaultListing } from "./vault-api";
 
@@ -284,7 +288,8 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
         // (home mount / sync scheduler) retries the bind next session — e.g. if
         // the pin check-in above was offline and the witnessed events quarantined.
         await apply(() => setAppMeta(witnessEmitPendingKey(v.vault_id), "1")).catch(() => {});
-        console.warn(`[recovery] witnessed device-bind failed for ${v.vault_id.slice(0, 8)}`, err);
+        if (!(err instanceof JoinProofPendingError))
+          console.warn(`[recovery] witnessed device-bind failed for ${v.vault_id.slice(0, 8)}`, err);
       }
       await apply(async () => {});
       recovered.push(v.vault_id);
@@ -948,7 +953,8 @@ export async function retryPinnedVaultAdmission(
     if (err instanceof SessionChangedError) throw err;
     // Retain the durable marker. Existing backfill retries the same protocol;
     // it never bypasses a server refusal or a removed member/device.
-    console.warn("[recovery] changed-anchor admission retry deferred", err);
+    if (!(err instanceof JoinProofPendingError))
+      console.warn("[recovery] changed-anchor admission retry deferred", err);
   }
 }
 

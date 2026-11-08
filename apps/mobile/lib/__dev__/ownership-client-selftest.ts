@@ -361,6 +361,7 @@ async function screenCase() {
       "../../lib/trust/backfill": {
         isSelfAdmissionPublished: async () => true,
         JoinAdmissionBlockedError: class extends Error {},
+        JoinProofPendingError: class extends Error {},
         emitWitnessedSelfAdmission: async () => {},
         witnessEmitPendingKey: () => "pending",
       },

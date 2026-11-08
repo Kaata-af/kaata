@@ -185,10 +185,14 @@ const roleGate = compile<typeof import("../projection/role-gate")>(
     if (name === "../effective-account")
       return { resolveAccountIdCandidates: async () => identities };
     if (name === "../event-sig") return { verifyEventSignature: () => ({ valid: true }) };
+    if (name === "../events") return require("../events");
+    if (name === "../tally-note-policy")
+      return { readCurrentTallyNoteRole: () => assert.fail("unexpected tally note") };
     if (name === "../hlc") return require("../hlc");
     if (name === "../trust/chain") return {};
     if (name === "../trust/ownership-transfer") return require("../trust/ownership-transfer");
     if (name === "../trust/crypto-runtime") return {};
+    if (name === "../trust/dev-witness-key") return require("../trust/dev-witness-key");
     throw Error(`unexpected role-gate import ${name}`);
   },
 );

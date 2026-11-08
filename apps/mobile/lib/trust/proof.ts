@@ -23,6 +23,7 @@ import {
   type VaultRole,
 } from "./chain";
 import { prewarmMembershipSignatures, runtimeChainCrypto } from "./crypto-runtime";
+import { devWitnessPublicKeys, hasDevWitnessConfig } from "./dev-witness-key";
 
 /**
  * Hard cap on how many membership events we load / present. Real shops
@@ -281,7 +282,11 @@ async function loadVaultAnchorPubkeyB64(vaultId: string): Promise<string | null>
   }
 }
 
-async function loadPinnedWitnessPubkeysB64(): Promise<string[]> {
+export async function loadPinnedWitnessPubkeysB64(): Promise<string[]> {
+  if (hasDevWitnessConfig()) {
+    const devKeys = devWitnessPublicKeys(await getAppMeta("backend_url_override"));
+    if (devKeys) return devKeys;
+  }
   const out: string[] = [];
   const primary = await getAppMeta(META_KEY_WITNESS_PRIMARY);
   if (primary) out.push(primary);
@@ -327,6 +332,10 @@ export async function persistPinnedServerPubkeys(
   rotationB64: string | null | undefined,
 ): Promise<PubkeyPinOutcome> {
   if (!primaryB64) return "no_change"; // never clear primary — breaks mesh entirely
+  // An explicit test profile uses only operator-configured keys on its own
+  // origin. A check-in can change backend_url_override before this call, so
+  // never let its response rewrite a durable pin used by another build.
+  if (hasDevWitnessConfig()) return "no_change";
   const db = await getDb();
   const existingPrimary = await getAppMeta(META_KEY_WITNESS_PRIMARY);
 

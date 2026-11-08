@@ -89,7 +89,7 @@
     "selftest:share": "tsx lib/__dev__/share-selftest.ts",
     "selftest:sync-reconcile": "tsx lib/__dev__/sync-reconcile-selftest.ts",
     "selftest:invite-anchor-repair": "tsx lib/__dev__/invite-anchor-repair-selftest.ts",
-    "selftest:invite-join": "tsx lib/__dev__/invite-join-selftest.ts",
+    "selftest:invite-join": "tsx lib/__dev__/invite-join-selftest.ts && tsx lib/__dev__/invite-projection-selftest.ts",
     "selftest:ownership-client": "tsx lib/__dev__/ownership-client-selftest.ts",
     "selftest:ownership-router": "tsx lib/__dev__/ownership-router-selftest.ts",
     "selftest:ownership-readiness": "tsx lib/__dev__/ownership-readiness-selftest.ts",

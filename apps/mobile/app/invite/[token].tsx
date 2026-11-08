@@ -54,7 +54,11 @@ import { textDir, useIsRTL } from "../../lib/direction";
 import { fonts } from "../../lib/fonts";
 import { t } from "../../lib/i18n";
 import { gutter, icon, typography } from "../../lib/tokens";
-import { isSelfAdmissionPublished, JoinAdmissionBlockedError } from "../../lib/trust/backfill";
+import {
+  isSelfAdmissionPublished,
+  JoinAdmissionBlockedError,
+  JoinProofPendingError,
+} from "../../lib/trust/backfill";
 import {
   acceptVaultInvite,
   ApiError,
@@ -420,7 +424,8 @@ export default function InviteAcceptScreen() {
           setStage("blocked");
           return;
         }
-        console.warn("[invite] witness emission failed (backfill path will retry)", err);
+        if (!(err instanceof JoinProofPendingError))
+          console.warn("[invite] witness emission failed (backfill path will retry)", err);
       }
       if (!proofPublished) {
         acceptingRef.current = false;

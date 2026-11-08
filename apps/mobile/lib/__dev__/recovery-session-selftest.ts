@@ -410,6 +410,7 @@ function witnessFixture(f: ReturnType<typeof fixture>, response: Promise<any>) {
     },
     "./proof": {
       PROOF_BUNDLE_CAP: 500,
+      loadPinnedWitnessPubkeysB64: async () => ["pinned-key"],
       getLocalMembershipState: async () => ({
         hasGenesis: true,
         members: new Map([["account-a", { removed: false }]]),
@@ -420,7 +421,13 @@ function witnessFixture(f: ReturnType<typeof fixture>, response: Promise<any>) {
         ),
       }),
     },
-    "./chain": { MEMBERSHIP_EVENT_TYPES: new Set(["vault_member_added", "vault_device_added"]) },
+    "./chain": {
+      MEMBERSHIP_EVENT_TYPES: new Set(["vault_member_added", "vault_device_added"]),
+      deviceWitnessTuple: (input: unknown) => input,
+    },
+    "./crypto-runtime": {
+      runtimeChainCrypto: { canonicalize: JSON.stringify, verifyRaw: () => true },
+    },
   });
 }
 const witness = { server_key_id: "key", device_witness: { sig_b64: "sig", issued_at_ms: 1 } };

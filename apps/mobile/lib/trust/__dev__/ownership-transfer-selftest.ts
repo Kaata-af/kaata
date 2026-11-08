@@ -372,9 +372,12 @@ const gate = load("../../projection/role-gate", {
       valid: crypto.verifyEvent(e, sig, pub),
     }),
   },
+  "../events": require("../../events"),
+  "../tally-note-policy": { readCurrentTallyNoteRole: () => assert.fail("unexpected tally note") },
   "../hlc": require("../../hlc"),
   "../trust/chain": require("../chain"),
   "../trust/crypto-runtime": { runtimeChainCrypto: crypto },
+  "../trust/dev-witness-key": require("../dev-witness-key"),
   "../trust/ownership-transfer": require("../ownership-transfer"),
   "../mesh/device-key": { isOwnDevicePubkey: async (pub: string) => pub === owner.pub },
 });

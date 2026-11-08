@@ -134,9 +134,13 @@ function fixture() {
       if (name === "../effective-account")
         return { resolveAccountIdCandidates: async (account: string) => [account] };
       if (name === "../event-sig") return signature;
+      if (name === "../events") return require("../events");
+      if (name === "../tally-note-policy")
+        return { readCurrentTallyNoteRole: () => assert.fail("unexpected tally note") };
       if (name === "../hlc") return require("../hlc");
       if (name === "../trust/chain" || name === "../trust/crypto-runtime") return {};
       if (name === "../trust/ownership-transfer") return require("../trust/ownership-transfer");
+      if (name === "../trust/dev-witness-key") return require("../trust/dev-witness-key");
       if (name === "../mesh/device-key") return deviceKey;
       throw Error(`Unexpected gate import ${name}`);
     },
@@ -162,6 +166,8 @@ function fixture() {
       };
     if (name === "./ledger-events") return { useLedgerRefresh: () => {} };
     if (name === "./projection/role-gate") return gate;
+    if (name === "./tally-note-policy")
+      return { readCurrentTallyNoteRole: () => assert.fail("unexpected tally note") };
     if (name === "./vault-roles") return require("../vault-roles");
     throw Error(`Unexpected hook import ${name}`);
   });
@@ -220,6 +226,9 @@ function fixture() {
     if (name === "./projection") return projection;
     if (name === "./entry-date") return require("../entry-date");
     if (name === "./currency-scope") return require("../currency-scope");
+    if (name === "./customer-note") return require("../customer-note");
+    if (name === "./tabs/history")
+      return { unjoinedInvitationSql: () => assert.fail("unexpected shared tally") };
     if (name === "./money" || name === "./money-sql" || name === "./tabs/errors") return {};
     throw Error(`Unexpected append import ${name}`);
   });

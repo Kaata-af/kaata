@@ -174,6 +174,7 @@ export async function fixture() {
     "./errors": require("../projection/errors"),
   });
   const roleGate = load("../projection/role-gate", (name) => {
+    if (name === "../trust/dev-witness-key") return require("../trust/dev-witness-key");
     if (name === "../db-tx") return dbTx;
     if (name === "../event-sig") return signature;
     if (name === "../events") return require("../events");

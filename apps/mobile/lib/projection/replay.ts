@@ -24,9 +24,8 @@
 // This module:
 //   - Skips the INSERT entirely.
 //   - Runs the role-gate check (read-only on credentials/role events).
-//   - Runs the applier in a sub-transaction.
-//   - Returns a typed verdict so the caller (sweep, runFullReapplyAfter
-//     Migration) can drive the state-machine UPDATEs.
+//   - Runs the applier and marks a successful replay in one transaction.
+//   - Returns a typed verdict so the sweep can record failed attempts.
 //   - Does NOT touch projection_conflicts. The original applyEvent
 //     attempt wrote the row already; a recurring failure doesn't
 //     surface as new conflict spam.
@@ -49,7 +48,7 @@ type SQLiteTx = SQLite.SQLiteDatabase;
  * Result of a replay attempt. Drives the caller's state-machine UPDATE
  * on event_log.
  *
- * "applied"  → set applied_at = now, quarantine_reason = NULL.
+ * "applied"  → applied_at and the projection have committed together.
  * "quarantined" → set quarantine_reason = reason; clear applied_at,
  *                tombstone_reason.
  * "tombstoned"  → set tombstone_reason = reason; clear quarantine_
@@ -161,9 +160,8 @@ function classifyRoleGateRefusal(
 
 /**
  * Replay a single already-ingested event. The row is assumed to exist
- * in event_log already; this function does NOT call INSERT and does
- * NOT touch projection_conflicts. The caller updates the row's
- * state-machine columns based on the returned verdict.
+ * in event_log already. Successful projection and its applied marker are
+ * atomic. The caller records quarantine and tombstone verdicts.
  *
  * Note: this function does NOT bump the HLC frontier. Frontier is
  * advanced at INGEST time (verifyAndIngest's caller calls tickReceive
@@ -245,6 +243,13 @@ export async function applyAlreadyIngestedEvent(
           // projection. The verdict is captured already.
           throw new Error("__replay_rollback__");
         }
+        const marked = await db.runAsync(
+          `UPDATE event_log SET applied_at = ?, quarantine_reason = NULL, tombstone_reason = NULL
+            WHERE event_id = ? AND applied_at IS NULL AND tombstone_reason IS NULL`,
+          Date.now(),
+          event.event_id,
+        );
+        if (marked.changes !== 1) throw new Error("Pending event changed during replay");
         verdict = { kind: "applied" };
       }),
     )

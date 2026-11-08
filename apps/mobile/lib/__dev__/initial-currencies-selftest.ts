@@ -113,11 +113,15 @@ function fixture() {
   const gate = compileModule("../projection/role-gate", (name) => {
     if (name === "../db-tx") return dbTx;
     if (name === "../event-sig") return signature;
+    if (name === "../events") return require("../events");
+    if (name === "../tally-note-policy")
+      return { readCurrentTallyNoteRole: () => assert.fail("unexpected tally note") };
     if (name === "../mesh/device-key") return device;
     if (name === "../effective-account")
       return { resolveAccountIdCandidates: async (id: string) => [id] };
     if (name === "../hlc") return require("../hlc");
     if (name === "../trust/ownership-transfer") return require("../trust/ownership-transfer");
+    if (name === "../trust/dev-witness-key") return require("../trust/dev-witness-key");
     if (name === "../trust/chain" || name === "../trust/crypto-runtime") return {};
     throw Error(`Unexpected role import ${name}`);
   });

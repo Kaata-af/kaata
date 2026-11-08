@@ -249,6 +249,7 @@ function fixture() {
     "../db": dbModule,
     "./chain": chain,
     "./crypto-runtime": runtimeCrypto,
+    "./dev-witness-key": require("../trust/dev-witness-key"),
   });
   const report = compileUI("../diagnostics-report", {
     "expo-application": { nativeApplicationVersion: "2.2.0", nativeBuildVersion: "37" },

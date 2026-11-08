@@ -226,7 +226,7 @@ async function sweepQuarantine(vaultId: string): Promise<void> {
         console.error(
           `[sweep] payload parse failed event=${row.event_id} type=${row.event_type} — tombstoning as schema_invalid`,
         );
-        await applyVerdict(row.event_id, { kind: "tombstoned", reason: "schema_invalid" });
+        await applyFailureVerdict(row.event_id, { kind: "tombstoned", reason: "schema_invalid" });
         tombstoned++;
         continue;
       }
@@ -240,10 +240,12 @@ async function sweepQuarantine(vaultId: string): Promise<void> {
         console.error(`[sweep] applyAlreadyIngestedEvent threw for ${row.event_id}`, err);
         verdict = { kind: "quarantined", reason: "applier_throw" };
       }
-      await applyVerdict(row.event_id, verdict);
       if (verdict.kind === "applied") applied++;
-      else if (verdict.kind === "tombstoned") tombstoned++;
-      else stillQuarantined++;
+      else {
+        await applyFailureVerdict(row.event_id, verdict);
+        if (verdict.kind === "tombstoned") tombstoned++;
+        else stillQuarantined++;
+      }
     }
 
     totalApplied += applied;
@@ -283,19 +285,12 @@ async function sweepQuarantine(vaultId: string): Promise<void> {
  * union; the type checker enforces that an unhandled verdict shape
  * would be caught at compile time, not at runtime UPDATE.
  */
-async function applyVerdict(eventId: string, verdict: ApplyAlreadyIngestedVerdict): Promise<void> {
+async function applyFailureVerdict(
+  eventId: string,
+  verdict: Exclude<ApplyAlreadyIngestedVerdict, { kind: "applied" }>,
+): Promise<void> {
   const db = await getDb();
   switch (verdict.kind) {
-    case "applied": {
-      await db.runAsync(
-        `UPDATE event_log
-            SET applied_at = ?, quarantine_reason = NULL, tombstone_reason = NULL
-          WHERE event_id = ?`,
-        Date.now(),
-        eventId,
-      );
-      return;
-    }
     case "quarantined": {
       await db.runAsync(
         `UPDATE event_log
