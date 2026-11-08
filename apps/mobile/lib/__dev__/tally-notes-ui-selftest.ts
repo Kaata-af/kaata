@@ -24,6 +24,8 @@ async function main() {
   let current = true;
   let canAdd = true;
   let canRemove = false;
+  let canOpen = true;
+  let isRTL = false;
   let scopeKey = "account";
   let refresh = () => {};
   let writeGate: ReturnType<typeof deferred<void>> | null = null;
@@ -51,9 +53,9 @@ async function main() {
     "../lib/direction": {
       bidiIsolate: (value: string) => value,
       ltrIsolate: (value: string) => value,
-      rowDir: () => ({}),
-      textDir: () => ({}),
-      useIsRTL: () => false,
+      rowDir: (rtl: boolean) => ({ flexDirection: rtl ? "row-reverse" : "row" }),
+      textDir: (rtl: boolean) => ({ writingDirection: rtl ? "rtl" : "ltr" }),
+      useIsRTL: () => isRTL,
     },
     "../lib/fonts": { fonts: {}, sansLineHeight: () => 20 },
     "../lib/format": { formatTimestamp: (value: number) => `date:${value}` },
@@ -91,6 +93,7 @@ async function main() {
       },
     },
     "../lib/tokens": { radius: {}, TOUCH_MIN: 44 },
+    "./BottomSheet": { BottomSheet: "BottomSheet" },
     "./Button": { Button: "Button" },
     "./ConfirmDialog": { ConfirmDialog: "ConfirmDialog" },
     "./FormField": { FormField: "FormField" },
@@ -117,6 +120,7 @@ async function main() {
               note,
               canRemove,
               busy: controller.busy,
+              onOpen: canOpen ? () => controller.openDetails(note.id) : undefined,
               onDelete: () => controller.openDelete(note.id),
             }),
           ),
@@ -139,6 +143,27 @@ async function main() {
   assert.ok(byId("tally-note-note-1"));
   assert.match(JSON.stringify(hooks.tree), /Amina.*date:123/);
   assert.equal(byId("tally-note-delete-note-1"), undefined);
+  isRTL = true;
+  render();
+  byId("tally-note-open-note-1")!.props.onPress();
+  render();
+  assert.equal(find("BottomSheet").visible, true);
+  assert.match(JSON.stringify(find("BottomSheet").children), /I took two bags.*Amina.*date:123/);
+  const sheetNote = nodes(find("BottomSheet").children).find(
+    (node) => node.props.children === "I took two bags",
+  )!.props;
+  assert.equal(sheetNote.selectable, true);
+  assert.deepEqual(sheetNote.style[1], { writingDirection: "rtl" });
+  assert.equal(sheetNote.numberOfLines, undefined);
+  assert.deepEqual(find("BottomSheet").actions, [], "Viewers can read note details");
+  find("BottomSheet").onDismiss();
+  canOpen = false;
+  render();
+  assert.equal(find("BottomSheet").visible, false);
+  assert.equal(byId("tally-note-open-note-1"), undefined, "Selection mode has no open action");
+  canOpen = true;
+  isRTL = false;
+  render();
   const openComposer = button("tallyNotes.add").onPress;
   openComposer();
   render();
@@ -196,8 +221,29 @@ async function main() {
   assert.equal(writes.length, 1, "Role downgrade closes and guards a retained delete confirmation");
   canRemove = true;
   render();
-  byId("tally-note-delete-new-1")!.props.onPress();
+  byId("tally-note-open-new-1")!.props.onLongPress();
   render();
+  assert.match(JSON.stringify(find("BottomSheet").children), /123456789012345678\.000001/);
+  const oldDelete = find("BottomSheet").actions[0].onPress;
+  find("BottomSheet").onDismiss();
+  render();
+  byId("tally-note-open-note-1")!.props.onPress();
+  render();
+  oldDelete();
+  render();
+  assert.equal(find("ConfirmDialog").visible, false, "A newer sheet supersedes delayed actions");
+
+  find("BottomSheet").onDismiss();
+  render();
+  byId("tally-note-open-new-1")!.props.onPress();
+  render();
+  const sheet = find("BottomSheet");
+  assert.equal(sheet.actions[0].destructive, true);
+  sheet.onDismiss();
+  render();
+  sheet.actions[0].onPress();
+  render();
+  assert.equal(find("ConfirmDialog").visible, true);
   find("ConfirmDialog").onConfirm();
   await settleUI();
   render();
@@ -230,6 +276,18 @@ async function main() {
   await button("common.retry").onPress();
   render();
 
+  byId("tally-note-open-note-1")!.props.onPress();
+  render();
+  assert.equal(find("BottomSheet").visible, true);
+  notes = notes.filter(({ id }) => id !== "note-1");
+  refresh();
+  await settleUI();
+  render();
+  assert.equal(find("BottomSheet").visible, false);
+  button("tallyNotes.add").onPress();
+  render();
+  assert.equal(find("ProtectedModal").visible, true, "Remote deletion releases the detail sheet");
+
   const staleRead = deferred<typeof notes>();
   readGate = staleRead;
   refresh();
@@ -250,7 +308,7 @@ async function main() {
   await settleUI();
   assert.equal(hooks.lateWrites, 0, "A departed person's late note read cannot repaint");
   console.log(
-    "PASS tally notes UI: optional decimal, Unicode, duplicate guard, author/date, confirmed deletion, retry and stale scope/role guards",
+    "PASS tally notes UI: optional decimal, Unicode, details sheet, confirmed deletion, retry and stale scope/role guards",
   );
 }
 

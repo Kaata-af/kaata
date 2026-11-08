@@ -33,9 +33,37 @@ import { icon as iconSize, lift, radius, TOUCH_MIN, typography } from "../lib/to
  *                available one stays filled — a distinction three list screens
  *                relied on and which collapses into an indistinguishable pair
  *                if both map to the same variant.
+ *  - notePaper — warm paper fill for tally-note actions.
  *  - danger    — filled danger. Destructive confirmation only.
  */
-type Variant = "primary" | "secondary" | "muted" | "danger";
+const buttonColors = {
+  primary: {
+    backgroundColor: colors.actionPrimary,
+    borderColor: "transparent",
+    ink: colors.textInverted,
+  },
+  secondary: {
+    backgroundColor: colors.bgDefault,
+    borderColor: colors.borderDefault,
+    ink: colors.textEmphasis,
+  },
+  muted: {
+    backgroundColor: colors.bgMuted,
+    borderColor: "transparent",
+    ink: colors.textEmphasis,
+  },
+  notePaper: {
+    backgroundColor: colors.notePaper,
+    borderColor: colors.notePaperBorder,
+    ink: colors.notePaperInk,
+  },
+  danger: {
+    backgroundColor: colors.danger,
+    borderColor: "transparent",
+    ink: colors.textInverted,
+  },
+};
+type Variant = keyof typeof buttonColors;
 
 /**
  * Geometry.
@@ -84,24 +112,11 @@ export function Button(props: {
 }) {
   const { label, onPress, variant = "primary", size = "md", disabled, loading, fullWidth } = props;
 
-  const isPrimary = variant === "primary";
-  const isDanger = variant === "danger";
-  const isMuted = variant === "muted";
-  const bg = isPrimary
-    ? colors.actionPrimary
-    : isDanger
-      ? colors.danger
-      : isMuted
-        ? colors.bgMuted
-        : colors.bgDefault;
-  const fg = isPrimary || isDanger ? colors.textInverted : colors.textEmphasis;
-  // muted is a FILL, so it carries no border — a bordered fill reads as two
-  // competing edges at pill radius.
-  const borderColor = isPrimary || isDanger || isMuted ? "transparent" : colors.borderDefault;
+  const { backgroundColor, borderColor, ink } = buttonColors[variant];
 
   // Only filled buttons lift. A lifted outline button reads as a mistake, and
   // a shadow under a transparent surface shows through the border.
-  const lifted = size === "hero" && (isPrimary || isDanger);
+  const lifted = size === "hero" && (variant === "primary" || variant === "danger");
 
   return (
     <Pressable
@@ -116,27 +131,27 @@ export function Button(props: {
         size === "hero" && styles.hero,
         size === "pill" && styles.pill,
         fullWidth && styles.fullWidth,
-        { backgroundColor: bg, borderColor },
+        { backgroundColor, borderColor },
         lifted && lift,
         pressed && { opacity: 0.85 },
         (disabled || loading) && { opacity: 0.5 },
       ]}
     >
       {loading && !props.showLabelWhileLoading ? (
-        <ActivityIndicator color={fg} size={size === "pill" ? "small" : undefined} />
+        <ActivityIndicator color={ink} size={size === "pill" ? "small" : undefined} />
       ) : (
         <View style={[styles.content, props.wrapLabel && styles.wrappingContent]}>
           {loading ? (
-            <ActivityIndicator color={fg} size="small" />
+            <ActivityIndicator color={ink} size="small" />
           ) : props.icon ? (
-            <Ionicons name={props.icon} size={iconSize.trailing} color={fg} />
+            <Ionicons name={props.icon} size={iconSize.trailing} color={ink} />
           ) : null}
           <Text
             style={[
               styles.text,
               size === "pill" && styles.textPill,
               props.wrapLabel && styles.wrappingText,
-              { color: fg },
+              { color: ink },
             ]}
             numberOfLines={props.wrapLabel ? undefined : 1}
           >

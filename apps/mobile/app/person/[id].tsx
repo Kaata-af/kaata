@@ -2572,6 +2572,13 @@ export default function PersonDetailScreen() {
                 note={item.note}
                 canRemove={canRemoveTallyNote && !selecting}
                 busy={tallyNotes.busy}
+                onOpen={
+                  selecting
+                    ? undefined
+                    : () => {
+                        if (tallyInteractionEnabled) tallyNotes.openDetails(item.note.id);
+                      }
+                }
                 onDelete={() => {
                   if (tallyInteractionEnabled) tallyNotes.openDelete(item.note.id);
                 }}
@@ -3932,7 +3939,7 @@ export default function PersonDetailScreen() {
                     <Button
                       label={t("tallyNotes.add")}
                       icon="document-text-outline"
-                      variant="secondary"
+                      variant="notePaper"
                       loading={tallyNotes.busy}
                       onPress={() => {
                         if (tallyInteractionEnabled) tallyNotes.openComposer();

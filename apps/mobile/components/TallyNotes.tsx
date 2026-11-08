@@ -29,6 +29,7 @@ import {
   type TallyNote,
 } from "../lib/tally-notes";
 import { radius, TOUCH_MIN } from "../lib/tokens";
+import { BottomSheet } from "./BottomSheet";
 import { Button } from "./Button";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FormField } from "./FormField";
@@ -37,6 +38,7 @@ import { SheetBackdrop } from "./SheetBackdrop";
 import { useToast } from "./Toast";
 
 const EMPTY_NOTES: TallyNote[] = [];
+type DetailSheet = { target: { id: string }; visible: boolean };
 
 /** Keep the contact's timeline and note dialogs in the same focus scope. */
 export function useTallyNotes({
@@ -73,10 +75,22 @@ export function useTallyNotes({
   const [draftNumber, setDraftNumber] = useState("");
   const [saveFailed, setSaveFailed] = useState(false);
   const [deleting, setDeleting] = useState<{ id: string } | null>(null);
+  const [detailSheet, setDetailSheet] = useState<DetailSheet | null>(null);
   const notes = snapshot?.scope === scope ? snapshot.notes : EMPTY_NOTES;
   const failed = snapshot?.scope === scope && snapshot.failed;
-  const context = useRef({ scope, canAdd, canRemove, isCurrent, notes, composer, deleting });
-  context.current = { scope, canAdd, canRemove, isCurrent, notes, composer, deleting };
+  const detailTarget = detailSheet?.target;
+  const detailNote = detailTarget ? notes.find((note) => note.id === detailTarget.id) : undefined;
+  const context = useRef({
+    scope,
+    canAdd,
+    canRemove,
+    isCurrent,
+    notes,
+    composer,
+    deleting,
+    detailSheet,
+  });
+  context.current = { scope, canAdd, canRemove, isCurrent, notes, composer, deleting, detailSheet };
 
   const reload = useCallback(async () => {
     const owner = focus.current;
@@ -111,6 +125,7 @@ export function useTallyNotes({
       setDraftNumber("");
       setSaveFailed(false);
       setDeleting(null);
+      setDetailSheet(null);
       // Let the surrounding route's focus effect mark its scope current.
       void Promise.resolve().then(reload);
       return () => {
@@ -128,30 +143,58 @@ export function useTallyNotes({
     setSaveFailed(false);
   }, [canAdd, composer]);
   useEffect(() => {
-    if (!canRemove) setDeleting(null);
-  }, [canRemove]);
+    if (deleting && (!canRemove || !notes.some((note) => note.id === deleting.id))) {
+      setDeleting((current) => (current === deleting ? null : current));
+    }
+    if (detailTarget && !detailNote) {
+      setDetailSheet((current) => (current?.target === detailTarget ? null : current));
+    }
+  }, [canRemove, deleting, detailNote, detailTarget, notes]);
 
-  function actionIsCurrent(operation: "add" | "remove") {
-    const current = context.current;
+  function scopeIsCurrent() {
     return (
       vaultId &&
       personId &&
       focus.current?.scope === scope &&
-      current.scope === scope &&
+      context.current.scope === scope &&
+      context.current.isCurrent()
+    );
+  }
+
+  function actionIsCurrent(operation: "add" | "remove") {
+    return (
+      scopeIsCurrent() &&
       !writing.current &&
-      current.isCurrent() &&
-      (operation === "add" ? current.canAdd : current.canRemove)
+      (operation === "add" ? context.current.canAdd : context.current.canRemove)
     );
   }
 
   function openComposer() {
-    if (!actionIsCurrent("add") || context.current.composer) return;
+    const { composer, deleting, detailSheet } = context.current;
+    if (!actionIsCurrent("add") || composer || deleting || detailSheet?.visible) return;
     Keyboard.dismiss();
+    setDetailSheet(null);
     setComposer(Symbol());
   }
 
+  function openDetails(id: string) {
+    const { composer, deleting, notes } = context.current;
+    if (!scopeIsCurrent() || writing.current || composer || deleting) return;
+    if (notes.some((note) => note.id === id)) {
+      Keyboard.dismiss();
+      setDetailSheet({ target: { id }, visible: true });
+    }
+  }
+
   function openDelete(id: string) {
-    if (actionIsCurrent("remove") && context.current.notes.some((note) => note.id === id)) {
+    const { composer, detailSheet, notes } = context.current;
+    if (
+      actionIsCurrent("remove") &&
+      !composer &&
+      !detailSheet?.visible &&
+      notes.some((note) => note.id === id)
+    ) {
+      setDetailSheet(null);
       setDeleting({ id });
     }
   }
@@ -298,6 +341,43 @@ export function useTallyNotes({
           </KeyboardAvoidingView>
         </View>
       </ProtectedModal>
+      <BottomSheet
+        visible={Boolean(active && detailNote && detailSheet?.visible)}
+        onDismiss={() => {
+          setDetailSheet((current) =>
+            current?.target === detailTarget && current?.visible
+              ? { ...current, visible: false }
+              : current,
+          );
+        }}
+        actions={
+          canRemove && detailNote && detailTarget
+            ? [
+                {
+                  label: t("tallyNotes.delete"),
+                  icon: "trash-outline",
+                  destructive: true,
+                  disabled: busy,
+                  onPress: () => {
+                    // BottomSheet runs actions after its exit. A newer sheet
+                    // or focus scope must take precedence over this action.
+                    if (
+                      focus.current === owner &&
+                      context.current.detailSheet?.target === detailTarget
+                    )
+                      openDelete(detailNote.id);
+                  },
+                },
+              ]
+            : []
+        }
+      >
+        {detailNote ? (
+          <View style={[styles.note, styles.detailNote]}>
+            {noteContent(detailNote, isRTL, true)}
+          </View>
+        ) : null}
+      </BottomSheet>
       <ConfirmDialog
         visible={Boolean(pendingDeletion)}
         title={t("tallyNotes.deleteTitle")}
@@ -322,44 +402,64 @@ export function useTallyNotes({
       />
     </>
   );
-  return { notes, failed, reload, busy, openComposer, openDelete, dialogs };
+  return { notes, failed, reload, busy, openComposer, openDetails, openDelete, dialogs };
+}
+
+function noteContent(note: TallyNote, isRTL: boolean, selectable: boolean) {
+  return (
+    <>
+      <View style={[styles.noteHeading, rowDir(isRTL)]}>
+        <Ionicons name="document-text-outline" size={17} color={colors.notePaperInk} />
+        <Text style={[styles.title, textDir(isRTL)]}>{t("tallyNotes.title")}</Text>
+        {note.number !== null ? (
+          <Text selectable={selectable} style={[styles.number, textDir(isRTL)]}>
+            {ltrIsolate(note.number)}
+          </Text>
+        ) : null}
+      </View>
+      <Text selectable={selectable} style={[styles.noteText, textDir(isRTL)]}>
+        {note.note}
+      </Text>
+      <Text style={[styles.meta, textDir(isRTL)]}>
+        {note.authorName
+          ? t("customerNote.by", { name: bidiIsolate(note.authorName) })
+          : t("customerNote.authorUnavailable")}
+        {"\n"}
+        {formatTimestamp(note.createdAt)}
+      </Text>
+    </>
+  );
 }
 
 export function TallyNoteRow({
   note,
   canRemove,
   busy,
+  onOpen,
   onDelete,
 }: {
   note: TallyNote;
   canRemove: boolean;
   busy: boolean;
+  onOpen?: () => void;
   onDelete: () => void;
 }) {
   const isRTL = useIsRTL();
   return (
     <View style={[styles.note, rowDir(isRTL)]} testID={`tally-note-${note.id}`}>
-      <View style={styles.noteBody}>
-        <View style={[styles.noteHeading, rowDir(isRTL)]}>
-          <Ionicons name="document-text-outline" size={17} color={colors.textSubtle} />
-          <Text style={[styles.title, textDir(isRTL)]}>{t("tallyNotes.title")}</Text>
-          {note.number !== null ? (
-            <Text selectable style={[styles.number, textDir(isRTL)]}>
-              {ltrIsolate(note.number)}
-            </Text>
-          ) : null}
-        </View>
-        <Text selectable style={[styles.noteText, textDir(isRTL)]}>
-          {note.note}
-        </Text>
-        <Text style={[styles.meta, textDir(isRTL)]}>
-          {note.authorName
-            ? t("customerNote.by", { name: bidiIsolate(note.authorName) })
-            : t("customerNote.authorUnavailable")}
-          {"\n"}
-          {formatTimestamp(note.createdAt)}
-        </Text>
-      </View>
+      {onOpen ? (
+        <Pressable
+          accessibilityRole="button"
+          testID={`tally-note-open-${note.id}`}
+          onPress={onOpen}
+          onLongPress={onOpen}
+          style={({ pressed }) => [styles.noteBody, pressed && styles.dim]}
+        >
+          {noteContent(note, isRTL, false)}
+        </Pressable>
+      ) : (
+        <View style={styles.noteBody}>{noteContent(note, isRTL, false)}</View>
+      )}
       {canRemove ? (
         <Pressable
           accessibilityRole="button"
@@ -370,7 +470,7 @@ export function TallyNoteRow({
           onPress={onDelete}
           style={({ pressed }) => [styles.delete, (pressed || busy) && styles.dim]}
         >
-          <Ionicons name="trash-outline" size={20} color={colors.textSubtle} />
+          <Ionicons name="trash-outline" size={20} color={colors.notePaperInk} />
         </Pressable>
       ) : null}
     </View>
@@ -379,25 +479,26 @@ export function TallyNoteRow({
 
 const styles = StyleSheet.create({
   noteHeading: { alignItems: "center", flexWrap: "wrap", gap: 6 },
-  title: { color: colors.textEmphasis, fontFamily: fonts.sansSemi, fontSize: 14 },
-  number: { color: colors.textSubtle, fontFamily: fonts.sansSemi, fontSize: 14 },
+  title: { color: colors.notePaperInk, fontFamily: fonts.sansSemi, fontSize: 14 },
+  number: { color: colors.notePaperInk, fontFamily: fonts.sansSemi, fontSize: 14 },
   note: {
     alignItems: "flex-start",
     padding: 12,
     borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: colors.borderDefault,
-    backgroundColor: colors.bgMuted,
+    borderColor: colors.notePaperBorder,
+    backgroundColor: colors.notePaper,
   },
   noteBody: { flex: 1, gap: 6 },
+  detailNote: { alignItems: "stretch", gap: 8, marginHorizontal: 20, marginBottom: 8 },
   noteText: {
-    color: colors.textDefault,
+    color: colors.notePaperInk,
     fontFamily: fonts.sansRegular,
     fontSize: 14,
     lineHeight: sansLineHeight(14, 20),
   },
   meta: {
-    color: colors.textSubtle,
+    color: colors.notePaperInk,
     fontFamily: fonts.sansRegular,
     fontSize: 12,
     lineHeight: sansLineHeight(12, 17),

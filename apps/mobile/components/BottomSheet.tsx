@@ -6,8 +6,8 @@ import { SheetHandle } from "./SheetHandle";
 import { SheetSurface } from "./SheetSurface";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
-import type { ComponentProps } from "react";
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import type { ComponentProps, ReactNode } from "react";
 import { colors } from "../lib/colors";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
 import { fonts } from "../lib/fonts";
@@ -33,6 +33,7 @@ export function BottomSheet(props: {
   visible: boolean;
   title?: string;
   description?: string;
+  children?: ReactNode;
   actions: SheetAction[];
   onDismiss: () => void;
 }) {
@@ -57,6 +58,7 @@ export function BottomSheet(props: {
   }, [props.visible]);
 
   if (!rendered) return null;
+  const hasBody = props.children != null;
 
   return (
     <Modal
@@ -74,12 +76,21 @@ export function BottomSheet(props: {
         style={[styles.sheetContainer, { transform: [{ translateY: drag.translateY }] }]}
         pointerEvents={props.visible ? "box-none" : "none"}
       >
-        <SheetSurface {...drag.surfacePanHandlers} style={styles.sheetWrap}>
-          <View style={styles.sheet}>
+        <SheetSurface
+          {...drag.surfacePanHandlers}
+          maxHeightRatio={hasBody ? 0.75 : undefined}
+          style={styles.sheetWrap}
+        >
+          <View style={[styles.sheet, hasBody && styles.bounded]}>
             <SheetHandle panHandlers={drag.panHandlers} onDismiss={drag.dismiss} />
             {props.title ? <Text style={[styles.title, textDir(isRTL)]}>{props.title}</Text> : null}
             {props.description ? (
               <Text style={[styles.description, textDir(isRTL)]}>{props.description}</Text>
+            ) : null}
+            {hasBody ? (
+              <ScrollView {...drag.scrollProps} style={styles.bounded} bounces={false}>
+                {props.children}
+              </ScrollView>
             ) : null}
             {props.actions.map((a, i) => {
               const color = a.destructive ? colors.danger : colors.textEmphasis;
@@ -144,6 +155,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.borderDefault,
   },
   sheet: { paddingTop: 8, paddingBottom: 8 },
+  bounded: { flexGrow: 0, flexShrink: 1, minHeight: 0 },
   title: {
     fontSize: 11,
     fontFamily: fonts.sansSemi,

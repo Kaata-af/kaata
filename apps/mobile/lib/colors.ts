@@ -26,6 +26,10 @@ export const colors = {
   entryActionReceived: "#E4EEE6",
   entryActionReceivedText: "#3E6149",
   entryActionReceivedCoin: "#CDDFD1",
+  // Paper and ink for notes in the tally history.
+  notePaper: "#F5ECD7",
+  notePaperBorder: "#E4D6B7",
+  notePaperInk: "#59472D",
   providerApple: "#000000",
   pressedOverlay: "#00000008",
   // Linked two-party account marker; never used for money direction.

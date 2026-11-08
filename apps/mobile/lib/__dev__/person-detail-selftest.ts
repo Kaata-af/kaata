@@ -169,6 +169,7 @@ let person: any, entries: any[], preLink: any[], failed: any[], link: any;
 let staffNote: string | null = null;
 let timelineNotes: TallyNote[] = [];
 let openedNoteComposer = 0;
+let noteToOpen: string | null = null;
 let noteToDelete: string | null = null;
 let staffNoteHistory: import("../person-note").PersonNoteRevision[] = [];
 let noteReadGate: Promise<string | null> | null = null;
@@ -368,6 +369,7 @@ const mocks: Record<string, any> = {
       failed: false,
       busy: false,
       openComposer: () => openedNoteComposer++,
+      openDetails: (id: string) => (noteToOpen = id),
       openDelete: (id: string) => (noteToDelete = id),
     }),
   },
@@ -783,6 +785,7 @@ function fixture(shared = false) {
   staffNote = null;
   timelineNotes = [];
   openedNoteComposer = 0;
+  noteToOpen = null;
   noteToDelete = null;
   staffNoteHistory = [];
   noteReadGate = null;
@@ -4414,8 +4417,12 @@ async function main() {
         "Clerks and viewers can read the Kaata note",
       );
       assert.equal(find("CustomerNoteCard")!.props.onEdit, undefined);
-      addTallyNoteButton()!.props.onPress();
+      const addNote = addTallyNoteButton()!;
+      assert.equal(addNote.props.variant, "notePaper");
+      addNote.props.onPress();
       assert.equal(openedNoteComposer, 1, "Viewers can add tally notes from the bottom dock");
+      find("TallyNoteRow")!.props.onOpen();
+      assert.equal(noteToOpen, "tally-note", "Viewers can open the tally note sheet");
       assert.equal(
         find("TallyNoteRow")!.props.canRemove,
         false,

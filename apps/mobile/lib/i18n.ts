@@ -929,7 +929,7 @@ const en = {
   "customerNote.changed":
     "Someone changed this customer's note. Close and reopen this page to read the latest note before editing.",
   "tallyNotes.title": "Tally note",
-  "tallyNotes.add": "Add tally note",
+  "tallyNotes.add": "Add note",
   "tallyNotes.save": "Save tally note",
   "tallyNotes.blankAmountHint": "Leave the amount blank to save a tally note.",
   "tallyNotes.hint": "Leave a message for the people who record tallies in this Kaata.",
@@ -943,7 +943,7 @@ const en = {
   "tallyNotes.deleteBody":
     "This removes the note from the customer's tally history for everyone in this Kaata.",
   "tallyNotes.deleted": "Note deleted",
-  "tallyNotes.emptyLedger": "Tap Add tally note below to leave a message for the team.",
+  "tallyNotes.emptyLedger": "Tap Add note below to leave a message for the team.",
   "personEdit.currency.label": "Default tally currency",
   "personEdit.currency.inherit": "Automatic (otherwise {currency})",
   "personEdit.currency.inherited": "Automatic",
@@ -3699,7 +3699,7 @@ const fa: Partial<Record<Key, string>> = {
   "customerNote.changed":
     "کسی یادداشت این مشتری را تغییر داده است. این صفحه را ببندید و دوباره باز کنید تا پیش از ویرایش، یادداشت تازه را بخوانید.",
   "tallyNotes.title": "یادداشت ثبت",
-  "tallyNotes.add": "افزودن یادداشت ثبت",
+  "tallyNotes.add": "افزودن یادداشت",
   "tallyNotes.save": "ذخیره یادداشت ثبت",
   "tallyNotes.blankAmountHint": "برای ذخیرهٔ یادداشت ثبت، مبلغ را خالی بگذارید.",
   "tallyNotes.hint": "برای کسانی که در این کاتا ثبت می‌کنند، پیام بگذارید.",
@@ -3712,8 +3712,7 @@ const fa: Partial<Record<Key, string>> = {
   "tallyNotes.deleteTitle": "این یادداشت حذف شود؟",
   "tallyNotes.deleteBody": "یادداشت از تاریخچه ثبت‌های این مشتری برای همه اعضای کاتا حذف می‌شود.",
   "tallyNotes.deleted": "یادداشت حذف شد",
-  "tallyNotes.emptyLedger":
-    "برای گذاشتن پیام به همکاران‌تان، روی «افزودن یادداشت ثبت» در پایین بزنید.",
+  "tallyNotes.emptyLedger": "برای گذاشتن پیام به همکاران‌تان، روی «افزودن یادداشت» در پایین بزنید.",
   "personEdit.currency.label": "ارز پیش‌فرض ثبت‌ها",
   "personEdit.currency.inherit": "خودکار (در غیر آن {currency})",
   "personEdit.currency.inherited": "خودکار",
@@ -6331,7 +6330,7 @@ const ps: Record<Key, string> = {
   "customerNote.changed":
     "چا د دې پېرودونکي یادښت بدل کړی دی. دا پاڼه وتړئ او بیا یې پرانیزئ، څو تر سمولو مخکې نوی یادښت ولولئ.",
   "tallyNotes.title": "د راکړې ورکړې یادښت",
-  "tallyNotes.add": "د راکړې ورکړې یادښت زیات کړئ",
+  "tallyNotes.add": "یادښت زیات کړئ",
   "tallyNotes.save": "د راکړې ورکړې یادښت خوندي کړئ",
   "tallyNotes.blankAmountHint": "د راکړې ورکړې د یادښت خوندي کولو لپاره د پیسو اندازه تشه پرېږدئ.",
   "tallyNotes.hint": "هغو کسانو ته پیغام پرېږدئ چې په دې کاټه کې راکړې ورکړې ثبتوي.",
@@ -6345,8 +6344,7 @@ const ps: Record<Key, string> = {
   "tallyNotes.deleteBody":
     "یادښت به د کاټې د ټولو غړو لپاره د دې پېرودونکي د راکړو ورکړو له تاریخچې څخه ړنګ شي.",
   "tallyNotes.deleted": "یادښت ړنګ شو",
-  "tallyNotes.emptyLedger":
-    "همکارانو ته د پیغام پرېښودو لپاره لاندې «د راکړې ورکړې یادښت زیات کړئ» ووهئ.",
+  "tallyNotes.emptyLedger": "همکارانو ته د پیغام پرېښودو لپاره لاندې «یادښت زیات کړئ» ووهئ.",
   "personEdit.currency.label": "د راکړو ورکړو اصلي اسعار",
   "personEdit.currency.inherit": "اتومات (که نه، {currency})",
   "personEdit.currency.inherited": "اتومات",
