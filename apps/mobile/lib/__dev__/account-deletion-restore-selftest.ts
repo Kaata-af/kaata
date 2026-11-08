@@ -8,7 +8,7 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
     ["account_id", "account-a"],
     ["account_deletion_cancelled", marker],
   ]);
-  const routes: string[] = [],
+  const routes: any[] = [],
     writes: [string, string][] = [];
   const backHandlers = new Set<() => boolean>();
   let recoveries = 0,
@@ -19,7 +19,10 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
   let gate: Promise<any> | null = null;
   let generation = 0,
     focused = true;
-  const router = { replace: (route: string) => routes.push(route) };
+  const router = {
+    replace: (route: string) => routes.push(route),
+    push: (route: any) => routes.push(route),
+  };
   const session = () => ({
     jwt: options.expiredSession ? null : "session-" + meta.get("account_id"),
     accountId: meta.get("account_id"),
@@ -238,6 +241,30 @@ async function main() {
   const ordinary = restoreFixture("");
   await ordinary.flush();
   assert.equal(ordinary.recoveries, 0, "ordinary sign-in retains the explicit restore choice");
+  const personal = restoreFixture("");
+  await personal.flush();
+  const openPersonal = button(personal, "backups.restorePersonal").props.onPress;
+  openPersonal();
+  openPersonal();
+  await personal.flush();
+  assert.deepEqual(personal.routes, [{ pathname: "/backups", params: { restore: "1" } }]);
+  assert.equal(personal.recoveries, 0, "personal restore navigation never starts cloud recovery");
+  personal.focus(false);
+  personal.focus(true);
+  assert.equal(
+    button(personal, "backups.restorePersonal").props.disabled,
+    false,
+    "returning from Backups unlocks the original choice",
+  );
+  personal.hooks.unmount();
+  const stalePersonal = restoreFixture("");
+  await stalePersonal.flush();
+  const oldOpen = button(stalePersonal, "backups.restorePersonal").props.onPress;
+  stalePersonal.switchAccount("account-b");
+  oldOpen();
+  await stalePersonal.flush();
+  assert.deepEqual(stalePersonal.routes, [], "old-account personal restore navigation is refused");
+  stalePersonal.hooks.unmount();
   button(ordinary, "onboardingRestore.restore.title").props.onPress();
   await ordinary.flush();
   assert.deepEqual(
@@ -251,6 +278,11 @@ async function main() {
   await expired.flush();
   assert.ok(button(expired, "onboardingRestore.signInAgain"), "an expired session offers sign-in");
   assert.equal(button(expired, "onboardingRestore.tryAgain"), undefined);
+  assert.equal(
+    button(expired, "backups.restorePersonal"),
+    undefined,
+    "expired sign-in does not offer account-bound personal restore",
+  );
   button(expired, "onboardingRestore.startFresh").props.onPress();
   await expired.flush();
   assert.deepEqual(expired.routes, ["/onboarding/profile"], "Start fresh escapes without a token");

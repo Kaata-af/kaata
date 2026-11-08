@@ -11,6 +11,75 @@ import { getAppMeta } from "./db";
 
 // Source-of-truth English strings. All other locales must use the same keys.
 const en = {
+  "backups.title": "Backups",
+  "backups.menuHint": "Kaata Cloud and your personal copies",
+  "backups.cloud": "Kaata Cloud",
+  "backups.cloudHint":
+    "Your signed-in Kaatas sync automatically. Each date below shows the last confirmed sync from this phone.",
+  "backups.cloudSignedOut":
+    "Ninja mode keeps your data on this phone. Sign in to use Kaata Cloud, or save a personal copy below.",
+  "backups.lastUpload": "Last confirmed sync: {when}",
+  "backups.neverUploaded": "No confirmed sync from this phone yet",
+  "backups.pending": "Some changes are still waiting to upload.",
+  "backups.noKaatas": "No Kaatas to back up yet.",
+  "backups.syncNow": "Sync now",
+  "backups.syncFailed":
+    "Some changes could not be uploaded. Check your connection and try again; the dates below show the last confirmed syncs.",
+  "backups.restoreCloud": "Restore from Kaata Cloud",
+  "backups.offline": "Connect to the internet to sync or restore from Kaata Cloud.",
+  "backups.readFailed": "Could not read backup status. Try again.",
+  "backups.personal": "Personal copies",
+  "backups.personalHint":
+    "Save an encrypted copy yourself. Choose the provider in the Files save window. These copies are manual; Kaata cannot verify the provider’s cloud upload.",
+  "backups.googleDrive": "Google Drive",
+  "backups.icloudDrive": "iCloud Drive",
+  "backups.lastSaved": "Last saved here: {when}",
+  "backups.notSaved": "No saved copy confirmed on this phone",
+  "backups.statusUnknown": "Backup status unavailable",
+  "backups.saveTo": "Save a copy to {destination}",
+  "backups.googleInstructions":
+    "In the Files save window, choose Google Drive and the account and folder you want. On iPhone, use Browse → Google Drive. If Drive is missing, enable it in Files or open the Drive app first.",
+  "backups.icloudInstructions":
+    "In Files, choose Browse → iCloud Drive and your folder. Choose iCloud Drive rather than On My iPhone.",
+  "backups.password": "Backup password",
+  "backups.confirmPassword": "Confirm backup password",
+  "backups.passwordHint":
+    "Use at least 12 characters and keep this password somewhere safe. This is separate from your Kaata password. Kaata does not save it and cannot recover a copy without it.",
+  "backups.passwordMin": "Use a backup password with 12–256 characters.",
+  "backups.passwordMismatch": "The backup passwords do not match.",
+  "backups.saveCopy": "Create encrypted copy",
+  "backups.confirmSavedTitle": "Did you save the copy?",
+  "backups.confirmSavedBody":
+    "Confirm only after saving {file} to {destination}. This records your confirmation on this phone; it does not verify the cloud upload.",
+  "backups.confirmSaved": "I saved it",
+  "backups.notSavedYet": "Not saved",
+  "backups.restorePersonal": "Restore a personal backup",
+  "backups.restoreInstructions":
+    "Enter the password used for the backup, then choose its .kaatabackup file in Files. Kaata restarts after restoring.",
+  "backups.restoreRestriction":
+    "Personal restore requires an empty installation. Signed-in copies need the same Kaata account; Ninja copies restore in Ninja mode. Existing Kaatas will not be replaced.",
+  "backups.chooseFile": "Choose backup file",
+  "backups.restoring": "Backup restored. Restarting Kaata…",
+  "backups.onDevice": "On this phone",
+  "backups.localSaved": "Recovery copy: {when}",
+  "backups.localNone": "No recovery copy on this phone yet",
+  "backups.localHint":
+    "Kaata keeps a recovery copy on this phone. It does not protect against losing or resetting the phone.",
+  "backups.error.ownership":
+    "This phone contains data that cannot be included in a personal backup for this account.",
+  "backups.error.differentAccount":
+    "Use the same Kaata account as this backup. A Ninja backup must be restored in Ninja mode.",
+  "backups.error.notEmpty":
+    "This installation already has data. Personal backups can only be restored into an empty installation.",
+  "backups.error.invalid": "This file is not a valid Kaata backup, or it is damaged.",
+  "backups.error.empty": "There is no data to back up yet.",
+  "backups.error.unsupported":
+    "Personal backups are not available in this version of the app. Update Kaata and try again.",
+  "backups.error.tooLarge": "This backup is too large to save or restore on this phone.",
+  "backups.error.password": "The backup password is incorrect, or the file is damaged.",
+  "backups.error.sessionChanged": "Your account changed. Open Backups again before continuing.",
+  "backups.error.generic":
+    "Could not complete the backup action. Check your file location and try again.",
   "tab.recordingMode.unknown":
     "Refresh this account’s tally settings before making changes. Existing records remain visible.",
   "notificationSettings.syncPending":
@@ -2721,6 +2790,76 @@ type Key = keyof typeof en;
 // Missing keys fall back to English; half-translated UI doesn't break. Add a
 // new key here as soon as you add it to the en table.
 const fa: Partial<Record<Key, string>> = {
+  "backups.title": "نسخه‌های پشتیبان",
+  "backups.menuHint": "فضای ابری کاته و کاپی‌های شخصی شما",
+  "backups.cloud": "فضای ابری کاته",
+  "backups.cloudHint":
+    "کاته‌های حساب شما خودکار همگام می‌شوند. هر تاریخ زیر، آخرین همگام‌سازی تأییدشده از این گوشی را نشان می‌دهد.",
+  "backups.cloudSignedOut":
+    "در حالت نینجا، اطلاعات در همین گوشی می‌ماند. برای فضای ابری کاته وارد حساب شوید، یا در پایین یک کاپی شخصی ذخیره کنید.",
+  "backups.lastUpload": "آخرین همگام‌سازی تأییدشده: {when}",
+  "backups.neverUploaded": "هنوز همگام‌سازی از این گوشی تأیید نشده است",
+  "backups.pending": "بعضی تغییرات هنوز منتظر ارسال است.",
+  "backups.noKaatas": "هنوز کاته‌ای برای پشتیبان‌گیری نیست.",
+  "backups.syncNow": "همگام‌سازی اکنون",
+  "backups.syncFailed":
+    "بعضی تغییرات ارسال نشد. اتصال اینترنت را بررسی کرده دوباره تلاش کنید؛ تاریخ‌های زیر آخرین همگام‌سازی تأییدشده را نشان می‌دهد.",
+  "backups.restoreCloud": "بازیابی از فضای ابری کاته",
+  "backups.offline": "برای همگام‌سازی یا بازیابی از فضای ابری کاته به اینترنت وصل شوید.",
+  "backups.readFailed": "وضعیت نسخه‌های پشتیبان خوانده نشد. دوباره تلاش کنید.",
+  "backups.personal": "کاپی‌های شخصی",
+  "backups.personalHint":
+    "خودتان یک کاپی رمزگذاری‌شده ذخیره کنید. سرویس را در پنجرۀ ذخیرۀ فایل‌ها انتخاب کنید. این کاپی‌ها دستی است؛ کاته نمی‌تواند ارسال آن‌ها به فضای ابری را تأیید کند.",
+  "backups.googleDrive": "Google Drive",
+  "backups.icloudDrive": "iCloud Drive",
+  "backups.lastSaved": "آخرین ذخیره در این محل: {when}",
+  "backups.notSaved": "هنوز ذخیرۀ کاپی در این گوشی تأیید نشده است",
+  "backups.statusUnknown": "وضعیت نسخۀ پشتیبان در دسترس نیست",
+  "backups.saveTo": "ذخیرۀ کاپی در {destination}",
+  "backups.googleInstructions":
+    "در پنجرۀ ذخیرۀ فایل‌ها، Google Drive و حساب و پوشۀ دلخواه را انتخاب کنید. در آیفون از Browse و سپس Google Drive بروید. اگر Drive دیده نمی‌شود، آن را در Files فعال کنید یا نخست برنامۀ Drive را باز کنید.",
+  "backups.icloudInstructions":
+    "در Files، از Browse به iCloud Drive بروید و پوشۀ دلخواه را انتخاب کنید. iCloud Drive را به‌جای On My iPhone انتخاب کنید.",
+  "backups.password": "رمز نسخۀ پشتیبان",
+  "backups.confirmPassword": "تأیید رمز نسخۀ پشتیبان",
+  "backups.passwordHint":
+    "حداقل ۱۲ نویسه استفاده کنید و رمز را در جای امن نگه دارید. این رمز جدا از رمز حساب کاته است. کاته آن را ذخیره نمی‌کند و بدون آن کاپی بازیابی نمی‌شود.",
+  "backups.passwordMin": "رمز نسخۀ پشتیبان باید ۱۲ تا ۲۵۶ نویسه داشته باشد.",
+  "backups.passwordMismatch": "رمزهای نسخۀ پشتیبان یکسان نیست.",
+  "backups.saveCopy": "ساخت کاپی رمزگذاری‌شده",
+  "backups.confirmSavedTitle": "کاپی را ذخیره کردید؟",
+  "backups.confirmSavedBody":
+    "فقط پس از ذخیرۀ {file} در {destination} تأیید کنید. این کار تأیید شما را در همین گوشی ثبت می‌کند؛ ارسال به فضای ابری را تأیید نمی‌کند.",
+  "backups.confirmSaved": "ذخیره کردم",
+  "backups.notSavedYet": "ذخیره نکردم",
+  "backups.restorePersonal": "بازیابی نسخۀ پشتیبان شخصی",
+  "backups.restoreInstructions":
+    "رمز نسخۀ پشتیبان را وارد کنید، سپس فایل .kaatabackup آن را در Files انتخاب کنید. کاته پس از بازیابی دوباره باز می‌شود.",
+  "backups.restoreRestriction":
+    "بازیابی شخصی به نصب خالی نیاز دارد. کاپی حساب‌دار به همان حساب کاته و کاپی نینجا به حالت نینجا نیاز دارد. کاته‌های موجود جایگزین نمی‌شود.",
+  "backups.chooseFile": "انتخاب فایل پشتیبان",
+  "backups.restoring": "نسخۀ پشتیبان بازیابی شد. کاته دوباره باز می‌شود…",
+  "backups.onDevice": "در این گوشی",
+  "backups.localSaved": "کاپی بازیابی: {when}",
+  "backups.localNone": "هنوز کاپی بازیابی در این گوشی نیست",
+  "backups.localHint":
+    "کاته یک کاپی بازیابی در همین گوشی نگه می‌دارد. این کاپی در برابر گم‌شدن یا بازنشانی گوشی محافظت نمی‌کند.",
+  "backups.error.ownership":
+    "این گوشی اطلاعاتی دارد که نمی‌توان در نسخۀ پشتیبان شخصی این حساب گنجاند.",
+  "backups.error.differentAccount":
+    "از همان حساب کاته که این نسخه به آن تعلق دارد استفاده کنید. نسخۀ نینجا باید در حالت نینجا بازیابی شود.",
+  "backups.error.notEmpty":
+    "این نصب از قبل اطلاعات دارد. نسخۀ پشتیبان شخصی فقط در نصب خالی بازیابی می‌شود.",
+  "backups.error.invalid": "این فایل نسخۀ پشتیبان معتبر کاته نیست، یا آسیب دیده است.",
+  "backups.error.empty": "هنوز اطلاعاتی برای پشتیبان‌گیری نیست.",
+  "backups.error.unsupported":
+    "نسخۀ پشتیبان شخصی در این نسخۀ برنامه در دسترس نیست. کاته را به‌روز کرده دوباره تلاش کنید.",
+  "backups.error.tooLarge": "این نسخه برای ذخیره یا بازیابی در این گوشی بیش از حد بزرگ است.",
+  "backups.error.password": "رمز نسخۀ پشتیبان نادرست است، یا فایل آسیب دیده است.",
+  "backups.error.sessionChanged":
+    "حساب شما تغییر کرد. پیش از ادامه، صفحۀ نسخه‌های پشتیبان را دوباره باز کنید.",
+  "backups.error.generic":
+    "عملیات پشتیبان‌گیری تکمیل نشد. محل فایل را بررسی کرده دوباره تلاش کنید.",
   "tab.recordingMode.unknown":
     "پیش از تغییرات، تنظیمات ثبت این حساب را تازه کنید. ثبت‌های موجود همچنان دیده می‌شوند.",
   "notificationSettings.syncPending":
@@ -5149,6 +5288,73 @@ const fa: Partial<Record<Key, string>> = {
 
 // Pashto. Complete key coverage is enforced against the English source table.
 const ps: Record<Key, string> = {
+  "backups.title": "شاتړونه",
+  "backups.menuHint": "د کاته کلاوډ او ستاسو شخصي کاپۍ",
+  "backups.cloud": "د کاته کلاوډ",
+  "backups.cloudHint":
+    "ستاسو د حساب کاتې په اوتومات ډول همغږې کېږي. هره لاندې نېټه له دې موبایل څخه وروستۍ تایید شوې همغږي ښيي.",
+  "backups.cloudSignedOut":
+    "په نینجا حالت کې معلومات په همدې موبایل کې پاتې کېږي. د کاته کلاوډ لپاره حساب ته ننوځئ، یا لاندې شخصي کاپي وساتئ.",
+  "backups.lastUpload": "وروستۍ تایید شوې همغږي: {when}",
+  "backups.neverUploaded": "له دې موبایل څخه لا کومه همغږي نه ده تایید شوې",
+  "backups.pending": "ځینې بدلونونه لا لېږلو ته منتظر دي.",
+  "backups.noKaatas": "لا د شاتړ لپاره کاته نشته.",
+  "backups.syncNow": "اوس همغږي کول",
+  "backups.syncFailed":
+    "ځینې بدلونونه ونه لېږل شول. انټرنېټ وګورئ او بیا هڅه وکړئ؛ لاندې نېټې وروستۍ تایید شوې همغږۍ ښيي.",
+  "backups.restoreCloud": "د کاته له کلاوډ څخه بېرته راوستل",
+  "backups.offline": "د کاته له کلاوډ سره د همغږۍ یا بېرته راوستلو لپاره انټرنېټ سره وصل شئ.",
+  "backups.readFailed": "د شاتړ حالت ونه لوستل شو. بیا هڅه وکړئ.",
+  "backups.personal": "شخصي کاپۍ",
+  "backups.personalHint":
+    "پخپله یوه رمز شوې کاپي وساتئ. د فایل ساتلو په کړکۍ کې خدمت غوره کړئ. دا کاپۍ لاسي دي؛ کاته یې کلاوډ ته لېږل نه شي تاییدولای.",
+  "backups.googleDrive": "Google Drive",
+  "backups.icloudDrive": "iCloud Drive",
+  "backups.lastSaved": "دلته وروستی ساتل: {when}",
+  "backups.notSaved": "په دې موبایل کې لا د کاپۍ ساتل نه دي تایید شوي",
+  "backups.statusUnknown": "د شاتړ حالت نه دی معلوم",
+  "backups.saveTo": "په {destination} کې کاپي ساتل",
+  "backups.googleInstructions":
+    "د فایل ساتلو په کړکۍ کې Google Drive، بیا خپل حساب او فولډر غوره کړئ. په آیفون کې Browse او بیا Google Drive وټاکئ. که Drive نه ښکاري، په Files کې یې فعال کړئ یا لومړی د Drive اپ خلاص کړئ.",
+  "backups.icloudInstructions":
+    "په Files کې Browse، بیا iCloud Drive او خپل فولډر غوره کړئ. د On My iPhone پر ځای iCloud Drive غوره کړئ.",
+  "backups.password": "د شاتړ پټنوم",
+  "backups.confirmPassword": "د شاتړ پټنوم تایید",
+  "backups.passwordHint":
+    "لږ تر لږه ۱۲ توري وکاروئ او پټنوم په خوندي ځای کې وساتئ. دا ستاسو د کاته له پټنوم څخه جلا دی. کاته یې نه ساتي او له دې پرته کاپي بېرته نه شي راوړل کېدای.",
+  "backups.passwordMin": "د شاتړ پټنوم باید له ۱۲ تر ۲۵۶ تورو ولري.",
+  "backups.passwordMismatch": "د شاتړ پټنومونه یو شان نه دي.",
+  "backups.saveCopy": "رمز شوې کاپي جوړول",
+  "backups.confirmSavedTitle": "کاپي مو وساتله؟",
+  "backups.confirmSavedBody":
+    "یوازې په {destination} کې د {file} له ساتلو وروسته تایید کړئ. دا ستاسو تایید په همدې موبایل کې ثبتوي؛ کلاوډ ته لېږل نه تاییدوي.",
+  "backups.confirmSaved": "ومې ساتله",
+  "backups.notSavedYet": "نه ده ساتل شوې",
+  "backups.restorePersonal": "شخصي شاتړ بېرته راوستل",
+  "backups.restoreInstructions":
+    "د شاتړ پټنوم ولیکئ، بیا یې د .kaatabackup فایل په Files کې غوره کړئ. کاته له بېرته راوستلو وروسته بیا چالانېږي.",
+  "backups.restoreRestriction":
+    "د شخصي شاتړ راوستل تش نصب ته اړتیا لري. د حساب کاپۍ هماغه کاته حساب او د نینجا کاپۍ نینجا حالت ته اړتیا لري. شته کاتې نه بدلېږي.",
+  "backups.chooseFile": "د شاتړ فایل غوره کول",
+  "backups.restoring": "شاتړ بېرته راوستل شو. کاته بیا چالانېږي…",
+  "backups.onDevice": "په دې موبایل کې",
+  "backups.localSaved": "د بېرته راوستلو کاپي: {when}",
+  "backups.localNone": "په دې موبایل کې لا د بېرته راوستلو کاپي نشته",
+  "backups.localHint":
+    "کاته په همدې موبایل کې د بېرته راوستلو کاپي ساتي. دا کاپي د موبایل د ورکېدو یا بیا تنظیمېدو پر وړاندې ساتنه نه کوي.",
+  "backups.error.ownership":
+    "په دې موبایل کې داسې معلومات شته چې د دې حساب په شخصي شاتړ کې نه شي شاملېدای.",
+  "backups.error.differentAccount":
+    "د دې شاتړ هماغه کاته حساب وکاروئ. د نینجا شاتړ باید په نینجا حالت کې بېرته راوستل شي.",
+  "backups.error.notEmpty":
+    "په دې نصب کې له مخکې معلومات شته. شخصي شاتړ یوازې تش نصب ته بېرته راوستل کېدای شي.",
+  "backups.error.invalid": "دا فایل د کاته معتبر شاتړ نه دی، یا خراب شوی دی.",
+  "backups.error.empty": "لا د شاتړ لپاره معلومات نشته.",
+  "backups.error.unsupported": "د اپ په دې نسخه کې شخصي شاتړ نشته. کاته تازه کړئ او بیا هڅه وکړئ.",
+  "backups.error.tooLarge": "دا شاتړ په دې موبایل کې د ساتلو یا بېرته راوستلو لپاره ډېر لوی دی.",
+  "backups.error.password": "د شاتړ پټنوم ناسم دی، یا فایل خراب شوی دی.",
+  "backups.error.sessionChanged": "ستاسو حساب بدل شو. له دوام مخکې د شاتړونو پاڼه بیا خلاصه کړئ.",
+  "backups.error.generic": "د شاتړ کار بشپړ نه شو. د فایل ځای وګورئ او بیا هڅه وکړئ.",
   "tab.recordingMode.unknown":
     "له بدلونونو مخکې د دې حساب د ثبت امستنې تازه کړئ. شته ثبتونه لا هم لیدل کېږي.",
   "notificationSettings.syncPending":

@@ -1,18 +1,30 @@
 package expo.modules.kaatasavefile
 
+import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import expo.modules.kotlin.Promise
+import expo.modules.kotlin.activityresult.AppContextActivityResultLauncher
 import expo.modules.kotlin.exception.CodedException
+import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 /**
  * Save a file into the PUBLIC Downloads collection through MediaStore.
@@ -34,12 +46,67 @@ import java.io.InputStream
  * Downloads mid-copy never sees a half-written PDF.
  */
 class KaataSaveFileModule : Module() {
+  private val locationSaveInProgress = AtomicBoolean(false)
   private val appCtx: Context
     get() = appContext.reactContext
       ?: throw CodedException("E_NO_CONTEXT", "React context unavailable", null)
 
   override fun definition() = ModuleDefinition {
     Name("KaataSaveFile")
+
+    lateinit var locationPicker: AppContextActivityResultLauncher<SaveLocationOptions, SaveLocationResult>
+    RegisterActivityContracts {
+      locationPicker = registerForActivityResult(SaveLocationContract())
+    }
+
+    AsyncFunction("saveToLocation") Coroutine { sourceUri: String, fileName: String, mimeType: String ->
+      if (!locationSaveInProgress.compareAndSet(false, true)) {
+        throw CodedException("E_BUSY", "A destination picker is already open", null)
+      }
+      try {
+        requireSafeFileName(fileName)
+        if (mimeType.isBlank()) throw CodedException("E_WRITE", "A file type is required", null)
+        if (appContext.currentActivity == null) {
+          throw CodedException("E_NO_VIEW", "No activity to present the destination picker", null)
+        }
+        // Validate before creating a destination, and close immediately. The
+        // source is reopened only after the user has explicitly chosen Save.
+        withContext(Dispatchers.IO) { openSource(sourceUri).use { } }
+        val picked = try {
+          locationPicker.launch(SaveLocationOptions(fileName, mimeType))
+        } catch (e: ActivityNotFoundException) {
+          throw CodedException("E_UNSUPPORTED", "No document provider is available", e)
+        }
+        if (picked.cancelled) {
+          null
+        } else {
+          val destination = picked.uri
+            ?: throw CodedException("E_WRITE", "The provider returned no destination", null)
+          if (destination.scheme != "content" || destination == Uri.parse(sourceUri)) {
+            throw CodedException("E_WRITE", "The provider returned an invalid destination", null)
+          }
+          var completed = false
+          try {
+            withContext(Dispatchers.IO) {
+              writeSelectedFile(sourceUri, destination, fileName).also { completed = true }
+            }
+          } catch (e: Throwable) {
+            // Also clean up if cancellation arrives between picker dismissal
+            // and entry into the IO dispatcher. Keep a fully written file if
+            // cancellation only prevents delivering the successful receipt.
+            if (!completed) withContext(Dispatchers.IO + NonCancellable) {
+              deleteSelectedFile(destination)
+            }
+            throw when (e) {
+              is CancellationException, is CodedException -> e
+              else -> CodedException("E_WRITE", "Could not save the selected file", e)
+            }
+          }
+        }
+      } finally {
+        locationSaveInProgress.set(false)
+      }
+    }
 
     AsyncFunction("saveToDownloads") { sourceUri: String, fileName: String, mimeType: String, promise: Promise ->
       try {
@@ -70,6 +137,39 @@ class KaataSaveFileModule : Module() {
       throw e
     } catch (e: Throwable) {
       throw CodedException("E_SOURCE", e.message ?: "cannot open source", e)
+    }
+  }
+
+  private suspend fun writeSelectedFile(sourceUri: String, destination: Uri, fileName: String): Map<String, String> {
+    val resolver = appCtx.contentResolver
+    openSource(sourceUri).use { input ->
+      (resolver.openOutputStream(destination, "w")
+        ?: throw CodedException("E_WRITE", "Cannot open the selected destination", null)).use { output ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+          currentCoroutineContext().ensureActive()
+          val count = input.read(buffer)
+          if (count < 0) break
+          output.write(buffer, 0, count)
+        }
+        output.flush()
+        currentCoroutineContext().ensureActive()
+      }
+    }
+    val displayName = runCatching {
+      resolver.query(destination, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+      }
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: fileName
+    return mapOf("displayName" to displayName, "uri" to destination.toString())
+  }
+
+  private fun deleteSelectedFile(destination: Uri) {
+    // A provider may refuse deletion; preserve the original write error.
+    runCatching {
+      val resolver = appCtx.contentResolver
+      val deleted = runCatching { DocumentsContract.deleteDocument(resolver, destination) }.getOrDefault(false)
+      if (!deleted) runCatching { resolver.delete(destination, null, null) }
     }
   }
 

@@ -186,10 +186,18 @@ for (const rtl of [false, true])
         assert.equal(notification.props.hint, undefined, "Notifications remains a single-line row");
         const index = sections.indexOf(notification);
         assert.equal(sections[index - 1]?.type, "Gap");
+        const backups = sections[index + 1];
         assert.equal(
-          sections[index + 1]?.type,
+          backups?.props.label,
+          "backups.title",
+          "Backups stays beside Notifications for every account and vault state",
+        );
+        assert.equal(notification.props.isLast, undefined);
+        assert.equal(backups.props.isLast, true);
+        assert.equal(
+          sections[index + 2]?.type,
           "Gap",
-          "Notifications remains a standalone band even when conditional sections disappear",
+          "The Notifications and Backups group remains separated from conditional sections",
         );
         const precedingGap = flattenStyle(settingsAtoms.SectionGap().props.style);
         const followingGap = flattenStyle(settingsAtoms.SectionGap().props.style);
@@ -219,13 +227,13 @@ for (const rtl of [false, true])
           rowStyle.minHeight * 2,
         ]) {
           const rowTop = precedingGap.height + rowStyle.marginTop;
-          const followingBarTop = rowTop + height + followingGap.marginTop;
-          const rowCenter = rowTop + height / 2;
+          const followingBarTop = rowTop + height * 2 + followingGap.marginTop;
+          const rowCenter = rowTop + height;
           const bandCenter = (precedingGap.height + followingBarTop) / 2;
           assert.equal(
             rowCenter,
             bandCenter,
-            "Notifications stays centered at any text-driven height",
+            "The settings group stays centered at any text-driven row height",
           );
         }
         form.hooks.unmount();
@@ -238,6 +246,7 @@ for (const [label, expected] of [
   ["menu.allKaatas.add", "add"],
   ["notificationSettings.title", "/notification-settings"],
   ["friends.title", "/people/friends"],
+  ["backups.title", "/backups"],
 ] as const) {
   const form = fixture();
   const action = form.row(label);
@@ -245,6 +254,18 @@ for (const [label, expected] of [
   action.props.onPress();
   action.props.onPress();
   assert.deepEqual(form.actions, [expected], "a profile action runs immediately and once");
+  form.hooks.unmount();
+}
+{
+  const form = fixture({ signedIn: false, manageable: false });
+  const action = form.row("backups.title");
+  action.props.onPress();
+  action.props.onPress();
+  assert.deepEqual(
+    form.actions,
+    ["/backups"],
+    "Ninja users can reach personal backups without an active Kaata",
+  );
   form.hooks.unmount();
 }
 {
@@ -256,12 +277,14 @@ for (const [label, expected] of [
 for (const invalidation of ["account", "vault", "live", "unmount"] as const) {
   const form = fixture();
   const retained = form.row("menu.account.settings").props.onPress;
+  const retainedBackup = form.row("backups.title").props.onPress;
   if (invalidation === "account") form.setScope("account-b", "vault-a");
   if (invalidation === "vault") form.setScope("account-a", "vault-b");
   if (invalidation === "live") form.changeLiveScope();
   if (invalidation === "unmount") form.hooks.unmount();
   else form.render();
   retained();
+  retainedBackup();
   assert.deepEqual(form.actions, [], "retained callbacks cannot act after " + invalidation);
   if (invalidation !== "unmount") form.hooks.unmount();
   assert.equal(form.hooks.lateWrites, 0);

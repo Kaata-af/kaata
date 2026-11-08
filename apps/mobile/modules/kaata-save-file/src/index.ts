@@ -35,6 +35,11 @@ export type SaveFileResult = {
 
 type NativeKaataSaveFile = {
   saveToDownloads(sourceUri: string, fileName: string, mimeType: string): Promise<SaveFileResult>;
+  saveToLocation(
+    sourceUri: string,
+    fileName: string,
+    mimeType: string,
+  ): Promise<SaveFileResult | null>;
   exportFile(sourceUri: string, fileName: string): Promise<SaveFileResult | null>;
 };
 
@@ -53,8 +58,10 @@ export const SAVE_FILE_ERR = {
   SOURCE: "E_SOURCE",
   /** The OS refused to create or write the destination. */
   WRITE: "E_WRITE",
-  /** iOS only: nothing to present the picker on. */
+  /** No activity/view controller available to present the picker. */
   NO_VIEW: "E_NO_VIEW",
+  /** Another native destination picker is already open. */
+  BUSY: "E_BUSY",
 } as const;
 
 /**
@@ -69,6 +76,25 @@ export async function saveFileToPhone(
 ): Promise<SaveFileResult | null> {
   if (Platform.OS === "android") {
     return getNative().saveToDownloads(sourceUri, fileName, mimeType);
+  }
+  if (Platform.OS === "ios") {
+    return getNative().exportFile(sourceUri, fileName);
+  }
+  const err = new Error("kaata-save-file: unsupported platform") as Error & { code: string };
+  err.code = SAVE_FILE_ERR.UNSUPPORTED;
+  throw err;
+}
+
+/** Save one file to a destination selected in the system's file provider UI.
+ * This receipt confirms the provider accepted the file, not cloud upload.
+ * No persistent folder access or account connection is retained. */
+export async function saveFileToLocation(
+  sourceUri: string,
+  fileName: string,
+  mimeType: string,
+): Promise<SaveFileResult | null> {
+  if (Platform.OS === "android") {
+    return getNative().saveToLocation(sourceUri, fileName, mimeType);
   }
   if (Platform.OS === "ios") {
     return getNative().exportFile(sourceUri, fileName);

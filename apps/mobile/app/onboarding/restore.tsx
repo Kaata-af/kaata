@@ -104,6 +104,15 @@ export default function OnboardingRestoreScreen() {
   const [cancelledDeletion, setCancelledDeletion] = useState(false);
   const autoRestoreStarted = useRef(false);
 
+  // A personal-file picker is a separate settings page. Returning from it
+  // restores this choice without leaving a same-frame navigation lock behind.
+  useEffect(() => {
+    if (isFocused && !restoringRef.current) {
+      navigatingRef.current = false;
+      setNavigating(false);
+    }
+  }, [isFocused]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -288,6 +297,37 @@ export default function OnboardingRestoreScreen() {
     });
   }
 
+  // Personal restore is an explicit alternative while recovery is idle.
+  async function onPersonalRestore() {
+    const session = probedSession.current;
+    if (
+      !session?.jwt ||
+      !mounted.current ||
+      !focused.current ||
+      restoringRef.current ||
+      navigatingRef.current ||
+      cancelledDeletion ||
+      confirmFresh ||
+      (phaseRef.current.kind === "error" && phaseRef.current.expired) ||
+      (phaseRef.current.kind !== "ready" && phaseRef.current.kind !== "error")
+    )
+      return;
+    navigatingRef.current = true;
+    setNavigating(true);
+    try {
+      await applyForCurrentSession(session, async () => {
+        if (!mounted.current || !focused.current) return;
+        router.push({ pathname: "/backups", params: { restore: "1" } });
+      });
+    } catch (error) {
+      navigatingRef.current = false;
+      if (!mounted.current || !focused.current) return;
+      setNavigating(false);
+      if (!(error instanceof SessionChangedError))
+        setPhase({ kind: "error", message: classifyError(error), retryable: true });
+    }
+  }
+
   // The expired-session error says "Sign in again"; this is that way out.
   const onSignInAgain = useCallback(async () => {
     if (
@@ -405,6 +445,14 @@ export default function OnboardingRestoreScreen() {
               // A failed restore must be offered again on the next launch.
               onPress={() => void onStartFresh({ persistSkip: false })}
             />
+            {!cancelledDeletion && !phase.expired ? (
+              <OnboardingAction
+                variant="ghost"
+                label={t("backups.restorePersonal")}
+                disabled={navigating}
+                onPress={() => void onPersonalRestore()}
+              />
+            ) : null}
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -440,6 +488,14 @@ export default function OnboardingRestoreScreen() {
               if (!restoringRef.current && !navigatingRef.current) setConfirmFresh(true);
             }}
           />
+          {!cancelledDeletion ? (
+            <OnboardingAction
+              variant="ghost"
+              label={t("backups.restorePersonal")}
+              disabled={navigating}
+              onPress={() => void onPersonalRestore()}
+            />
+          ) : null}
         </View>
         <Text style={[styles.freshHint, textDir(isRTL)]}>{t("onboardingRestore.fresh.body")}</Text>
       </ScrollView>

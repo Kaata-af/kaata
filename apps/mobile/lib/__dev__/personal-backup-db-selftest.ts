@@ -1,0 +1,605 @@
+// Real temporary SQLite databases/files. Native I/O and auth are adapted only
+// at their boundaries; the production backup/restore implementation executes.
+import assert from "node:assert/strict";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  statSync,
+  unlinkSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
+import path from "node:path";
+import Database from "better-sqlite3";
+import { sha256 } from "@noble/hashes/sha256";
+import { compileUI } from "./ui-fixture";
+const temporaryParent = path.resolve(__dirname, "../../../../build");
+const temporaryRoot = path.resolve(
+  mkdtempSync(path.join(temporaryParent, "personal-backup-test-")),
+);
+const ACCOUNT = "11111111-1111-4111-8111-111111111111",
+  OTHER = "22222222-2222-4222-8222-222222222222";
+const VAULT = "33333333-3333-4333-8333-333333333333",
+  INSTALL = "44444444-4444-4444-8444-444444444444";
+const TARGET = "55555555-5555-4555-8555-555555555555";
+const PUB = Buffer.alloc(32, 7).toString("base64");
+const localAccount = (key: string) =>
+  "local:" + Buffer.from(key, "base64").toString("base64url").slice(0, 16);
+const jwt = (account: string) =>
+  "header." +
+  Buffer.from(JSON.stringify({ account_id: account })).toString("base64url") +
+  ".signature";
+const handles = new Set<Database.Database>();
+const migrationNames = [
+  ...readFileSync(require.resolve("../db"), "utf8").matchAll(/const MIGRATION_\d+ = "([^"]+)"/g),
+].map((match) => match[1]);
+let checks = 0;
+function ok(condition: unknown, message: string) {
+  checks++;
+  assert.ok(condition, message);
+}
+const schema = `CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE schema_migrations(name TEXT PRIMARY KEY,applied_at INTEGER);
+${migrationNames.map((name) => `INSERT INTO schema_migrations VALUES('${name}',1);`).join("\n")}
+CREATE TABLE users(id TEXT PRIMARY KEY,account_id TEXT,is_local_self INTEGER);
+CREATE TABLE vaults(id TEXT PRIMARY KEY,account_id TEXT,registered_with_server_at INTEGER,vault_trust_anchor_pubkey TEXT,is_default INTEGER);
+CREATE TABLE vault_members_mirror(vault_id TEXT REFERENCES vaults(id),account_id TEXT,role TEXT,accepted_at INTEGER,revoked_at INTEGER);
+CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id));
+CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),note TEXT);
+CREATE TABLE event_log(event_id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),event_type TEXT,payload_json TEXT);
+CREATE TABLE shop_profile(vault_id TEXT REFERENCES vaults(id),name TEXT);
+CREATE TABLE pending_invitations(token TEXT);
+CREATE TABLE vault_credentials(vmc_blob TEXT);
+CREATE TABLE sync_state(vault_id TEXT,last_pulled_server_seq INTEGER);
+CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),party_token TEXT,invite_url TEXT,last_error TEXT,last_synced_at INTEGER,rev INTEGER);
+CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT REFERENCES tab_links(tab_id),note TEXT);
+CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,attempts INTEGER,next_at INTEGER,last_error TEXT,payload TEXT);
+CREATE TABLE tab_failed_ops(id TEXT PRIMARY KEY,tab_id TEXT,last_error TEXT);
+CREATE TABLE customer_groups(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id));`;
+function fixture(name: string, account: string | null = null) {
+  const dir = path.join(temporaryRoot, name);
+  mkdirSync(dir);
+  const dbPath = path.join(dir, "kaata.db");
+  const raw = new Database(dbPath);
+  raw.exec(schema);
+  raw.close();
+  let cached: ReturnType<typeof open> | null = null;
+  let version = 0,
+    currentAccount = account,
+    currentJWT = account ? jwt(account) : null;
+  const failMove = new Set<string>();
+  let fetchCount = 0,
+    beforeFetch: (() => void) | null = null,
+    cloudAllowed = true;
+  const remote: Array<{
+    vault_id: string;
+    role: string;
+    vault_trust_anchor_pubkey: string;
+  }> = [{ vault_id: VAULT, role: "owner", vault_trust_anchor_pubkey: PUB }];
+  class File {
+    uri: string;
+    constructor(
+      ...parts: Array<
+        | string
+        | {
+            uri: string;
+          }
+      >
+    ) {
+      this.uri = parts.map((p) => (typeof p === "string" ? p : p.uri)).join("/");
+    }
+    get filename() {
+      const candidate = path.resolve(this.uri.replace(/^file:\/\//, ""));
+      assert.equal(path.dirname(candidate), dir);
+      return candidate;
+    }
+    get exists() {
+      return existsSync(this.filename);
+    }
+    get size() {
+      return this.exists ? statSync(this.filename).size : 0;
+    }
+    bytesSync() {
+      return new Uint8Array(readFileSync(this.filename));
+    }
+    textSync() {
+      return readFileSync(this.filename, "utf8");
+    }
+    writeSync(value: string | Uint8Array) {
+      writeFileSync(this.filename, value);
+    }
+    delete() {
+      unlinkSync(this.filename);
+    }
+    moveSync(to: File) {
+      if (failMove.has(path.basename(this.filename))) throw new Error("injected rename failure");
+      renameSync(this.filename, to.filename);
+      this.uri = to.uri;
+    }
+  }
+  function open(name: string) {
+    const filename = path.join(dir, name);
+    let db = new Database(filename);
+    handles.add(db);
+    return {
+      get db() {
+        return db;
+      },
+      filename,
+      getAllAsync: async (sql: string, ...args: any[]) => db.prepare(sql).all(...args),
+      getFirstAsync: async (sql: string, ...args: any[]) => db.prepare(sql).get(...args) ?? null,
+      runAsync: async (sql: string, ...args: any[]) => db.prepare(sql).run(...args),
+      execAsync: async (sql: string) => {
+        db.exec(sql);
+      },
+      isInTransactionAsync: async () => db.inTransaction,
+      closeAsync: async () => {
+        if (db.open) {
+          db.close();
+          handles.delete(db);
+        }
+      },
+      reopen: () => {
+        db = new Database(filename);
+        handles.add(db);
+      },
+    };
+  }
+  const getDb = async () => (cached ??= open("kaata.db"));
+  class SessionChangedError extends Error {}
+  const auth = {
+    SessionChangedError,
+    captureCurrentSession: async () => ({
+      bindingVersion: version,
+      jwt: currentJWT,
+      accountId: currentAccount,
+    }),
+    applyForUnchangedLocalSession: async (s: any, work: () => Promise<any>) => {
+      if (s.bindingVersion !== version || s.jwt !== currentJWT || s.accountId !== currentAccount)
+        throw new SessionChangedError();
+      return work();
+    },
+  };
+  const createModule = () =>
+    compileUI(
+      "../personal-backup-db",
+      {
+        "expo-file-system": { File },
+        "expo-sqlite": {
+          defaultDatabaseDirectory: dir,
+          openDatabaseAsync: async (name: string) => open(name),
+          backupDatabaseAsync: async ({ sourceDatabase, destDatabase }: any) => {
+            await destDatabase.closeAsync();
+            await sourceDatabase.db.backup(destDatabase.filename);
+            destDatabase.reopen();
+          },
+        },
+        "@noble/hashes/sha256": { sha256 },
+        "../constants/env": { BACKEND_URL_FALLBACK: "https://trusted.example" },
+        "./auth": auth,
+        "./db-tx": { DB_NAME: "kaata.db", getDb },
+        "./db-backup": {
+          PERSONAL_BACKUP_EXPORT: "kaata.personal.export.db",
+          PERSONAL_BACKUP_RESTORE_STAGE: "kaata.personal.restore.db",
+          PERSONAL_BACKUP_RESTORE_MARKER: "kaata.personal.restore.json",
+          PERSONAL_BACKUP_RESTORE_MARKER_SCRATCH: "kaata.personal.restore.json.tmp",
+          PERSONAL_BACKUP_RESTORE_PARKED: "kaata.personal.original.db",
+        },
+        "./trust/account-id": { buildLocalAccountId: localAccount },
+      },
+      {
+        fetch: async (url: string, options: any) => {
+          fetchCount++;
+          assert.equal(url, "https://trusted.example/v1/vaults", "never use imported backend URL");
+          assert.equal(options.headers.Authorization, `Bearer ${currentJWT}`);
+          beforeFetch?.();
+          return { ok: cloudAllowed, json: async () => ({ vaults: remote }) };
+        },
+      },
+    );
+  const module = createModule();
+  function sql(query: string, ...args: any[]) {
+    const db = new Database(dbPath);
+    try {
+      return db.prepare(query).run(...args);
+    } finally {
+      db.close();
+    }
+  }
+  function rows(query: string) {
+    const db = new Database(dbPath);
+    try {
+      return db.prepare(query).all();
+    } finally {
+      db.close();
+    }
+  }
+  function metadata(key: string, value: string) {
+    sql("INSERT OR REPLACE INTO app_meta VALUES(?,?)", key, value);
+  }
+  metadata("install_id", INSTALL);
+  metadata("installed_at_unix_ms", "1234");
+  metadata("mesh_device_ed25519_pubkey", PUB);
+  if (account) metadata("account_id", account);
+  function seed(ledger = true) {
+    sql("INSERT INTO users VALUES('self',?,1)", account);
+    sql("INSERT INTO vaults VALUES(?,?,?,?,1)", VAULT, account, account ? 1 : null, PUB);
+    sql(
+      "INSERT INTO vault_members_mirror VALUES(?,?,'owner',1,NULL)",
+      VAULT,
+      account ?? localAccount(PUB),
+    );
+    sql(
+      "INSERT INTO event_log VALUES('genesis',?,'vault_member_added',?)",
+      VAULT,
+      JSON.stringify({ role: "owner", account_id: account ?? localAccount(PUB) }),
+    );
+    sql(
+      "INSERT INTO event_log VALUES('currency',?,'vault_setting_set',?)",
+      VAULT,
+      JSON.stringify({ key: "enabled_currencies", value: '["AFN"]' }),
+    );
+    sql("INSERT INTO event_log VALUES('profile',?,'shop_profile_updated','{}')", VAULT);
+    if (ledger) {
+      sql("INSERT INTO relationships VALUES('person',?)", VAULT);
+      sql("INSERT INTO entries VALUES('tally',?,'Keep this tally')", VAULT);
+    }
+  }
+  async function close() {
+    if (cached) {
+      await cached.closeAsync();
+      cached = null;
+    }
+  }
+  async function boot() {
+    await close();
+    return createModule().finishPendingPersonalBackupRestore();
+  }
+  return {
+    module,
+    sql,
+    rows,
+    metadata,
+    seed,
+    boot,
+    close,
+    dir,
+    failMove,
+    remote,
+    get fetchCount() {
+      return fetchCount;
+    },
+    switchAccount: (value: string | null) => {
+      version++;
+      currentAccount = value;
+      currentJWT = value ? jwt(value) : null;
+    },
+    expireSession: () => {
+      version++;
+      currentJWT = null;
+    },
+    onFetch: (fn: () => void) => {
+      beforeFetch = fn;
+    },
+    denyCloud: () => {
+      cloudAllowed = false;
+    },
+    read: (name: string) => new Uint8Array(readFileSync(path.join(dir, name))),
+    exists: (name: string) => existsSync(path.join(dir, name)),
+  };
+}
+async function errorCode(work: () => Promise<unknown>, code: string) {
+  let caught: any;
+  try {
+    await work();
+  } catch (error) {
+    caught = error;
+  }
+  checks++;
+  assert.equal(caught?.code, code);
+}
+async function exported(f: ReturnType<typeof fixture>) {
+  const result = await f.module.createPersonalBackupSnapshot();
+  try {
+    return result.file.bytesSync() as Uint8Array;
+  } finally {
+    result.dispose();
+  }
+}
+async function main() {
+  const source = fixture("ninja-source");
+  source.seed();
+  source.metadata("pending_pair_tokens", "PAIR_SECRET_123");
+  source.metadata("backend_url_override", "https://untrusted.example");
+  source.metadata("pending_join:secret", "JOIN_SECRET_456");
+  source.sql("INSERT INTO pending_invitations VALUES('INVITE_SECRET_789')");
+  source.sql("INSERT INTO vault_credentials VALUES('VMC_SECRET_987')");
+  source.sql(
+    "INSERT INTO tab_links VALUES('shared',?,'TOKEN_SECRET_654','URL_SECRET_321',NULL,1,99)",
+    VAULT,
+  );
+  source.sql("INSERT INTO tab_entries VALUES('shared-tally','shared','Shared history')");
+  const bytes = await exported(source);
+  for (const secret of [
+    "PAIR_SECRET_123",
+    "JOIN_SECRET_456",
+    "INVITE_SECRET_789",
+    "VMC_SECRET_987",
+    "TOKEN_SECRET_654",
+    "URL_SECRET_321",
+    "untrusted.example",
+  ])
+    ok(!Buffer.from(bytes).includes(Buffer.from(secret)), `portable bytes remove ${secret}`);
+  ok(
+    source.rows("SELECT token FROM pending_invitations").length === 1,
+    "source invitations remain untouched",
+  );
+  ok(source.rows("SELECT note FROM entries").length === 1, "source ledger untouched");
+  const target = fixture("ninja-target");
+  target.seed(false);
+  target.metadata("install_id", TARGET);
+  target.metadata("installed_at_unix_ms", "5678");
+  await target.module.stagePersonalBackupRestore(bytes);
+  ok(target.rows("SELECT * FROM entries").length === 0, "staging never changes live ledger");
+  await target.boot();
+  ok(
+    (target.rows("SELECT note FROM entries")[0] as any).note === "Keep this tally",
+    "Ninja restore retains data",
+  );
+  ok(
+    (target.rows("SELECT value FROM app_meta WHERE key='install_id'")[0] as any).value === TARGET,
+    "target install identity survives",
+  );
+  ok(
+    (target.rows("SELECT value FROM app_meta WHERE key='installed_at_unix_ms'")[0] as any).value ===
+      "5678",
+    "target install time survives",
+  );
+  ok(
+    (target.rows("SELECT value FROM app_meta WHERE key='mesh_device_ed25519_pubkey'")[0] as any)
+      .value === PUB,
+    "public mirror remains for normal retirement",
+  );
+  ok(
+    (target.rows("SELECT party_token,invite_url FROM tab_links")[0] as any).party_token === null,
+    "bearer token not restored",
+  );
+  ok(!target.exists("kaata.personal.restore.json"), "successful restore clears pending receipt");
+  await errorCode(() => target.module.stagePersonalBackupRestore(bytes), "notEmpty");
+  const signed = fixture("signed-source", ACCOUNT);
+  signed.seed();
+  const signedBytes = await exported(signed);
+  ok(signed.fetchCount === 2, "export verifies current server ownership before and after snapshot");
+  const staleOwner = fixture("stale-export-owner", ACCOUNT);
+  staleOwner.seed();
+  staleOwner.remote[0].role = "editor";
+  await errorCode(() => exported(staleOwner), "ownership");
+  const localOnly = fixture("signed-local-only", ACCOUNT);
+  localOnly.seed();
+  localOnly.sql("UPDATE vaults SET account_id=NULL,registered_with_server_at=NULL");
+  localOnly.sql("UPDATE vault_members_mirror SET account_id=?", localAccount(PUB));
+  localOnly.remote.length = 0;
+  const localBytes = await exported(localOnly);
+  const localTarget = fixture("signed-local-target", ACCOUNT);
+  localTarget.remote.length = 0;
+  await localTarget.module.stagePersonalBackupRestore(localBytes);
+  await localTarget.boot();
+  ok(
+    localTarget.rows("SELECT * FROM entries").length === 1,
+    "signed unregistered local-owner book survives",
+  );
+  const boundSetup = fixture("signed-pristine-after-ninja", ACCOUNT);
+  boundSetup.seed(false);
+  boundSetup.sql(
+    "INSERT INTO vault_members_mirror VALUES(?,?,'owner',1,2)",
+    VAULT,
+    localAccount(PUB),
+  );
+  await boundSetup.module.stagePersonalBackupRestore(signedBytes);
+  await boundSetup.boot();
+  ok(
+    boundSetup.rows("SELECT * FROM entries").length === 1,
+    "ordinary sign-in retired owner sentinel is still pristine",
+  );
+  const signedTarget = fixture("signed-target", ACCOUNT);
+  signedTarget.metadata("install_id", TARGET);
+  await signedTarget.module.stagePersonalBackupRestore(signedBytes);
+  ok(signedTarget.fetchCount === 1, "signed restore checks authoritative owner");
+  await signedTarget.boot();
+  ok(signedTarget.fetchCount === 2, "boot repeats owner verification");
+  const wrong = fixture("wrong-account", OTHER);
+  await errorCode(() => wrong.module.stagePersonalBackupRestore(signedBytes), "differentAccount");
+  const signedOut = fixture("signed-out", ACCOUNT);
+  signedOut.expireSession();
+  await errorCode(
+    () => signedOut.module.stagePersonalBackupRestore(signedBytes),
+    "differentAccount",
+  );
+  const foreign = fixture("foreign-member", ACCOUNT);
+  foreign.seed();
+  foreign.sql("UPDATE vaults SET account_id=?", OTHER);
+  await errorCode(() => foreign.module.createPersonalBackupSnapshot(), "ownership");
+  const member = fixture("member-not-owner", ACCOUNT);
+  member.seed();
+  member.sql("UPDATE vault_members_mirror SET role='editor'");
+  await errorCode(() => member.module.createPersonalBackupSnapshot(), "ownership");
+  const denied = fixture("server-denial", ACCOUNT);
+  denied.denyCloud();
+  await errorCode(() => denied.module.stagePersonalBackupRestore(signedBytes), "ownership");
+  const demoted = fixture("server-role", ACCOUNT);
+  demoted.remote[0].role = "editor";
+  await errorCode(() => demoted.module.stagePersonalBackupRestore(signedBytes), "ownership");
+  const anchor = fixture("server-anchor", ACCOUNT);
+  anchor.remote[0].vault_trust_anchor_pubkey = Buffer.alloc(32, 9).toString("base64");
+  await errorCode(() => anchor.module.stagePersonalBackupRestore(signedBytes), "ownership");
+  const race = fixture("session-race", ACCOUNT);
+  race.onFetch(() => race.switchAccount(OTHER));
+  await errorCode(() => race.module.stagePersonalBackupRestore(signedBytes), "sessionChanged");
+  ok(
+    !race.exists("kaata.personal.restore.json"),
+    "late response cannot stage into changed session",
+  );
+  const late = fixture("late-tally");
+  await late.module.stagePersonalBackupRestore(bytes);
+  late.seed();
+  await errorCode(() => late.boot(), "notEmpty");
+  ok(late.rows("SELECT * FROM entries").length === 1, "late live edits preserved");
+  ok(!late.exists("kaata.personal.restore.json"), "refused boot does not repeat forever");
+  const secondary = fixture("secondary");
+  secondary.seed(false);
+  secondary.sql("INSERT INTO vaults VALUES(?,NULL,NULL,?,0)", OTHER, PUB);
+  await errorCode(() => secondary.module.stagePersonalBackupRestore(bytes), "notEmpty");
+  const edited = fixture("edited-setup");
+  edited.seed(false);
+  edited.sql("INSERT INTO event_log VALUES('profile2',?,'shop_profile_updated','{}')", VAULT);
+  await errorCode(() => edited.module.stagePersonalBackupRestore(bytes), "notEmpty");
+  const revoked = fixture("revoked-after-stage", ACCOUNT);
+  await revoked.module.stagePersonalBackupRestore(signedBytes);
+  revoked.remote[0].role = "viewer";
+  await errorCode(() => revoked.boot(), "ownership");
+  ok(
+    revoked.rows("SELECT * FROM entries").length === 0,
+    "revoked restore leaves original empty ledger",
+  );
+  const failed = fixture("rename-failure");
+  await failed.module.stagePersonalBackupRestore(bytes);
+  failed.failMove.add("kaata.personal.restore.db");
+  await errorCode(() => failed.boot(), "invalid");
+  ok(failed.exists("kaata.db"), "rename failure restores original path");
+  ok(failed.rows("SELECT * FROM entries").length === 0, "rename failure never partly imports");
+  const parked = fixture("crash-before-landing");
+  await parked.module.stagePersonalBackupRestore(bytes);
+  await parked.close();
+  renameSync(
+    path.join(parked.dir, "kaata.db"),
+    path.join(parked.dir, "kaata.personal.original.db"),
+  );
+  await parked.boot();
+  ok(parked.rows("SELECT * FROM entries").length === 0, "interrupted parking rolls original back");
+  const landed = fixture("crash-after-landing");
+  await landed.module.stagePersonalBackupRestore(bytes);
+  await landed.close();
+  renameSync(
+    path.join(landed.dir, "kaata.db"),
+    path.join(landed.dir, "kaata.personal.original.db"),
+  );
+  renameSync(path.join(landed.dir, "kaata.personal.restore.db"), path.join(landed.dir, "kaata.db"));
+  await landed.boot();
+  ok(landed.rows("SELECT * FROM entries").length === 1, "completed landing survives interruption");
+  const malformed = fixture("malformed");
+  await errorCode(
+    () => malformed.module.stagePersonalBackupRestore(new Uint8Array(120)),
+    "invalid",
+  );
+  const oversized = new Uint8Array(64 * 1024 * 1024 + 1);
+  await errorCode(() => malformed.module.stagePersonalBackupRestore(oversized), "tooLarge");
+  const tampered = fixture("tampered-staging");
+  await tampered.module.stagePersonalBackupRestore(bytes);
+  writeFileSync(path.join(tampered.dir, "kaata.personal.restore.db"), "wrong");
+  await errorCode(() => tampered.boot(), "invalid");
+  ok(
+    tampered.rows("SELECT * FROM entries").length === 0,
+    "staged hash mismatch preserves live ledger",
+  );
+  const damagedReceipt = fixture("damaged-receipt");
+  await damagedReceipt.module.stagePersonalBackupRestore(bytes);
+  writeFileSync(path.join(damagedReceipt.dir, "kaata.personal.restore.json"), "{");
+  await errorCode(() => damagedReceipt.boot(), "invalid");
+  ok(!damagedReceipt.exists("kaata.personal.restore.json"), "damaged pre-swap receipt is cleared");
+  await damagedReceipt.boot();
+  const noReceipt = fixture("parked-without-receipt");
+  await noReceipt.module.stagePersonalBackupRestore(bytes);
+  await noReceipt.close();
+  renameSync(
+    path.join(noReceipt.dir, "kaata.db"),
+    path.join(noReceipt.dir, "kaata.personal.original.db"),
+  );
+  unlinkSync(path.join(noReceipt.dir, "kaata.personal.restore.json"));
+  await noReceipt.boot();
+  ok(
+    noReceipt.rows("SELECT * FROM entries").length === 0 &&
+      !noReceipt.exists("kaata.personal.original.db"),
+    "missing receipt still rolls parked original back",
+  );
+  const partial = fixture("partial-landing");
+  await partial.module.stagePersonalBackupRestore(bytes);
+  await partial.close();
+  renameSync(
+    path.join(partial.dir, "kaata.db"),
+    path.join(partial.dir, "kaata.personal.original.db"),
+  );
+  writeFileSync(path.join(partial.dir, "kaata.db"), "partial bytes");
+  await errorCode(() => partial.boot(), "invalid");
+  ok(partial.rows("SELECT * FROM entries").length === 0, "partial landing rolls original back");
+  const legacy = fixture("legacy-source");
+  legacy.seed();
+  legacy.sql("CREATE TABLE _old_shopkeeper(name TEXT)");
+  legacy.sql("INSERT INTO _old_shopkeeper VALUES('OLD_SECRET')");
+  const legacyBytes = await exported(legacy);
+  ok(
+    !Buffer.from(legacyBytes).includes(Buffer.from("OLD_SECRET")),
+    "legacy migration source is removed from portable copy",
+  );
+  const alterBytes = (sql: string) => {
+    const filename = path.join(temporaryRoot, "altered.db");
+    writeFileSync(filename, bytes);
+    const db = new Database(filename);
+    try {
+      db.exec(sql);
+    } finally {
+      db.close();
+    }
+    const result = new Uint8Array(readFileSync(filename));
+    unlinkSync(filename);
+    return result;
+  };
+  const missingSchema = fixture("missing-schema");
+  await errorCode(
+    () =>
+      missingSchema.module.stagePersonalBackupRestore(alterBytes("DROP TABLE pending_invitations")),
+    "unsupported",
+  );
+  const missingMigration = fixture("missing-migration");
+  await errorCode(
+    () =>
+      missingMigration.module.stagePersonalBackupRestore(
+        alterBytes("DELETE FROM schema_migrations WHERE name LIKE '001_%'"),
+      ),
+    "unsupported",
+  );
+  const reordered = fixture("upgraded-column-order");
+  await reordered.module.stagePersonalBackupRestore(
+    alterBytes(
+      "DROP TABLE customer_groups; CREATE TABLE customer_groups(vault_id TEXT REFERENCES vaults(id),id TEXT PRIMARY KEY);",
+    ),
+  );
+  ok(
+    reordered.exists("kaata.personal.restore.json"),
+    "semantically equivalent upgrade column order is accepted",
+  );
+  const weakened = fixture("weakened-constraint");
+  await errorCode(
+    () =>
+      weakened.module.stagePersonalBackupRestore(
+        alterBytes(
+          "CREATE TABLE replacement(id TEXT PRIMARY KEY,vault_id TEXT,note TEXT); INSERT INTO replacement SELECT * FROM entries; DROP TABLE entries; ALTER TABLE replacement RENAME TO entries;",
+        ),
+      ),
+    "unsupported",
+  );
+  console.log(`personal-backup-db: ${checks} checks passed`);
+}
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    for (const db of handles) if (db.open) db.close();
+    assert.equal(path.dirname(temporaryRoot), temporaryParent);
+    assert.ok(path.basename(temporaryRoot).startsWith("personal-backup-test-"));
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  });

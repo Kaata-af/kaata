@@ -56,7 +56,10 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
       // file-only check never calls getDb(). A failure follows the same cached
       // rejection/reset path as an unsuccessful native open.
       const { finishInterruptedRestore } = await import("./db-backup");
-      finishInterruptedRestore();
+      // Personal recovery verifies the current account before replacing a
+      // pristine database. Let foreground boot do that before headless work
+      // can open the pending database under a session lock.
+      finishInterruptedRestore({ blockPendingPersonalRestore: true });
       const db = await SQLite.openDatabaseAsync(DB_NAME);
       try {
         await db.execAsync(CONNECTION_PRAGMAS);

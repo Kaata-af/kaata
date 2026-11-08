@@ -120,7 +120,13 @@ export type ProfileSettingsProps = {
   // Dismiss
   onDismiss: () => void;
   onNavigate?: (
-    path: "/sign-in" | "/guide" | "/dev/btc-test" | "/notification-settings" | "/people/friends",
+    path:
+      | "/sign-in"
+      | "/guide"
+      | "/dev/btc-test"
+      | "/notification-settings"
+      | "/people/friends"
+      | "/backups",
   ) => void;
 };
 
@@ -185,7 +191,13 @@ export function ProfileSettingsSheet(props: ProfileSettingsProps) {
     };
   }
   const navigate = (
-    path: "/sign-in" | "/guide" | "/dev/btc-test" | "/notification-settings" | "/people/friends",
+    path:
+      | "/sign-in"
+      | "/guide"
+      | "/dev/btc-test"
+      | "/notification-settings"
+      | "/people/friends"
+      | "/backups",
   ) => (props.onNavigate ? props.onNavigate(path) : router.replace(path));
 
   const membersCount = useMembersCount(props.activeVaultId, props.visible);
@@ -320,8 +332,15 @@ export function ProfileSettingsSheet(props: ProfileSettingsProps) {
           label={t("notificationSettings.title")}
           onPress={chained(() => navigate("/notification-settings"))}
           isRTL={isRTL}
-          isLast
           style={styles.notificationRow}
+        />
+        <NavRow
+          icon="cloud-upload-outline"
+          label={t("backups.title")}
+          hint={t("backups.menuHint")}
+          onPress={chained(() => navigate("/backups"))}
+          isRTL={isRTL}
+          isLast
         />
 
         {/* ============ CURRENT KAATA ============

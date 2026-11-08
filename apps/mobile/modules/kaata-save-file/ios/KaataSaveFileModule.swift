@@ -27,6 +27,17 @@ public class KaataSaveFileModule: Module {
     }
 
     AsyncFunction("exportFile") { (sourceUri: String, fileName: String, promise: Promise) in
+      guard self.coordinator == nil else {
+        promise.reject(Exception(name: "E_BUSY", description: "a destination picker is already open", code: "E_BUSY"))
+        return
+      }
+      guard !fileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            fileName != ".", fileName != "..",
+            !fileName.contains("/"), !fileName.contains("\\"),
+            !fileName.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+        promise.reject(Exception(name: "E_WRITE", description: "a plain file name is required", code: "E_WRITE"))
+        return
+      }
       // expo-print hands us a file:// URI; accept a bare path too.
       let parsed = URL(string: sourceUri)
       let source = (parsed?.isFileURL == true) ? parsed! : URL(fileURLWithPath: sourceUri)
@@ -49,6 +60,7 @@ public class KaataSaveFileModule: Module {
         try FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: source, to: staged)
       } catch {
+        try? FileManager.default.removeItem(at: stageDir)
         promise.reject(Exception(name: "E_WRITE", description: error.localizedDescription, code: "E_WRITE"))
         return
       }
@@ -60,6 +72,7 @@ public class KaataSaveFileModule: Module {
       }
       self.coordinator = coordinator
       picker.delegate = coordinator
+      picker.presentationController?.delegate = coordinator
       vc.present(picker, animated: true)
     }
     // MUST run on main. Expo executes async functions on its own serial queue,
@@ -70,7 +83,7 @@ public class KaataSaveFileModule: Module {
     .runOnQueue(.main)
   }
 
-  final class Coordinator: NSObject, UIDocumentPickerDelegate {
+  final class Coordinator: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
     private var promise: Promise?
     private let stageDir: URL
     private let done: () -> Void
@@ -100,6 +113,10 @@ public class KaataSaveFileModule: Module {
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+      finish { p in p.resolve(nil) }
+    }
+
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
       finish { p in p.resolve(nil) }
     }
   }

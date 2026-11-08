@@ -392,6 +392,8 @@ function RootLayoutContent() {
       try {
         const { finishInterruptedRestore } = await import("../lib/db-backup");
         finishInterruptedRestore();
+        const { finishPendingPersonalBackupRestore } = await import("../lib/personal-backup-db");
+        await finishPendingPersonalBackupRestore();
       } catch (err) {
         console.error("[init] interrupted restore is still pending", err);
         setBootError(toBootError("init_db", err));
@@ -1038,6 +1040,7 @@ function RootLayoutContent() {
                   with preferences/vault-* which are all cards reached
                   from the same ProfileSettingsSheet. */}
                     <Stack.Screen name="restore" />
+                    <Stack.Screen name="backups" />
                     {/* Phase 5.2: "Add a Kaata" — creates an additional vault local-
                   first. Registered as a regular card push (no presentation
                   override) to match every other vault/* screen (settings,

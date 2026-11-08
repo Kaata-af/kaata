@@ -538,6 +538,17 @@ async function exerciseDatabaseOpenGuard() {
   assert.equal(await healthyFirst, await healthySecond);
   assert.equal(healthy.opens(), 1, "a healthy database still opens once");
   assert.equal(healthy.pragmas(), 1);
+
+  const personal = fixture("personal-headless-open-guard", "file:///ios/SQLite/");
+  const marker = personal.actual(personal.backup.PERSONAL_BACKUP_RESTORE_MARKER);
+  writeFileSync(marker, "pending personal restore");
+  const headless = guardedDatabase(personal);
+  await assert.rejects(headless.tx.getDb(), /Personal backup restore pending/);
+  assert.equal(headless.opens(), 0, "headless work leaves personal recovery to foreground boot");
+  personal.backup.deleteLocalBackups();
+  assert.equal(existsSync(marker), false, "a device wipe clears the personal restore marker");
+  await headless.tx.getDb();
+  assert.equal(headless.opens(), 1);
 }
 
 async function executeRestoreBoot(finishInterruptedRestore: () => boolean) {
@@ -599,6 +610,8 @@ async function executeRestoreBoot(finishInterruptedRestore: () => boolean) {
   )(
     (name: string) => {
       if (name === "../lib/db-backup") return { finishInterruptedRestore };
+      if (name === "../lib/personal-backup-db")
+        return { finishPendingPersonalBackupRestore: async () => {} };
       if (name === "../lib/crash-report")
         return {
           queueCrashReport: () => {

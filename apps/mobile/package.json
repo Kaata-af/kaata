@@ -98,6 +98,7 @@
     "selftest:trust-native": "node modules/kaata-bt-classic/tests/generate-ed25519-vectors.mjs --check && node --test modules/kaata-bt-classic/tests/ed25519-wrapper.test.mjs modules/kaata-bt-classic/tests/ed25519-sync-wrapper.test.mjs",
     "selftest:snapshot-timeout": "tsx lib/__dev__/snapshot-timeout-selftest.ts",
     "selftest:db-backup": "tsx lib/__dev__/db-backup-selftest.ts",
+    "selftest:personal-backup": "tsx lib/__dev__/personal-backup-format-selftest.ts && tsx lib/__dev__/personal-backup-selftest.ts && tsx lib/__dev__/personal-backup-db-selftest.ts && tsx lib/__dev__/backup-status-selftest.ts && tsx lib/__dev__/backups-ui-selftest.ts && tsx modules/kaata-save-file/tests/save-file-selftest.ts",
     "selftest:diagnostics": "tsx lib/__dev__/diagnostics-report-selftest.ts && tsx lib/__dev__/diagnostics-ui-selftest.ts",
     "selftest:support": "tsx lib/__dev__/support-selftest.ts",
     "selftest:promotion": "tsx lib/__dev__/promotion-selftest.ts",

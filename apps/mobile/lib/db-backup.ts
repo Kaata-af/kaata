@@ -53,6 +53,12 @@ const RESTORE_STAGING = "kaata.restore.tmp.db";
 const CORRUPT_KEEP = "kaata.corrupt.db";
 const LAST_BACKUP_KEY = "last_local_backup_at";
 
+export const PERSONAL_BACKUP_EXPORT = "kaata.personal.export.db";
+export const PERSONAL_BACKUP_RESTORE_STAGE = "kaata.personal.restore.db";
+export const PERSONAL_BACKUP_RESTORE_MARKER = "kaata.personal.restore.json";
+export const PERSONAL_BACKUP_RESTORE_MARKER_SCRATCH = "kaata.personal.restore.json.tmp";
+export const PERSONAL_BACKUP_RESTORE_PARKED = "kaata.personal.original.db";
+
 /** Every file expo-sqlite may create for a database, so wipes leave nothing. */
 function sqliteSidecars(name: string): string[] {
   return [name, `${name}-wal`, `${name}-shm`, `${name}-journal`];
@@ -150,9 +156,20 @@ export function listLocalBackups(): BackupInfo[] {
 /** Delete every backup generation. Called by the local wipe so "delete my
  *  account" doesn't leave a full plaintext ledger copy sitting on disk. */
 export function deleteLocalBackups(): void {
-  for (const name of [CURRENT, PREVIOUS, SCRATCH, RESTORE_STAGING, CORRUPT_KEEP]) {
+  for (const name of [
+    CURRENT,
+    PREVIOUS,
+    SCRATCH,
+    RESTORE_STAGING,
+    CORRUPT_KEEP,
+    PERSONAL_BACKUP_EXPORT,
+    PERSONAL_BACKUP_RESTORE_STAGE,
+    PERSONAL_BACKUP_RESTORE_PARKED,
+  ]) {
     for (const f of sqliteSidecars(name)) deleteQuietly(f);
   }
+  deleteQuietly(PERSONAL_BACKUP_RESTORE_MARKER);
+  deleteQuietly(PERSONAL_BACKUP_RESTORE_MARKER_SCRATCH);
 }
 
 /**
@@ -530,7 +547,15 @@ export async function restoreFromLocalBackup(): Promise<RestoreResult> {
  *
  * Returns true when it put a database back.
  */
-export function finishInterruptedRestore(): boolean {
+export function finishInterruptedRestore(
+  options: { blockPendingPersonalRestore?: boolean } = {},
+): boolean {
+  if (
+    options.blockPendingPersonalRestore &&
+    (sqliteFile(PERSONAL_BACKUP_RESTORE_MARKER).exists ||
+      sqliteFile(PERSONAL_BACKUP_RESTORE_PARKED).exists)
+  )
+    throw new Error("Personal backup restore pending");
   try {
     if (!sqliteFile(RESTORE_STAGING).exists) return false;
     if (sqliteFile(DB_NAME).exists) {
