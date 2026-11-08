@@ -44,6 +44,13 @@ const mocks: Record<string, any> = {
       const i = cursor++;
       return (slots[i] ??= { current: value });
     },
+    useEffect: (run: () => void, deps: unknown[]) => {
+      const i = cursor++;
+      if (!slots[i] || deps.some((value, index) => !Object.is(value, slots[i][index]))) {
+        slots[i] = deps;
+        run();
+      }
+    },
   },
   "react-native": {
     Pressable: "Pressable",
@@ -223,6 +230,88 @@ function opened(props: any) {
   const closed = render(props);
   body(closed)?.props.onPress();
   return render(props);
+}
+for (const direction of [false, true]) {
+  rtl = direction;
+  const accepted = {
+    by: "me",
+    kind: "entry",
+    status: "accepted",
+    local_pending: false,
+    voided: false,
+    recording_mode: "review",
+    removal_state: null,
+  };
+  let requests = 0,
+    approvals = 0;
+  const request = {
+    ...base,
+    tab: accepted,
+    onRequestRemoval: () => {
+      requests++;
+    },
+  };
+  const row = opened(request);
+  const requestButton = nodes(row).find(
+    (node) => node.type === "Button" && node.props.label === "tab.removal.request",
+  )!;
+  assert.ok(requestButton, "expanded agreed row offers a removal request");
+  assert.equal(requestButton.props.wrapLabel, true);
+  requestButton.props.onPress();
+  assert.equal(requests, 1);
+  slots = [];
+  const incoming = {
+    ...base,
+    tab: { ...accepted, removal_state: "pending", removal_request_by: "them" },
+    openRequestKey: "incoming-removal-notice",
+    onApproveRemoval: () => {
+      approvals++;
+    },
+    onDeclineRemoval: () => {},
+  };
+  render(incoming);
+  const reviewRow = render(incoming);
+  assert.ok(words(reviewRow).includes("tab.removal.awaitingApproval"));
+  assert.deepEqual(
+    nodes(reviewRow)
+      .filter((node) => node.type === "Button")
+      .map((node) => node.props.label),
+    ["tab.removal.decline", "tab.removal.approve"],
+  );
+  nodes(reviewRow)
+    .find((node) => node.props.label === "tab.removal.approve")!
+    .props.onPress();
+  assert.equal(approvals, 1, "incoming notice exposes the explicit approval command");
+  const selecting = render({ ...incoming, selecting: true, onToggleSelection() {} });
+  assert.equal(nodes(selecting).filter((node) => node.type === "Button").length, 0);
+  const outgoing = opened({
+    ...incoming,
+    tab: { ...incoming.tab, removal_request_by: "me" },
+    openRequestKey: undefined,
+  });
+  assert.ok(words(outgoing).includes("tab.removal.requested"));
+  assert.equal(
+    nodes(outgoing).filter((node) => node.type === "Button").length,
+    0,
+    "the requester cannot approve or decline their own pending removal",
+  );
+  const closed = opened({
+    ...incoming,
+    showRemovalStatus: false,
+    onApproveRemoval: undefined,
+    onDeclineRemoval: undefined,
+    openRequestKey: undefined,
+  });
+  assert.ok(!words(closed).includes("tab.removal.awaitingApproval"));
+  assert.ok(!words(closed).includes("tab.removal.requested"));
+  const readOnly = opened({
+    ...incoming,
+    onApproveRemoval: undefined,
+    onDeclineRemoval: undefined,
+    openRequestKey: undefined,
+  });
+  assert.ok(words(readOnly).includes("tab.removal.requested"));
+  assert.ok(!words(readOnly).includes("tab.removal.awaitingApproval"));
 }
 // Editing a tally keeps its row mounted. Its old one-line measurement must
 // neither hide newly added lines nor leave a short replacement expandable.
@@ -898,6 +987,18 @@ mocks["../lib/tabs/use-inbox"] = {
 };
 mocks["../lib/tabs/open-notification"] = { openTabNotification: async () => {} };
 mocks["../lib/use-customer-reminders"] = { useCustomerReminders: () => ({ due: [], rows: [] }) };
+const emptyRequests = () => ({
+  rows: [],
+  loading: false,
+  failed: false,
+  signedIn: true,
+  reload: async () => {},
+  decline: async () => {},
+  isCurrent: () => true,
+});
+mocks["../lib/use-people-requests"] = { usePeopleRequests: emptyRequests };
+mocks["../lib/use-vault-member-requests"] = { useVaultMemberRequests: emptyRequests };
+mocks["../lib/use-friend-requests"] = { useFriendRequests: emptyRequests };
 const { NotificationBell, FullNotificationInbox } = compile(
   readFileSync(require.resolve("../../components/NotificationInbox"), "utf8"),
 );

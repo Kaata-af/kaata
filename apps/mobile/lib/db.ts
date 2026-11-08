@@ -150,6 +150,7 @@ const MIGRATION_047 = "047_multi_currency_tab_groups";
 const MIGRATION_048 = "048_customer_notes";
 const MIGRATION_049 = "049_credit_alert_rules";
 const MIGRATION_050 = "050_credit_limit_notifications";
+const MIGRATION_051 = "051_tally_removal_requests";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -594,6 +595,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_048))) await runMigration048(db);
   if (!(await hasRunMigration(db, MIGRATION_049))) await runMigration049(db);
   if (!(await hasRunMigration(db, MIGRATION_050))) await runMigration050(db);
+  if (!(await hasRunMigration(db, MIGRATION_051))) await runMigration051(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3323,7 +3325,10 @@ async function runMigration028(db: SQLite.SQLiteDatabase): Promise<void> {
         dispute_reason     TEXT,
         voids_entry_id     TEXT,
         voided_by_entry_id TEXT,
-        local_pending      INTEGER NOT NULL DEFAULT 0
+        local_pending      INTEGER NOT NULL DEFAULT 0,
+        removal_request_id TEXT,
+        removal_requested_by TEXT,
+        removal_state TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_tab_entries_tab ON tab_entries(tab_id, occurred_at DESC);
 
@@ -3856,6 +3861,26 @@ async function runMigration050(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
       MIGRATION_050,
+      Date.now(),
+    );
+  });
+}
+
+async function runMigration051(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    // Old database backups run migrations on import too. Keep money and review
+    // evidence intact, then re-fetch metadata an older client may have skipped.
+    let upgraded = false;
+    for (const column of ["removal_request_id", "removal_requested_by", "removal_state"]) {
+      if (!(await columnExists(db, "tab_entries", column))) {
+        await db.execAsync(`ALTER TABLE tab_entries ADD COLUMN ${column} TEXT`);
+        upgraded = true;
+      }
+    }
+    if (upgraded) await db.execAsync("UPDATE tab_links SET rev=0");
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_051,
       Date.now(),
     );
   });

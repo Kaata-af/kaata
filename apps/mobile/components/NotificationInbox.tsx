@@ -38,9 +38,11 @@ type Inbox = ReturnType<typeof useInbox>;
 function NoticeRow({ item, onPress }: { item: InboxItem; onPress: () => void }) {
   const rtl = useIsRTL();
   const glyph =
-    item.kind === "entry_accepted"
+    item.kind === "entry_accepted" || item.kind === "entry_removal_approved"
       ? "checkmark-outline"
-      : item.kind === "entry_rejected" || item.kind === "entry_voided"
+      : item.kind === "entry_rejected" ||
+          item.kind === "entry_voided" ||
+          item.kind === "entry_removal_declined"
         ? "close-outline"
         : "receipt-outline";
   return (

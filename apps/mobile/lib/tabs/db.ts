@@ -448,7 +448,8 @@ const ENTRY_COLUMNS = `id, tab_id, seq, rev, created_by, direction, amount_minor
    occurred_at, created_at, status, status_at, dispute_reason, voids_entry_id,
    voided_by_entry_id, local_pending, author_account_id, author_name,
    author_member_role, reviewer_account_id, reviewer_name, reviewer_party,
-   reviewer_member_role, review_semantics_version, local_action_pending`;
+   reviewer_member_role, review_semantics_version, local_action_pending,
+   removal_request_id, removal_requested_by, removal_state`;
 
 type PrevRow = Pick<TabEntryRow, "id" | "created_by" | "status" | "voided_by_entry_id">;
 // Stay below SQLite's historical bind limit, including the tab-id parameter.
@@ -661,7 +662,7 @@ export async function upsertTabFromWire(
       const before = prev.get(e.id);
       await db.runAsync(
         `INSERT OR REPLACE INTO tab_entries (${ENTRY_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
         e.id,
         link.tab_id,
         e.seq,
@@ -686,6 +687,9 @@ export async function upsertTabFromWire(
         e.reviewer_party ?? null,
         e.reviewer_member_role ?? null,
         e.review_semantics_version ?? null,
+        e.removal_request_id ?? null,
+        e.removal_requested_by ?? null,
+        e.removal_state ?? null,
       );
       changed = true;
       if (!before) {
@@ -948,6 +952,15 @@ function rowToEntry(link: TabLink, r: TabEntryRow, cancellation?: TabEntryRow): 
       reviewer_party: r.reviewer_party ?? null,
       reviewer_member_role: r.reviewer_member_role ?? null,
       review_semantics_version: r.review_semantics_version ?? null,
+      removal_request_id: r.removal_request_id ?? null,
+      removal_requested_by: r.removal_requested_by ?? null,
+      removal_state: r.removal_state ?? null,
+      ...(r.removal_state === "pending" && r.removal_request_id && r.removal_requested_by
+        ? {
+            removal_request_by:
+              r.removal_requested_by === link.role ? ("me" as const) : ("them" as const),
+          }
+        : {}),
       tab_id: link.tab_id,
       created_by: r.created_by,
       recorded_at: r.created_at,
@@ -1020,7 +1033,7 @@ export async function insertOptimisticEntry(
   const now = Date.now();
   await db.runAsync(
     `INSERT INTO tab_entries (${ENTRY_COLUMNS})
-     VALUES (?, ?, -1, 0, ?, ?, ?, 'entry', ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, 1, ?, ?, NULL, NULL, '', NULL, NULL, NULL, 0)`,
+     VALUES (?, ?, -1, 0, ?, ?, ?, 'entry', ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, 1, ?, ?, NULL, NULL, '', NULL, NULL, NULL, 0, NULL, NULL, NULL)`,
     e.id,
     link.tab_id,
     link.role,

@@ -204,6 +204,9 @@ type Entry struct {
 	DisputeReason          *string `json:"dispute_reason"`
 	VoidsEntryID           *string `json:"voids_entry_id"`
 	VoidedByEntryID        *string `json:"voided_by_entry_id"`
+	RemovalRequestID       *string `json:"removal_request_id,omitempty"`
+	RemovalRequestedBy     *string `json:"removal_requested_by,omitempty"`
+	RemovalState           *string `json:"removal_state,omitempty"`
 
 	// amountMinor is the stored integer the wire string was rendered from;
 	// kept so a void can copy the original's amount without re-parsing.
@@ -671,7 +674,8 @@ const entryCols = `id::text, seq, rev, created_by, direction, amount_minor, kind
 	occurred_at_ms, created_at, status, status_at_ms, dispute_reason,
 	voids_entry_id::text, voided_by_entry_id::text,
 	COALESCE(author_evidence_account_id, author_account_id)::text, author_name, author_member_role,
-	reviewer_account_id::text, reviewer_name, reviewer_party, reviewer_member_role, review_semantics_version`
+	reviewer_account_id::text, reviewer_name, reviewer_party, reviewer_member_role, review_semantics_version,
+	removal_request_id::text, removal_requested_by, removal_state`
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
@@ -679,7 +683,8 @@ func scanEntry(row pgx.Row) (Entry, error) {
 	if err := row.Scan(&e.ID, &e.Seq, &e.Rev, &e.CreatedBy, &e.Direction, &e.amountMinor, &e.Kind, &e.Note,
 		&e.OccurredAtMS, &createdAt, &e.Status, &e.StatusAtMS, &e.DisputeReason,
 		&e.VoidsEntryID, &e.VoidedByEntryID, &e.AuthorAccountID, &e.AuthorName, &e.AuthorMemberRole,
-		&e.ReviewerAccountID, &e.ReviewerName, &e.ReviewerParty, &e.ReviewerMemberRole, &e.ReviewSemanticsVersion); err != nil {
+		&e.ReviewerAccountID, &e.ReviewerName, &e.ReviewerParty, &e.ReviewerMemberRole, &e.ReviewSemanticsVersion,
+		&e.RemovalRequestID, &e.RemovalRequestedBy, &e.RemovalState); err != nil {
 		return Entry{}, err
 	}
 	e.Amount = formatMinor(e.amountMinor)

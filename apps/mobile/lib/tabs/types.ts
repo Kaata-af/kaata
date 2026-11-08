@@ -25,6 +25,13 @@ export type TabEntryStatus = "pending" | "accepted" | "disputed" | "recorded";
 /** `opening` is the carried-over balance at link time (D7); `void` is the
  *  visible cancellation row that references the original (D5). */
 export type TabEntryKind = "entry" | "opening" | "void";
+export type TabRemovalAction = "request" | "approve" | "decline";
+/** A removal proposal never replaces the original tally's review evidence. */
+export type TabRemovalState = {
+  removal_request_id?: string | null;
+  removal_requested_by?: TabRole | null;
+  removal_state?: "pending" | "approved" | "declined" | null;
+};
 /** Server-recorded attribution. Missing values on old records remain unknown. */
 export type TabReviewEvidence = {
   author_member_role?: string | null;
@@ -34,13 +41,14 @@ export type TabReviewEvidence = {
   reviewer_member_role?: string | null;
   review_semantics_version?: string | null;
 };
+type TabEntryEvidence = TabReviewEvidence & TabRemovalState;
 /** Outbox operations, in the order the server exposes them as routes. */
 export type TabOutboxOp = "append" | "accept" | "dispute" | "void" | "label" | "close";
 
 // ---------------------------------------------------------------------------
 // Wire (§3.4). All timestamps are epoch ms; all amounts are decimal strings.
 
-export type WireEntry = TabReviewEvidence & {
+export type WireEntry = TabEntryEvidence & {
   author_account_id?: string | null;
   author_name?: string;
   id: string;
@@ -283,7 +291,7 @@ export type TabLink = {
   last_error: string | null;
 };
 
-export type TabEntryRow = TabReviewEvidence & {
+export type TabEntryRow = TabEntryEvidence & {
   author_account_id?: string | null;
   author_name?: string;
   id: string;
@@ -325,7 +333,9 @@ export type TabOutboxRow = {
  * What EntryRow and the exporters need about a tab row, attached to the
  * mapped `Entry` as `entry.tab`. Absent on ordinary local entries.
  */
-export type TabEntryMeta = TabReviewEvidence & {
+export type TabEntryMeta = TabEntryEvidence & {
+  /** Relative requester only while there is an unresolved removal proposal. */
+  removal_request_by?: "me" | "them";
   recording_mode?: TabRecordingMode;
   recording_mode_known?: 0 | 1;
   /** Local derived carry adjustment for pending totals, never review evidence. */

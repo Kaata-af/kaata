@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { memo, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Button } from "./Button";
 import { InitialAvatar } from "./InitialAvatar";
@@ -79,6 +79,12 @@ export const EntryRow = memo(function EntryRow(props: {
   onAccept?: (entry: Entry) => void | Promise<void>;
   onReject?: (entry: Entry) => void | Promise<void>;
   onCancel?: (entry: Entry) => void | Promise<void>;
+  onRequestRemoval?: (entry: Entry) => void | Promise<void>;
+  onApproveRemoval?: (entry: Entry) => void | Promise<void>;
+  onDeclineRemoval?: (entry: Entry) => void | Promise<void>;
+  openRequestKey?: string;
+  showRemovalStatus?: boolean;
+  removalBusy?: boolean;
   // While a note search is on, the whole note shows: a match past the first
   // line was clipped away from the result that found it (audit #3).
   showFullNote?: boolean;
@@ -140,6 +146,9 @@ export const EntryRow = memo(function EntryRow(props: {
     }
   };
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (props.openRequestKey) setOpen(true);
+  }, [props.openRequestKey]);
   // Keep cancellations in storage and exports, but never in the visible list.
   // This follows every hook so a live cancellation does not change hook order.
   if (voided) return null;
@@ -219,6 +228,13 @@ export const EntryRow = memo(function EntryRow(props: {
     tab.recording_mode_known !== 0 &&
     (pending || (tab.status === "recorded" && tab.kind === "entry")) &&
     !!props.onCancel;
+  const removalPending = props.showRemovalStatus !== false && tab?.removal_state === "pending";
+  const showRemoval =
+    rowOpen &&
+    !tab?.local_pending &&
+    (removalPending
+      ? tab?.removal_request_by === "them" && !!(props.onApproveRemoval || props.onDeclineRemoval)
+      : !!props.onRequestRemoval);
   // Side A/B is not authorship: a store can have several writers.
   const byLine = tab
     ? namedByLine(
@@ -478,6 +494,15 @@ export const EntryRow = memo(function EntryRow(props: {
             {rowOpen && tab?.status === "disputed" && !voided ? (
               <Text style={[styles.byLine, textDir(isRTL)]}>{t("tab.rejectedHint")}</Text>
             ) : null}
+            {removalPending && !props.selecting ? (
+              <Text style={[styles.byLine, textDir(isRTL)]}>
+                {t(
+                  tab?.removal_request_by === "them" && props.onApproveRemoval
+                    ? "tab.removal.awaitingApproval"
+                    : "tab.removal.requested",
+                )}
+              </Text>
+            ) : null}
           </View>
         </View>
       </Pressable>
@@ -487,8 +512,44 @@ export const EntryRow = memo(function EntryRow(props: {
         is [Reject, Accept] under rowDir + flex-end, so Accept is the
         outermost pill in both scripts. Accept is the black primary, NEVER the
         collect green: green and red mean money direction in this app. */}
-      {showReview || showCancel ? (
+      {showReview || showCancel || showRemoval ? (
         <View style={[styles.actions, rowDir(isRTL)]}>
+          {showRemoval && !removalPending && props.onRequestRemoval ? (
+            <Button
+              size="pill"
+              variant="secondary"
+              icon="trash-outline"
+              label={t("tab.removal.request")}
+              wrapLabel
+              hitSlop={ACTION_HIT_SLOP}
+              disabled={reviewing || props.removalBusy}
+              onPress={() => void review(props.onRequestRemoval!)}
+            />
+          ) : null}
+          {showRemoval && removalPending && props.onDeclineRemoval ? (
+            <Button
+              size="pill"
+              variant="secondary"
+              icon="close-outline"
+              label={t("tab.removal.decline")}
+              wrapLabel
+              hitSlop={ACTION_HIT_SLOP}
+              disabled={reviewing || props.removalBusy}
+              onPress={() => void review(props.onDeclineRemoval!)}
+            />
+          ) : null}
+          {showRemoval && removalPending && props.onApproveRemoval ? (
+            <Button
+              size="pill"
+              variant="primary"
+              icon="checkmark-outline"
+              label={t("tab.removal.approve")}
+              wrapLabel
+              hitSlop={ACTION_HIT_SLOP}
+              disabled={reviewing || props.removalBusy}
+              onPress={() => void review(props.onApproveRemoval!)}
+            />
+          ) : null}
           {showCancel ? (
             <Button
               size="pill"

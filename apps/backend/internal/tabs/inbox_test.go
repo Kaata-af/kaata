@@ -11,7 +11,10 @@ import (
 
 func TestNotificationDetails(t *testing.T) {
 	for _, locale := range []string{"en", "fa", "ps"} {
-		for _, kind := range []string{"entry_created", "entry_accepted", "entry_rejected", "entry_voided"} {
+		for _, kind := range []string{
+			"entry_created", "entry_accepted", "entry_rejected", "entry_voided",
+			"entry_removal_requested", "entry_removal_approved", "entry_removal_declined",
+		} {
 			for _, currency := range []string{"AFN", "USD", "AED"} {
 				body := detailedPushBody(kind, locale, "احمد", 50025, "a_to_b", currency, "b", true)
 				if !strings.Contains(body, "احمد") || !strings.Contains(body, "\u2066−500.25 "+currency+"\u2069") {
@@ -36,6 +39,11 @@ func TestNotificationDetails(t *testing.T) {
 		}
 		if reviewer == reader {
 			t.Fatalf("%s: reviewers lost the review prompt", locale)
+		}
+		for _, kind := range []string{"entry_removal_requested", "entry_removal_approved", "entry_removal_declined"} {
+			if pushBodyFor(kind, locale, false) == pushBodyFor("updated", locale, false) {
+				t.Fatalf("%s: missing removal notice copy for %s", locale, kind)
+			}
 		}
 	}
 	if got := notificationLabel("X\n\u202eY"); got != "XY" {

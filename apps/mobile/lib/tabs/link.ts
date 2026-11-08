@@ -51,7 +51,9 @@ import { ENTRY_NOTE_MAX_LENGTH, type EntryType } from "../types";
 import { readVaultRole } from "../use-vault-role";
 import { canPerformAction, type VaultAction } from "../vault-roles";
 import {
+  changeTabEntryRemoval,
   createTab,
+  fetchTab,
   fetchTabByToken,
   joinTab,
   regenerateTabLink,
@@ -95,6 +97,8 @@ import type {
   TabOutboxRow,
   TabResponse,
   TabRecordingMode,
+  TabRemovalAction,
+  TabRemovalState,
   WireEntry,
   WireTab,
 } from "./types";
@@ -1094,6 +1098,110 @@ export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
   // counterparty's entry_voided notice is theirs to handle.
   if (deferred) return finishSharedCreditMutation(link, opId);
   void syncTab(link.tab_id);
+}
+
+/** A removal request leaves the accepted tally intact until the other party
+ * agrees. These actions are server-confirmed, never financial outbox intents.
+ * Callers retain the request id and expected row revision across retries. */
+export async function changeTallyRemoval(
+  link: TabLink,
+  entryId: string,
+  action: TabRemovalAction,
+  requestId: string,
+  expectedRev?: number,
+): Promise<void> {
+  const intendedAccount = getAccountIdSync();
+  if (!intendedAccount || getActiveVaultIdSyncMaybe() !== link.vault_id)
+    throw new TabAuthUnavailableError();
+  if (
+    !["request", "approve", "decline"].includes(action) ||
+    !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestId) ||
+    (expectedRev != null && (!Number.isSafeInteger(expectedRev) || expectedRev <= 0))
+  )
+    throw new TabApiError(400, "invalid_removal", "Invalid removal request");
+  const session = await captureCurrentSession();
+  if (!session.jwt || session.accountId !== intendedAccount) throw new TabAuthUnavailableError();
+  const readCurrentLink = async () => {
+    const fresh = await getTabLink(link.tab_id);
+    if (
+      getActiveVaultIdSyncMaybe() !== link.vault_id ||
+      !fresh ||
+      fresh.vault_id !== link.vault_id ||
+      fresh.relationship_id !== link.relationship_id ||
+      fresh.role !== link.role ||
+      fresh.currency !== link.currency ||
+      (fresh.group_id ?? null) !== (link.group_id ?? null)
+    )
+      throw new TabAuthUnavailableError();
+    return fresh;
+  };
+  const currentLink = () => applyForCurrentSession(session, readCurrentLink);
+  await currentLink();
+  link = await knownRecordingLink(link, session);
+  await assertVaultAction(link.vault_id, "entry.amend");
+  link = await currentLink();
+  requireOpen(link);
+  requireSharedWrite(link);
+  if (isNotificationOnlyMode(link.recording_mode))
+    throw new TabApiError(409, "review_not_required", "This account does not use peer reviews");
+  const auth = await resolveTabAuth(link);
+  await currentLink();
+  if (expectedRev == null) {
+    const row = await (
+      await getDb()
+    ).getFirstAsync<{ rev: number }>(
+      "SELECT rev FROM tab_entries WHERE tab_id=? AND id=?",
+      link.tab_id,
+      entryId,
+    );
+    if (!row || !Number.isSafeInteger(row.rev) || row.rev <= 0)
+      throw new TabApiError(409, "stale_removal", "Refresh the tally before changing it");
+    expectedRev = row.rev;
+  }
+  const refresh = async () => {
+    const before = await currentLink();
+    // The POST only returns the original. A pull from the untouched cursor
+    // also retrieves the new cancellation evidence and concurrent changes.
+    const response = await fetchTab(auth, link.tab_id, before.rev);
+    if (
+      response.tab.id !== link.tab_id ||
+      response.tab.you !== link.role ||
+      response.tab.currency !== link.currency
+    )
+      throw new TabApiError(503, "invalid_removal", "The refreshed tally account did not match");
+    return applyForCurrentSession(session, async () => {
+      const fresh = await readCurrentLink();
+      await upsertTabFromWire(fresh, response);
+      return (await getDb()).getFirstAsync<TabRemovalState>(
+        "SELECT removal_request_id,removal_state FROM tab_entries WHERE tab_id=? AND id=?",
+        link.tab_id,
+        entryId,
+      );
+    });
+  };
+  await currentLink();
+  try {
+    await changeTabEntryRemoval(auth, link.tab_id, entryId, action, requestId, expectedRev);
+  } catch (error) {
+    if (!(error instanceof TabApiError) || isRetryableTabError(error) || error.status === 409) {
+      const confirmed = await refresh().catch(() => null);
+      const ambiguous =
+        !(error instanceof TabApiError) ||
+        error.status === 0 ||
+        error.status === 408 ||
+        error.status >= 500;
+      const outcome =
+        action === "request" ? "pending" : action === "approve" ? "approved" : "declined";
+      if (
+        ambiguous &&
+        confirmed?.removal_request_id === requestId &&
+        confirmed.removal_state === outcome
+      )
+        return;
+    }
+    throw error;
+  }
+  await refresh();
 }
 
 /** Settlement is server-confirmed only: no offline optimistic fold can hide money. */

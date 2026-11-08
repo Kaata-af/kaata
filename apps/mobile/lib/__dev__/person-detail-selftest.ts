@@ -192,6 +192,14 @@ let balanceLabelLocale: "en" | "fa" | "ps" | null = null;
 const tabLinksById = new Map<string, any>();
 let tabLinkReadGate: Promise<any> | null = null;
 const sharedActions: Array<{ name: string; link: any; entryId: string }> = [];
+const removalCalls: Array<{
+  link: any;
+  entryId: string;
+  action: string;
+  requestId: string;
+  rev?: number;
+}> = [];
+let removalImpl = async () => {};
 const identityListeners = new Set<() => void>();
 let reminderRows: any[] = [],
   reminderReadGate: Promise<any[]> | null = null;
@@ -601,6 +609,16 @@ const mocks: Record<string, any> = {
     markTabNoticesSeen: (value: any, context: any) => seen.push({ rev: value.rev, ...context }),
   },
   "../../lib/tabs/link": {
+    changeTallyRemoval: async (
+      target: any,
+      entryId: string,
+      action: string,
+      requestId: string,
+      rev?: number,
+    ) => {
+      removalCalls.push({ link: { ...target }, entryId, action, requestId, rev });
+      await removalImpl();
+    },
     ...Object.fromEntries(
       [
         "acceptEntry",
@@ -802,6 +820,8 @@ function fixture(shared = false) {
   tabLinksById.clear();
   tabLinkReadGate = null;
   sharedActions.length = 0;
+  removalCalls.length = 0;
+  removalImpl = async () => {};
   failed = [];
   markers = [];
   link = null;
@@ -1469,14 +1489,315 @@ async function tallySelectionTests() {
   fixture(true);
   await flush();
   assert.equal(
-    nodes(tree).find((node) => node.props.testID === "select-tallies"),
+    find("OverflowMenu")!.props.actions.find((action: any) => action.label === "selection.start"),
     undefined,
-    "shared tallies retain individual review/cancel workflows",
+    "pending, rejected and settled shared rows do not enter financial selection",
   );
   unmount();
   assert.equal(backListeners.size, 0);
   console.log(
     "PASS: tally selection, scoped select all, cancel/back, duplicate guards, partial retries, remote settlement and route/vault/role isolation in EN/FA",
+  );
+}
+
+async function sharedRemovalTests() {
+  const prepare = () => {
+    fixture(true);
+    markers = [];
+    boundaries = [];
+    settlement = { count: 0, lastSettledAtMs: null };
+    link = { ...link, role: "a", recording_mode: "review", recording_mode_known: 1 };
+    entries = [
+      tally("agreed", "Agreed rice", 20, 500, {
+        tab_id: "tab",
+        seq: 3,
+        rev: 7,
+        status: "accepted",
+        kind: "entry",
+        by: "me",
+        local_pending: false,
+        voided: false,
+        recording_mode: "review",
+        recording_mode_known: 1,
+      }),
+    ];
+    preLink = [];
+    failed = [];
+  };
+  const row = () => tallies().find((node) => node.props.entry.id === "agreed")!;
+  const confirmation = () =>
+    nodes(tree).find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        node.props.visible &&
+        node.props.title.startsWith("tab.removal."),
+    )!;
+  for (const os of ["android", "ios"]) {
+    prepare();
+    platform = os;
+    await flush();
+    assert.equal(
+      typeof row().props.onLongPress,
+      "function",
+      "shared tallies open existing actions",
+    );
+    row().props.onLongPress(row().props.entry);
+    await flush();
+    const menu = nodes(tree).find((node) => node.type === "BottomSheet" && node.props.visible)!;
+    assert.deepEqual(
+      menu.props.actions.map((action: any) => action.label),
+      ["selection.start", "tab.removal.request"],
+    );
+    menu.props.actions[0].onPress();
+    await flush();
+    const toolbar = find("SelectionToolbar")!;
+    assert.equal(toolbar.props.count, 1);
+    assert.equal(toolbar.props.financialSummary.net, 20);
+    assert.deepEqual(
+      toolbar.props.actions.map((action: any) => action.key),
+      ["request-removal"],
+    );
+    toolbar.props.actions[0].onPress();
+    await flush();
+    assert.equal(removalCalls.length, 0, "selecting a command requires a separate confirmation");
+    const confirm = confirmation().props.onConfirm;
+    confirm();
+    confirm();
+    await flush();
+    assert.equal(removalCalls.length, 1, "double confirmation sends once");
+    assert.deepEqual(removalCalls[0], {
+      link,
+      entryId: "agreed",
+      action: "request",
+      requestId: "uuid",
+      rev: 7,
+    });
+    assert.deepEqual(deletedEntries, [], "shared selection never calls local soft delete");
+    assert.equal(entries[0].tab.status, "accepted");
+    assert.equal(entries[0].amount_afn, 20, "a removal request does not change agreed money");
+  }
+  for (const action of ["approve", "decline"] as const) {
+    prepare();
+    params = { id: "person", entryId: "agreed", notificationKey: "removal-notice" };
+    entries[0].tab = {
+      ...entries[0].tab,
+      removal_state: "pending",
+      removal_request_by: "them",
+      removal_request_id: "pending-request",
+    };
+    await flush();
+    assert.equal(
+      row().props.openRequestKey,
+      "removal-notice",
+      "incoming notices open the exact row",
+    );
+    assert.equal(row().props.onRequestRemoval, undefined);
+    row().props[action === "approve" ? "onApproveRemoval" : "onDeclineRemoval"](row().props.entry);
+    await flush();
+    assert.equal(confirmation().props.title, `tab.removal.${action}Title`);
+    assert.equal(removalCalls.length, 0);
+    confirmation().props.onConfirm();
+    await flush();
+    assert.equal(removalCalls[0].action, action);
+    assert.equal(removalCalls[0].requestId, "pending-request", "decisions name the exact request");
+    assert.equal(removalCalls[0].rev, undefined);
+    assert.deepEqual(deletedEntries, []);
+  }
+  prepare();
+  await flush();
+  removalImpl = async () => {
+    throw new Error("response lost");
+  };
+  row().props.onRequestRemoval(row().props.entry);
+  await flush();
+  confirmation().props.onConfirm();
+  await flush();
+  row().props.onRequestRemoval(row().props.entry);
+  await flush();
+  confirmation().props.onConfirm();
+  await flush();
+  assert.equal(removalCalls.length, 2);
+  assert.equal(
+    removalCalls[1].requestId,
+    removalCalls[0].requestId,
+    "deliberate retry keeps the request identity",
+  );
+  assert.equal(removalCalls[1].rev, removalCalls[0].rev);
+  prepare();
+  entries[0].tab = {
+    ...entries[0].tab,
+    removal_state: "pending",
+    removal_request_by: "them",
+    removal_request_id: "credit-blocked-request",
+  };
+  removalImpl = async () => {
+    throw Object.assign(new dummyError("Credit limit"), { code: "credit_limit_exceeded" });
+  };
+  await flush();
+  row().props.onApproveRemoval(row().props.entry);
+  await flush();
+  confirmation().props.onConfirm();
+  await flush();
+  assert.ok(
+    toasts.some((toast) => toast[0] === "credit.refusedChange"),
+    "single-approval credit denial explains the existing limit restriction",
+  );
+  for (const restriction of ["role", "account", "blur"] as const) {
+    prepare();
+    await flush();
+    row().props.onRequestRemoval(row().props.entry);
+    await flush();
+    const confirm = confirmation().props.onConfirm;
+    if (restriction === "role") canAmend = false;
+    if (restriction === "account") {
+      accountId = "other-account";
+      identityListeners.forEach((notify) => notify());
+    }
+    if (restriction === "blur") blur();
+    dirty = true;
+    await flush();
+    confirm();
+    await flush();
+    assert.equal(removalCalls.length, 0, `${restriction} invalidates a retained confirmation`);
+    assert.deepEqual(deletedEntries, []);
+  }
+  prepare();
+  entries[0].tab = {
+    ...entries[0].tab,
+    removal_state: "pending",
+    removal_request_by: "me",
+    removal_request_id: "my-request",
+  };
+  await flush();
+  assert.equal(
+    row().props.onApproveRemoval,
+    undefined,
+    "requesters cannot approve their own removal",
+  );
+  assert.equal(row().props.onDeclineRemoval, undefined);
+  assert.equal(row().props.onRequestRemoval, undefined);
+  link = { ...link, closed_at: 900 };
+  await ledgerRefresh();
+  await flush();
+  assert.equal(
+    row().props.showRemovalStatus,
+    false,
+    "closed history does not demand an unavailable approval",
+  );
+
+  prepare();
+  const afn = { ...person, currency: "AFN", balance: 20 };
+  const usd = { ...person, currency: "USD", balance: 3, tab_id: undefined };
+  person = { ...afn, currency_balances: [afn, usd] };
+  entries = [
+    { ...entries[0], currency: "AFN" },
+    { ...tally("private-usd", "Private dollars", 3, 600), currency: "USD" },
+  ];
+  currencyPeriods.set("USD", { settlement: { count: 0, lastSettledAtMs: null }, boundaries: [] });
+  await flush();
+  find("OverflowMenu")!
+    .props.actions.find((action: any) => action.label === "selection.start")
+    .onPress();
+  await flush();
+  find("SelectionToolbar")!.props.onToggleAll();
+  await flush();
+  let mixed = find("SelectionToolbar")!;
+  assert.equal(mixed.props.count, 2);
+  assert.deepEqual(
+    mixed.props.actions.map((action: any) => [action.key, action.label]),
+    [
+      ["delete", "selection.delete (1)"],
+      ["request-removal", "tab.removal.requestCount:1"],
+    ],
+  );
+  mixed.props.actions.find((action: any) => action.key === "delete").onPress();
+  await flush();
+  nodes(tree)
+    .find(
+      (node) =>
+        node.type === "ConfirmDialog" &&
+        node.props.visible &&
+        node.props.title.startsWith("selection.deleteTalliesTitle"),
+    )!
+    .props.onConfirm();
+  await flush();
+  assert.deepEqual(deletedEntries, ["private-usd"]);
+  assert.equal(removalCalls.length, 0);
+  mixed = find("SelectionToolbar")!;
+  assert.equal(mixed.props.count, 1, "private deletion preserves the shared selection");
+  mixed.props.actions.find((action: any) => action.key === "request-removal").onPress();
+  await flush();
+  confirmation().props.onConfirm();
+  await flush();
+  assert.equal(removalCalls[0].entryId, "agreed");
+
+  prepare();
+  entries.push({ ...entries[0], id: "second-agreed", tab: { ...entries[0].tab, seq: 4, rev: 8 } });
+  removalImpl = async () => {
+    if (removalCalls.at(-1)!.entryId === "second-agreed") throw new Error("offline");
+    entries[0] = {
+      ...entries[0],
+      tab: {
+        ...entries[0].tab,
+        removal_state: "pending",
+        removal_request_by: "me",
+        removal_request_id: "uuid",
+      },
+    };
+  };
+  await flush();
+  find("OverflowMenu")!
+    .props.actions.find((action: any) => action.label === "selection.start")
+    .onPress();
+  await flush();
+  find("SelectionToolbar")!.props.onToggleAll();
+  await flush();
+  find("SelectionToolbar")!
+    .props.actions.find((action: any) => action.key === "request-removal")
+    .onPress();
+  await flush();
+  confirmation().props.onConfirm();
+  await flush();
+  assert.equal(removalCalls.length, 2);
+  assert.equal(
+    find("SelectionToolbar")!.props.count,
+    1,
+    "failed requests stay selected for review and retry",
+  );
+  assert.deepEqual(deletedEntries, []);
+  assert.ok(toasts.some((toast) => String(toast[0]).startsWith("tab.removal.partial")));
+
+  prepare();
+  person.balance = 0;
+  entries.push({
+    ...entries[0],
+    id: "agreed-payment",
+    type: "payment",
+    tab: { ...entries[0].tab, seq: 4 },
+  });
+  await flush();
+  assert.ok(
+    nodes(tree).some(
+      (node) => node.type === "Pressable" && node.props.accessibilityLabel === "person.settle.row",
+    ),
+  );
+  entries[0].tab = {
+    ...entries[0].tab,
+    removal_state: "pending",
+    removal_request_by: "them",
+    removal_request_id: "pending",
+  };
+  await ledgerRefresh();
+  await flush();
+  assert.equal(
+    nodes(tree).some(
+      (node) => node.type === "Pressable" && node.props.accessibilityLabel === "person.settle.row",
+    ),
+    false,
+    "pending removals block settlement UI",
+  );
+  console.log(
+    "PASS shared tally removal: existing selection/menu, explicit requests and decisions, immutable pending amounts, stable retries, role/account/focus guards and no local deletion",
   );
 }
 
@@ -4386,6 +4707,7 @@ async function main() {
     );
   }
   await tallySelectionTests();
+  await sharedRemovalTests();
   await inlineSearchScopeTests();
   await notificationReminderFlowTests();
   await billLinkPreferenceTests();

@@ -303,6 +303,8 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
    WHERE n.tab_id=s.tab_id AND n.rev=o.rev AND nr.account_id=s.account_id)
  AND (o.event_kind<>'entry_created' OR EXISTS(SELECT 1 FROM tab_entries e JOIN tabs t ON t.id=e.tab_id
    WHERE e.id=o.entry_id AND e.tab_id=s.tab_id AND e.status IN ('pending','recorded') AND e.voided_by_entry_id IS NULL AND t.closed_at IS NULL))
+ AND (o.event_kind<>'entry_removal_requested' OR EXISTS(SELECT 1 FROM tab_entries e
+   WHERE e.id=o.entry_id AND e.tab_id=s.tab_id AND e.rev=o.rev AND e.removal_state='pending'))
 	  AND COALESCE((
    (s.account_id IS NOT NULL AND (s.account_id=p.account_id OR EXISTS(
     SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id
@@ -445,6 +447,12 @@ func pushBodyFor(kind, locale string, canReview bool) string {
 			return "ستاسو راکړه ورکړه رد شوه او نور په پاتې حساب کې نه شمېرل کېږي."
 		case "entry_voided":
 			return "ستاسو په ګډ حساب کې یوه راکړه ورکړه لغوه شوه."
+		case "entry_removal_requested":
+			return "له ګډ حسابه د یوې راکړې ورکړې د لرې کولو غوښتنه شوې."
+		case "entry_removal_approved":
+			return "یوه راکړه ورکړه د دواړو په هوکړه له ګډ حسابه لرې شوه."
+		case "entry_removal_declined":
+			return "د راکړې ورکړې د لرې کولو غوښتنه رد شوه."
 		}
 		return "ستاسو ګډ حساب تازه شوی دی."
 	}
@@ -464,6 +472,12 @@ func pushBodyFor(kind, locale string, canReview bool) string {
 			return "ثبت شما رد شد و دیگر در ماندهٔ حساب حساب نمی‌شود."
 		case "entry_voided":
 			return "یک ثبت در حساب مشترک لغو شد."
+		case "entry_removal_requested":
+			return "درخواست حذف یک ثبت از حساب مشترک فرستاده شد."
+		case "entry_removal_approved":
+			return "یک ثبت با توافق دو طرف از حساب مشترک حذف شد."
+		case "entry_removal_declined":
+			return "درخواست حذف ثبت رد شد."
 		}
 		return "حساب مشترک شما به‌روز شده است."
 	}
@@ -476,6 +490,12 @@ func pushBodyFor(kind, locale string, canReview bool) string {
 		return "Your tally was rejected and no longer counts toward the balance."
 	case "entry_voided":
 		return "A tally on your shared account was voided."
+	case "entry_removal_requested":
+		return "Someone requested to remove a tally from your shared account."
+	case "entry_removal_approved":
+		return "A tally was removed from your shared account by agreement."
+	case "entry_removal_declined":
+		return "A request to remove a shared tally was declined."
 	}
 	return "Your shared account has an update."
 }

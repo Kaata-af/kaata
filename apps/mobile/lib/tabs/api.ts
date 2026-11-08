@@ -31,6 +31,7 @@ import type {
   CreateTabGroupRequest,
   JoinTabGroupRequest,
   GroupCurrencyRequest,
+  TabRemovalAction,
 } from "./types";
 
 export { TabApiError, TabAuthUnavailableError } from "./errors";
@@ -518,6 +519,23 @@ export async function voidTabEntry(
     `/v1/tabs/${encodeURIComponent(tabId)}/entries/${encodeURIComponent(entryId)}/void`,
     auth,
     {},
+  );
+}
+
+/** Request or decide a separate removal proposal; never edits the first review. */
+export async function changeTabEntryRemoval(
+  auth: TabAuth,
+  tabId: string,
+  entryId: string,
+  action: TabRemovalAction,
+  requestId: string,
+  expectedRev?: number,
+): Promise<EntryResponse> {
+  return request<EntryResponse>(
+    "POST",
+    `/v1/tabs/${encodeURIComponent(tabId)}/entries/${encodeURIComponent(entryId)}/removal`,
+    auth,
+    { action, request_id: requestId, expected_rev: expectedRev },
   );
 }
 

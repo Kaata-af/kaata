@@ -71,6 +71,14 @@ func noStore(w http.ResponseWriter) {
 // identical for every not-yours / unknown case).
 func mapServiceError(err error) (int, string, string) {
 	switch {
+	case errors.Is(err, ErrInvalidRemoval):
+		return http.StatusBadRequest, "invalid_removal", err.Error()
+	case errors.Is(err, ErrRemovalIneligible):
+		return http.StatusConflict, "removal_ineligible", err.Error()
+	case errors.Is(err, ErrRemovalConflict):
+		return http.StatusConflict, "removal_conflict", err.Error()
+	case errors.Is(err, ErrRemovalWrongParty):
+		return http.StatusForbidden, "removal_wrong_party", err.Error()
 	case errors.Is(err, ErrPeopleRequestLimited):
 		return http.StatusTooManyRequests, "people_request_limited", err.Error()
 	case errors.Is(err, ErrPeopleRequestInboxFull):

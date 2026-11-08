@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import ts from "typescript";
-import type { TabLink, WireTab } from "../tabs/types";
+import type { TabLink, TabResponse, WireEntry, WireTab } from "../tabs/types";
 
 (globalThis as { __DEV__?: boolean }).__DEV__ = false;
 const VAULT = "vault",
@@ -26,6 +26,10 @@ let syncStep: ((id: string) => Promise<void>) | null = null;
 let discoveryWait: (() => Promise<void>) | null = null;
 let afterCreatePerson: (() => Promise<void>) | null = null;
 let requestWait: (() => Promise<void>) | null = null;
+let captureWait: (() => Promise<void>) | null = null;
+let removalError: Error | null = null;
+let removalResponse: TabResponse | null = null;
+const removalPulls: Array<{ id: string; rev: number; auth: unknown }> = [];
 let joinError: Error | null = null;
 const requests: Array<{ kind: string; body: any; accountId: string; auth: any }> = [];
 const synced: string[] = [],
@@ -68,6 +72,7 @@ async function current<T>(
   return run();
 }
 const sqlite = {
+  execAsync: async (sql: string) => fixture.exec(sql),
   getFirstAsync: async (sql: string, ...args: unknown[]) =>
     fixture.prepare(sql).get(...args) ?? null,
   getAllAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).all(...args),
@@ -128,7 +133,10 @@ const flows = compile<typeof import("../tabs/link")>("../tabs/link", (name) => {
   if (name === "react-native") return { Linking: {} };
   if (name === "../auth")
     return {
-      captureCurrentSession: async () => snapshot(),
+      captureCurrentSession: async () => {
+        if (captureWait) await captureWait();
+        return snapshot();
+      },
       applyForCurrentSession: current,
       getSessionJWT: async () => jwt,
       updateAccountPhone: async () => {},
@@ -178,6 +186,32 @@ const flows = compile<typeof import("../tabs/link")>("../tabs/link", (name) => {
   if (name === "./db") return tabsDb;
   if (name === "./api")
     return {
+      resolveTabAuth: async (link: TabLink) => ({ jwt, role: link.role }),
+      changeTabEntryRemoval: async (
+        auth: unknown,
+        id: string,
+        entryId: string,
+        action: string,
+        requestId: string,
+        rev: number,
+      ) => {
+        requests.push({
+          kind: "removal",
+          body: { id, entryId, action, requestId, rev },
+          accountId,
+          auth,
+        });
+        if (requestWait) await requestWait();
+        if (removalError) throw removalError;
+        // This deliberately incomplete ack must never advance the pull cursor.
+        return { tab: { ...wire(id, "a"), rev: 99 }, entry: { id: entryId } };
+      },
+      fetchTab: async (auth: unknown, id: string, rev: number) => {
+        removalPulls.push({ id, rev, auth });
+        if (syncWait) await syncWait();
+        if (!online) throw new errors.TabApiError(0, "network", "offline");
+        return removalResponse ?? { tab: wire(id, "a"), entries: [], full: false };
+      },
       createTab: async (body: unknown, auth: unknown) => {
         requests.push({ kind: "create", body, accountId, auth });
         if (requestWait) await requestWait();
@@ -253,6 +287,10 @@ function reset() {
   displayBalance = 12.34;
   confirmedSharedBalance = 0;
   roleWait = syncWait = discoveryWait = afterCreatePerson = requestWait = null;
+  captureWait = null;
+  removalError = null;
+  removalResponse = null;
+  removalPulls.length = 0;
   syncStep = null;
   joinError = null;
   requests.length = synced.length = archived.length = marked.length = 0;
@@ -288,6 +326,28 @@ function seedEntry(link: TabLink, id = "entry", by = "b", status = "pending") {
     )
     .run(id, link.tab_id, by, status);
 }
+function removalEntry(overrides: Partial<WireEntry> = {}): WireEntry {
+  return {
+    id: "entry",
+    seq: 1,
+    rev: 6,
+    created_by: "a",
+    direction: "a_to_b",
+    amount: "10.00",
+    kind: "entry",
+    note: null,
+    occurred_at_ms: 1,
+    created_at_ms: 1,
+    status: "accepted",
+    status_at_ms: 2,
+    dispute_reason: null,
+    voids_entry_id: null,
+    voided_by_entry_id: null,
+    reviewer_name: "Original reviewer",
+    reviewer_party: "b",
+    ...overrides,
+  };
+}
 function count(table: string) {
   return (fixture.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
 }
@@ -305,6 +365,350 @@ async function test(name: string, run: () => Promise<void>) {
   }
 }
 async function main() {
+  await test("removal API sends one authenticated conditional action without changing its identifiers", async () => {
+    const api = compile<typeof import("../tabs/api")>("../tabs/api", (name) => {
+      if (name === "../api") return { getBackendUrl: async () => "https://fixture.invalid" };
+      if (name === "../auth") return { getSessionJWT: async () => "api-jwt" };
+      if (name === "../currency-sync") return { ensureCurrencySyncSupported: async () => {} };
+      if (name.startsWith("./")) return require("../tabs/" + name.slice(2));
+      throw new Error(`Unexpected API dependency ${name}`);
+    });
+    const previousFetch = globalThis.fetch;
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    globalThis.fetch = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return {
+        ok: true,
+        json: async () => ({ tab: wire("tab", "a"), entry: removalEntry() }),
+      } as Response;
+    };
+    try {
+      const requestId = randomUUID();
+      await api.changeTabEntryRemoval(
+        { jwt: "api-jwt", role: "a" },
+        "tab/id",
+        "entry/id",
+        "approve",
+        requestId,
+        9,
+      );
+      assert.equal(calls.length, 1);
+      assert.equal(
+        calls[0].url,
+        "https://fixture.invalid/v1/tabs/tab%2Fid/entries/entry%2Fid/removal",
+      );
+      assert.equal(calls[0].init?.method, "POST");
+      assert.equal(
+        (calls[0].init?.headers as Record<string, string>).Authorization,
+        "Bearer api-jwt",
+      );
+      assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+        action: "approve",
+        request_id: requestId,
+        expected_rev: 9,
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+  await test("removal migration upgrades old backups without changing financial evidence or re-pulling modern backups", async () => {
+    const migration = source.slice(
+      source.indexOf("async function runMigration051("),
+      source.indexOf("async function getLocalSelfUserId("),
+    );
+    assert.ok(migration.startsWith("async function runMigration051("));
+    const js = ts.transpileModule(migration, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const migrate = new Function("columnExists", "MIGRATION_051", `${js}; return runMigration051;`)(
+      async (db: any, table: string, column: string) =>
+        (await db.getAllAsync(`PRAGMA table_info(${table})`)).some(
+          (row: { name: string }) => row.name === column,
+        ),
+      "051_tally_removal_requests",
+    ) as (db: unknown) => Promise<void>;
+    for (const modern of [false, true]) {
+      const backup = new Database(":memory:");
+      try {
+        backup.exec(`CREATE TABLE schema_migrations(name TEXT PRIMARY KEY,applied_at INTEGER);
+          CREATE TABLE tab_links(id TEXT PRIMARY KEY,rev INTEGER); INSERT INTO tab_links VALUES('tab',9);
+          CREATE TABLE tab_entries(id TEXT PRIMARY KEY,status TEXT,amount_minor INTEGER,reviewer_name TEXT${modern ? ",removal_request_id TEXT,removal_requested_by TEXT,removal_state TEXT" : ""});
+          INSERT INTO tab_entries(id,status,amount_minor,reviewer_name) VALUES('entry','accepted',1234,'Original reviewer');`);
+        await migrate({
+          withTransactionAsync: async (work: () => Promise<void>) => {
+            backup.exec("BEGIN");
+            await work();
+            backup.exec("COMMIT");
+          },
+          execAsync: async (sql: string) => backup.exec(sql),
+          getAllAsync: async (sql: string) => backup.prepare(sql).all(),
+          runAsync: async (sql: string, ...args: unknown[]) => backup.prepare(sql).run(...args),
+        });
+        assert.deepEqual(backup.prepare("SELECT * FROM tab_entries").get(), {
+          id: "entry",
+          status: "accepted",
+          amount_minor: 1234,
+          reviewer_name: "Original reviewer",
+          removal_request_id: null,
+          removal_requested_by: null,
+          removal_state: null,
+        });
+        assert.deepEqual(backup.prepare("SELECT rev FROM tab_links").get(), {
+          rev: modern ? 9 : 0,
+        });
+        assert.equal(
+          (backup.prepare("SELECT COUNT(*) AS n FROM schema_migrations").get() as { n: number }).n,
+          1,
+        );
+      } finally {
+        backup.close();
+      }
+    }
+  });
+  await test("removal requests preserve money until a scoped server pull and never enqueue financial intent", async () => {
+    const link = await seedLink("removal", { closed_at: null, recording_mode: "review" });
+    seedEntry(link, "entry", "a", "accepted");
+    const requestId = randomUUID();
+    const started = deferred(),
+      release = deferred();
+    requestWait = async () => {
+      started.resolve();
+      await release.promise;
+    };
+    removalResponse = {
+      tab: { ...wire(link.tab_id, "a"), rev: 6 },
+      full: false,
+      entries: [
+        removalEntry({
+          removal_request_id: requestId,
+          removal_requested_by: "a",
+          removal_state: "pending",
+        }),
+      ],
+    };
+    const changing = flows.changeTallyRemoval(link, "entry", "request", requestId, 1);
+    await started.promise;
+    assert.equal(count("tab_outbox"), 0);
+    assert.equal((await tabsDb.listTabEntriesAsEntries(link))[0].tab?.voided, false);
+    assert.equal((await tabsDb.getTabLink(link.tab_id))?.rev, 5);
+    release.resolve();
+    await changing;
+    assert.equal(removalPulls[0].rev, 5, "the incomplete POST ack cannot move the cursor");
+    const row = (await tabsDb.listTabEntriesAsEntries(link))[0];
+    assert.equal(row.amount_afn, 10);
+    assert.equal(row.tab?.status, "accepted");
+    assert.equal(row.tab?.reviewer_name, "Original reviewer");
+    assert.equal(row.tab?.removal_request_by, "me");
+    assert.equal(row.tab?.voided, false);
+    assert.equal((await tabsDb.getTabLink(link.tab_id))?.rev, 6);
+    assert.equal(count("tab_outbox"), 0);
+  });
+  await test("approved removal downloads both the original and its cancellation evidence", async () => {
+    const link = await seedLink("approval", { closed_at: null, recording_mode: "review" });
+    seedEntry(link, "entry", "a", "accepted");
+    const requestId = randomUUID();
+    removalResponse = {
+      tab: { ...wire(link.tab_id, "a"), rev: 6 },
+      full: false,
+      entries: [
+        removalEntry({
+          removal_request_id: requestId,
+          removal_requested_by: "b",
+          removal_state: "approved",
+          voided_by_entry_id: "void",
+        }),
+        removalEntry({
+          id: "void",
+          seq: 2,
+          kind: "void",
+          voids_entry_id: "entry",
+          author_name: "Approver",
+          created_at_ms: 10,
+        }),
+      ],
+    };
+    await flows.changeTallyRemoval(link, "entry", "approve", requestId, 5);
+    const rows = await tabsDb.listTabEntriesAsEntries(link);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].tab?.voided, true);
+    assert.equal(rows[0].tab?.cancelled_by_name, "Approver");
+    assert.equal(rows[0].tab?.reviewer_name, "Original reviewer");
+    assert.equal(rows[0].tab?.removal_state, "approved");
+    assert.equal(rows[0].tab?.removal_request_by, undefined);
+    assert.equal(count("tab_entries"), 2);
+  });
+  await test("removal metadata is optional on old wire rows and pending requests derive each side", async () => {
+    const link = await seedLink("metadata", { closed_at: null, recording_mode: "review" });
+    for (const state of [undefined, "pending", "declined"] as const) {
+      await tabsDb.upsertTabFromWire(link, {
+        tab: wire(link.tab_id, "a"),
+        full: false,
+        entries: [
+          removalEntry(
+            state
+              ? {
+                  removal_request_id: randomUUID(),
+                  removal_requested_by: "b",
+                  removal_state: state,
+                }
+              : {},
+          ),
+        ],
+      });
+      const row = (await tabsDb.listTabEntriesAsEntries(link))[0];
+      assert.equal(row.tab?.removal_state, state ?? null);
+      assert.equal(row.tab?.removal_request_by, state === "pending" ? "them" : undefined);
+      assert.equal(row.tab?.voided, false);
+      assert.equal(row.tab?.status, "accepted");
+    }
+  });
+  await test("ambiguous and stale removal failures refresh but retries retain the same identity and revision", async () => {
+    const link = await seedLink("retry", { closed_at: null, recording_mode: "review" });
+    seedEntry(link, "entry", "a", "accepted");
+    const requestId = randomUUID();
+    for (const code of ["network", "stale_review"]) {
+      removalError = new errors.TabApiError(code === "network" ? 0 : 409, code, code);
+      await assert.rejects(
+        flows.changeTallyRemoval(link, "entry", "request", requestId, 1),
+        (e) => e === removalError,
+      );
+    }
+    assert.equal(removalPulls.length, 2);
+    assert.deepEqual(requests[0].body, requests[1].body);
+    assert.equal(count("tab_outbox"), 0);
+    assert.equal((await tabsDb.listTabEntriesAsEntries(link))[0].tab?.voided, false);
+  });
+  await test("a confirmed POST with a failed refresh never reports a local financial success", async () => {
+    const link = await seedLink("refresh-failed", { closed_at: null, recording_mode: "review" });
+    seedEntry(link, "entry", "a", "accepted");
+    online = false;
+    await assert.rejects(
+      flows.changeTallyRemoval(link, "entry", "request", randomUUID(), 1),
+      (e: unknown) => e instanceof errors.TabApiError && e.code === "network",
+    );
+    assert.equal(requests.length, 1);
+    assert.equal(removalPulls.length, 1);
+    assert.equal((await tabsDb.getTabLink(link.tab_id))?.rev, 5);
+    assert.equal((await tabsDb.listTabEntriesAsEntries(link))[0].tab?.voided, false);
+  });
+  await test("a lost removal acknowledgment succeeds only when the same scoped request outcome is confirmed", async () => {
+    const link = await seedLink("lost-ack", { closed_at: null, recording_mode: "review" });
+    const requestId = randomUUID();
+    for (const action of ["request", "approve", "decline"] as const) {
+      removalError = new errors.TabApiError(0, "network", "lost ack");
+      removalResponse = {
+        tab: wire(link.tab_id, "a"),
+        full: false,
+        entries: [
+          removalEntry({
+            removal_request_id: requestId,
+            removal_requested_by: "b",
+            removal_state:
+              action === "request" ? "pending" : action === "approve" ? "approved" : "declined",
+          }),
+        ],
+      };
+      await flows.changeTallyRemoval(link, "entry", action, requestId, 1);
+    }
+    removalError = new errors.TabApiError(409, "removal_conflict", "other final outcome");
+    await assert.rejects(
+      flows.changeTallyRemoval(link, "entry", "decline", requestId, 1),
+      (e) => e === removalError,
+    );
+    removalError = new errors.TabApiError(0, "network", "lost ack");
+    await assert.rejects(
+      flows.changeTallyRemoval(link, "entry", "approve", requestId, 1),
+      (e) => e === removalError,
+    );
+    await assert.rejects(
+      flows.changeTallyRemoval(link, "entry", "decline", randomUUID(), 1),
+      (e) => e === removalError,
+    );
+    assert.equal(requests.length, 6);
+    assert.equal(count("tab_outbox"), 0);
+  });
+  await test("removal refuses signed-out, non-editor, closed and notification-only books", async () => {
+    const link = await seedLink("guards", { closed_at: null, recording_mode: "review" });
+    const run = (target = link) =>
+      flows.changeTallyRemoval(target, "entry", "request", randomUUID(), 1);
+    role = "viewer";
+    await assert.rejects(run(), errors.TabPermissionError);
+    role = "editor";
+    await tabsDb.upsertTabLink({ ...link, closed_at: 10 });
+    await assert.rejects(run(), errors.TabClosedError);
+    const recordedLink = await seedLink("notify-removal", {
+      closed_at: null,
+      recording_mode: "notify",
+    });
+    await assert.rejects(
+      run(recordedLink),
+      (e: unknown) => e instanceof errors.TabApiError && e.code === "review_not_required",
+    );
+    jwt = null;
+    await assert.rejects(run());
+    assert.equal(requests.length, 0);
+  });
+  await test("account or vault changes during removal authorization cannot dispatch for a new scope", async () => {
+    const link = await seedLink("scope", { closed_at: null, recording_mode: "review" });
+    for (const change of ["capture", "account", "vault"]) {
+      accountId = "account";
+      activeVault = VAULT;
+      bindingVersion = 1;
+      const started = deferred(),
+        release = deferred();
+      const wait = async () => {
+        started.resolve();
+        await release.promise;
+      };
+      if (change === "capture") captureWait = wait;
+      else roleWait = wait;
+      const changing = flows.changeTallyRemoval(link, "entry", "request", randomUUID(), 1);
+      await started.promise;
+      if (change === "vault") activeVault = "other-vault";
+      else {
+        accountId = "other-account";
+        bindingVersion++;
+      }
+      release.resolve();
+      await assert.rejects(changing);
+      captureWait = null;
+    }
+    assert.equal(requests.length, 0);
+  });
+  await test("late removal responses never refresh or apply to another signed-in account", async () => {
+    const link = await seedLink("late", { closed_at: null, recording_mode: "review" });
+    seedEntry(link, "entry", "a", "accepted");
+    const started = deferred(),
+      release = deferred();
+    requestWait = async () => {
+      started.resolve();
+      await release.promise;
+    };
+    const changing = flows.changeTallyRemoval(link, "entry", "request", randomUUID(), 1);
+    await started.promise;
+    accountId = "other-account";
+    bindingVersion++;
+    release.resolve();
+    await assert.rejects(changing, SessionChangedError);
+    assert.equal(removalPulls.length, 0);
+    assert.equal((await tabsDb.getTabLink(link.tab_id))?.rev, 5);
+  });
+  await test("an in-flight removal refresh cannot apply after vault scope changes", async () => {
+    const link = await seedLink("late-pull", { closed_at: null, recording_mode: "review" });
+    seedEntry(link, "entry", "a", "accepted");
+    const started = deferred(),
+      release = deferred();
+    syncWait = async () => {
+      started.resolve();
+      await release.promise;
+    };
+    const changing = flows.changeTallyRemoval(link, "entry", "request", randomUUID(), 1);
+    await started.promise;
+    activeVault = "other-vault";
+    release.resolve();
+    await assert.rejects(changing, errors.TabAuthUnavailableError);
+    assert.equal((await tabsDb.getTabLink(link.tab_id))?.rev, 5);
+  });
   await test("one-way recipient cannot append, cancel, review or clear tallies, including stale-route calls", async () => {
     const link = await seedLink("one-way", {
       recording_mode: "notify_one_way",

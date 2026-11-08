@@ -72,7 +72,11 @@ import {
   SettledChapterError,
   softDeleteEntry,
 } from "../../lib/db";
-import { getAccountIdSync, getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
+import {
+  getAccountIdSync,
+  getActiveVaultIdSyncMaybe,
+  onAccountIdentityChanged,
+} from "../../lib/db-tx";
 import { resolveAccountIdCandidates } from "../../lib/effective-account";
 import {
   appendEntrySettled,
@@ -140,6 +144,7 @@ import {
 import { markTabNoticesSeen } from "../../lib/tabs/inbox-reads";
 import {
   acceptEntry,
+  changeTallyRemoval,
   disputeEntry,
   regenerateInviteLink,
   TabAuthUnavailableError,
@@ -251,6 +256,8 @@ function canSettlePeriod(period: CurrencyPeriod): boolean {
       (entry) =>
         entry.tab &&
         (entry.tab.local_pending ||
+          (entry.tab.tab_id === period.financialTab?.tab_id &&
+            entry.tab.removal_state === "pending") ||
           (!entry.tab.voided && entry.tab.kind !== "void" && entry.tab.status === "pending")),
     ) &&
     (!period.financialTab || period.financialTab.closed_at == null) &&
@@ -260,6 +267,32 @@ function canSettlePeriod(period: CurrencyPeriod): boolean {
         entry.tab.tab_id !== period.financialTab?.tab_id &&
         balanceContribution(entry) !== 0,
     )
+  );
+}
+
+type RemovalAction = "request" | "approve" | "decline";
+type RemovalTarget = { entry: Entry; requestId: string; rev?: number };
+type RemovalConfirmation = {
+  scope: string;
+  epoch: number;
+  identity: number;
+  action: RemovalAction;
+  targets: RemovalTarget[];
+};
+
+function selectableSharedTally(entry: Entry, period: CurrencyPeriod | undefined): boolean {
+  const tab = entry.tab;
+  const link = period?.financialTab ?? period?.tab;
+  return !!(
+    tab &&
+    link &&
+    link.closed_at == null &&
+    tab.tab_id === link.tab_id &&
+    !tab.voided &&
+    !tab.local_pending &&
+    tab.kind !== "void" &&
+    (tab.status === "accepted" || tab.status === "recorded") &&
+    !period?.sharedSettlements.some((settlement) => settlement.through_seq >= (tab.seq ?? 0))
   );
 }
 
@@ -538,6 +571,19 @@ export default function PersonDetailScreen() {
   const selectionDeleteCount = useRef(0);
   const [selectionBusy, setSelectionBusy] = useState(false);
   const selectionBusyRef = useRef(false);
+  const [removalConfirmation, setRemovalConfirmation] = useState<RemovalConfirmation | null>(null);
+  const removalConfirmationRef = useRef<RemovalConfirmation | null>(null);
+  const removalRequests = useRef(new Map<string, string>());
+  const removalIdentity = useRef(0);
+  const removalRole = useRef(false);
+  removalRole.current = roleResolved && canAmend;
+  useEffect(
+    () =>
+      onAccountIdentityChanged(() => {
+        removalIdentity.current++;
+      }),
+    [],
+  );
   useEffect(() => {
     setSearchQuery("");
     setDateRange(null);
@@ -1051,7 +1097,15 @@ export default function PersonDetailScreen() {
       })),
     ];
   }, [historyItems, chapterEntries, reuseTallyRows, tallyRowsLease]);
-  type TallyRowAction = "open" | "select" | "accept" | "reject" | "cancel";
+  type TallyRowAction =
+    | "open"
+    | "select"
+    | "accept"
+    | "reject"
+    | "cancel"
+    | "requestRemoval"
+    | "approveRemoval"
+    | "declineRemoval";
   const tallyRowActions = useRef({
     lease: tallyRowsLease,
     visible: new Map<string, Entry>(),
@@ -1098,7 +1152,19 @@ export default function PersonDetailScreen() {
     (entry: Entry) => runTallyRowAction("cancel", entry),
     [runTallyRowAction],
   );
-  // Shared and ruled-off tallies retain their existing individual workflows.
+  const requestRemovalRow = useCallback(
+    (entry: Entry) => runTallyRowAction("requestRemoval", entry),
+    [runTallyRowAction],
+  );
+  const approveRemovalRow = useCallback(
+    (entry: Entry) => runTallyRowAction("approveRemoval", entry),
+    [runTallyRowAction],
+  );
+  const declineRemovalRow = useCallback(
+    (entry: Entry) => runTallyRowAction("declineRemoval", entry),
+    [runTallyRowAction],
+  );
+  // Selection is shared UI; private deletion and mutual removal stay separate commands.
   // Eligibility spans this contact's full history. Search filters only decide
   // which eligible rows Select all toggles; already selected rows stay selected.
   const selecting =
@@ -1112,12 +1178,13 @@ export default function PersonDetailScreen() {
                 period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
             );
             return (
-              !entry.tab &&
-              !period?.financialTab &&
-              (!period?.tab || period.tab.closed_at != null) &&
-              period?.person.tab_close_pending !== 1 &&
-              (period?.settlement.lastSettledAtMs == null ||
-                entryRecordedAt(entry) > period.settlement.lastSettledAtMs)
+              selectableSharedTally(entry, period) ||
+              (!entry.tab &&
+                !period?.financialTab &&
+                (!period?.tab || period.tab.closed_at != null) &&
+                period?.person.tab_close_pending !== 1 &&
+                (period?.settlement.lastSettledAtMs == null ||
+                  entryRecordedAt(entry) > period.settlement.lastSettledAtMs))
             );
           })
         : [],
@@ -1139,6 +1206,41 @@ export default function PersonDetailScreen() {
   const selectedEntries = selecting
     ? selectableEntries.filter((entry) => selectedEntryIds.has(entry.id))
     : [];
+  const selectedPrivateEntries = selectedEntries.filter((entry) => !entry.tab);
+  const removalEntrySnapshot = useMemo(
+    () => new Map(displayedEntries.map((entry) => [entry.id, entry])),
+    [displayedEntries],
+  );
+  const removalEntries = useRef(removalEntrySnapshot);
+  removalEntries.current = removalEntrySnapshot;
+  function removalAllowed(entry: Entry, action: RemovalAction): boolean {
+    const period = currencyPeriods.find(
+      (value) => value.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
+    );
+    const tab = entry.tab;
+    if (
+      !removalRole.current ||
+      !tab ||
+      !selectableSharedTally(entry, period) ||
+      tab.kind !== "entry" ||
+      tab.status !== "accepted" ||
+      tab.recording_mode_known === 0 ||
+      isNotificationOnlyMode(
+        tab.recording_mode ?? period?.financialTab?.recording_mode ?? period?.tab?.recording_mode,
+      )
+    )
+      return false;
+    return action === "request"
+      ? tab.removal_state !== "pending" && Number.isSafeInteger(tab.rev)
+      : tab.removal_state === "pending" &&
+          tab.removal_request_by === "them" &&
+          !!tab.removal_request_id;
+  }
+  const removalAllowedRef = useRef(removalAllowed);
+  removalAllowedRef.current = removalAllowed;
+  const selectedRemovalEntries = selectedEntries.filter((entry) =>
+    removalAllowed(entry, "request"),
+  );
   const visibleSelectableEntries = historyItems.flatMap((item) =>
     item.kind === "entry" && selectableIds.has(item.entry.id) ? [item.entry] : [],
   );
@@ -1158,6 +1260,8 @@ export default function PersonDetailScreen() {
     setSelectionScope(null);
     setSelectedEntryIds(new Set());
     setConfirmSelectionDelete(false);
+    removalConfirmationRef.current = null;
+    setRemovalConfirmation(null);
   }, []);
   useEffect(() => {
     if (!selecting) {
@@ -1185,6 +1289,8 @@ export default function PersonDetailScreen() {
         selectionConfirmationVersion.current++;
         setDateSheetVisible(false);
         setSheetFor(null);
+        removalConfirmationRef.current = null;
+        setRemovalConfirmation(null);
         dismissSearchKeyboard();
       };
     }, [dismissSearchKeyboard]),
@@ -1198,6 +1304,24 @@ export default function PersonDetailScreen() {
         flowScope,
     [flowScope, id],
   );
+  const visibleRemovalConfirmation =
+    removalConfirmation && removalIsCurrent(removalConfirmation) ? removalConfirmation : null;
+  useEffect(() => {
+    if (removalConfirmation && !removalIsCurrent(removalConfirmation)) {
+      removalConfirmationRef.current = null;
+      setRemovalConfirmation(null);
+    }
+  }, [
+    removalConfirmation,
+    flowScope,
+    filterEpoch,
+    canAmend,
+    roleResolved,
+    removalIdentity.current,
+  ]);
+  useEffect(() => {
+    removalRequests.current.clear();
+  }, [flowScope, removalIdentity.current]);
   const loadMoreCustomerNoteHistory = useCallback(
     async (cursor: string) => {
       const vault = getActiveVaultIdSyncMaybe();
@@ -1228,7 +1352,8 @@ export default function PersonDetailScreen() {
     !confirmRegenerate &&
     !confirmUnlink &&
     !confirmSettle &&
-    !confirmSelectionDelete;
+    !confirmSelectionDelete &&
+    !visibleRemovalConfirmation;
   const tallyDirectionEnabled = tallyInteractionEnabled && !selecting;
   const tallyInteraction = useRef({
     filter: tallyFilter,
@@ -1872,8 +1997,8 @@ export default function PersonDetailScreen() {
 
   async function deleteSelectedTallies() {
     setConfirmSelectionDelete(false);
-    if (selectionBusyRef.current || !selecting || !selectedEntries.length) return;
-    const targets = selectedEntries.map((entry) => entry.id);
+    if (selectionBusyRef.current || !selecting || !selectedPrivateEntries.length) return;
+    const targets = selectedPrivateEntries.map((entry) => entry.id);
     const capturedAccountId = getAccountIdSync();
     const capturedVaultId = getActiveVaultIdSyncMaybe();
     if (!capturedVaultId) return;
@@ -1890,7 +2015,11 @@ export default function PersonDetailScreen() {
     try {
       for (const entryId of targets) {
         if (!stillCurrent()) break;
-        if (!selectionContext.current.eligible.has(entryId)) continue;
+        if (
+          !selectionContext.current.eligible.has(entryId) ||
+          removalEntries.current.get(entryId)?.tab
+        )
+          continue;
         try {
           await softDeleteEntry(entryId, {
             vaultId: capturedVaultId,
@@ -1913,7 +2042,7 @@ export default function PersonDetailScreen() {
         (before) => new Set([...before].filter((entryId) => !deleted.has(entryId))),
       );
       if (deleted.size === targets.length) {
-        setSelectionScope(null);
+        if (selectedEntries.length === deleted.size) setSelectionScope(null);
         toast.push(t("selection.talliesDeleted", { count: deleted.size }), "success");
       } else if (pendingCreditChanges === targets.length - deleted.size)
         toast.push(t("credit.pendingChange"), "info");
@@ -2054,6 +2183,137 @@ export default function PersonDetailScreen() {
     }
   }
 
+  function removalIsCurrent(confirmation: RemovalConfirmation): boolean {
+    return (
+      screenIsCurrent() &&
+      removalRole.current &&
+      AppState.currentState === "active" &&
+      confirmation.scope === flowScope &&
+      confirmation.epoch === filterOwnership.current.epoch &&
+      confirmation.identity === removalIdentity.current
+    );
+  }
+
+  function askRemoval(action: RemovalAction, rows: Entry[]) {
+    if (selectionBusyRef.current || !screenIsCurrent() || !removalRole.current) return;
+    const targets: RemovalTarget[] = [];
+    for (const row of rows) {
+      const entry = removalEntries.current.get(row.id);
+      if (!entry || !removalAllowedRef.current(entry, action)) continue;
+      const key = `${flowScope}:${entry.tab!.tab_id}:${entry.id}:${entry.tab!.rev}`;
+      let requestId = entry.tab!.removal_request_id;
+      if (action === "request") {
+        requestId = removalRequests.current.get(key) ?? Crypto.randomUUID();
+        removalRequests.current.set(key, requestId);
+      }
+      if (requestId) targets.push({ entry, requestId, rev: entry.tab!.rev });
+    }
+    if (!targets.length) return;
+    const confirmation = {
+      scope: flowScope,
+      epoch: filterOwnership.current.epoch,
+      identity: removalIdentity.current,
+      action,
+      targets,
+    };
+    dismissSearchKeyboard();
+    setSheetFor(null);
+    removalConfirmationRef.current = confirmation;
+    setRemovalConfirmation(confirmation);
+  }
+
+  async function performRemoval(confirmation: RemovalConfirmation) {
+    if (
+      selectionBusyRef.current ||
+      removalConfirmationRef.current !== confirmation ||
+      !removalIsCurrent(confirmation)
+    )
+      return;
+    removalConfirmationRef.current = null;
+    setRemovalConfirmation(null);
+    selectionBusyRef.current = true;
+    setSelectionBusy(true);
+    const completed = new Set<string>();
+    let failure: unknown;
+    try {
+      for (const target of confirmation.targets) {
+        if (!removalIsCurrent(confirmation)) break;
+        const fresh = removalEntries.current.get(target.entry.id);
+        if (
+          !fresh ||
+          !removalAllowedRef.current(fresh, confirmation.action) ||
+          fresh.tab?.tab_id !== target.entry.tab?.tab_id ||
+          (confirmation.action === "request"
+            ? fresh.tab?.rev !== target.rev
+            : fresh.tab?.removal_request_id !== target.requestId)
+        )
+          continue;
+        try {
+          const link = await reviewLinkFor(fresh);
+          if (!link || !removalIsCurrent(confirmation)) break;
+          const latest = removalEntries.current.get(fresh.id);
+          if (
+            !latest ||
+            !removalAllowedRef.current(latest, confirmation.action) ||
+            (confirmation.action === "request"
+              ? latest.tab?.rev !== target.rev
+              : latest.tab?.removal_request_id !== target.requestId)
+          )
+            continue;
+          await changeTallyRemoval(
+            link,
+            fresh.id,
+            confirmation.action,
+            target.requestId,
+            confirmation.action === "request" ? target.rev : undefined,
+          );
+          removalRequests.current.delete(
+            `${confirmation.scope}:${fresh.tab?.tab_id}:${fresh.id}:${target.rev}`,
+          );
+          completed.add(fresh.id);
+        } catch (error) {
+          failure = error;
+          // Preserve the request UUID and revision for a deliberate retry.
+        }
+      }
+      if (!removalIsCurrent(confirmation)) return;
+      setSelectedEntryIds((before) => new Set([...before].filter((id) => !completed.has(id))));
+      if (completed.size === confirmation.targets.length) {
+        if (selectionContext.current.selecting && completed.size === selectedEntries.length)
+          setSelectionScope(null);
+        toast.push(
+          t(
+            confirmation.action === "request"
+              ? "tab.removal.sent"
+              : confirmation.action === "approve"
+                ? "tab.removal.approved"
+                : "tab.removal.declined",
+          ),
+          "success",
+        );
+      } else {
+        toast.push(
+          completed.size
+            ? t("tab.removal.partial", {
+                count: completed.size,
+                total: confirmation.targets.length,
+              })
+            : confirmation.targets.length === 1 &&
+                confirmation.action === "approve" &&
+                failure instanceof TabApiError &&
+                failure.code === "credit_limit_exceeded"
+              ? tabErrorMessage(failure)
+              : t("tab.removal.failed"),
+          "error",
+        );
+      }
+      await load();
+    } finally {
+      selectionBusyRef.current = false;
+      if (loadMounted.current) setSelectionBusy(false);
+    }
+  }
+
   // Inline withdrawal of a pending tally; reviewed rows are immutable.
   async function onVoid(target: Entry) {
     if (
@@ -2084,7 +2344,7 @@ export default function PersonDetailScreen() {
     }
   }
 
-  // Only private tallies use the edit/delete sheet. Shared tally actions are inline.
+  // One existing menu serves local edits and explicitly requested shared removals.
   const sheetActions = (() => {
     const target = sheetFor;
     if (!target) return [];
@@ -2111,7 +2371,40 @@ export default function PersonDetailScreen() {
         },
       ];
     }
-    return [];
+    return [
+      ...(selectableIds.has(target.id)
+        ? [
+            {
+              label: t("selection.start"),
+              icon: "checkmark-circle-outline" as const,
+              onPress: () => startSelection(target),
+            },
+          ]
+        : []),
+      ...(removalAllowed(target, "request")
+        ? [
+            {
+              label: t("tab.removal.request"),
+              icon: "trash-outline" as const,
+              onPress: () => askRemoval("request", [target]),
+            },
+          ]
+        : []),
+      ...(removalAllowed(target, "approve")
+        ? [
+            {
+              label: t("tab.removal.approve"),
+              icon: "checkmark-outline" as const,
+              onPress: () => askRemoval("approve", [target]),
+            },
+            {
+              label: t("tab.removal.decline"),
+              icon: "close-outline" as const,
+              onPress: () => askRemoval("decline", [target]),
+            },
+          ]
+        : []),
+    ];
   })();
 
   const changingCurrency = flowHistory != null && flowHistory.scope !== flowScope;
@@ -2165,6 +2458,15 @@ export default function PersonDetailScreen() {
     accept: guardedSearchAction(onAccept),
     reject: guardedSearchAction(onReject),
     cancel: guardedSearchAction(onVoid),
+    requestRemoval: (entry) => {
+      if (searchIsCurrent()) askRemoval("request", [entry]);
+    },
+    approveRemoval: (entry) => {
+      if (searchIsCurrent()) askRemoval("approve", [entry]);
+    },
+    declineRemoval: (entry) => {
+      if (searchIsCurrent()) askRemoval("decline", [entry]);
+    },
   };
   const renderTallyHistory = () => (
     <View
@@ -2231,17 +2533,24 @@ export default function PersonDetailScreen() {
         const canWriteEntry = entryLink
           ? canWriteSharedTallies(entryLink)
           : entry.tab?.recording_mode !== "notify_one_way";
+        const canSelectEntry = selectableIds.has(entry.id);
         const canOpenSheet =
-          canAmend &&
-          !inSettledChapter &&
-          !entry.tab &&
-          (!period?.tab || period.tab.closed_at != null) &&
-          period?.person.tab_close_pending !== 1;
+          canSelectEntry ||
+          (canAmend &&
+            !inSettledChapter &&
+            !entry.tab &&
+            (!period?.tab || period.tab.closed_at != null) &&
+            period?.person.tab_close_pending !== 1);
         if (!hidden) {
           const allowed = new Set<TallyRowAction>();
           if (canOpenSheet) {
             if (!selecting) allowed.add("open");
-            allowed.add("select");
+            if (canSelectEntry) allowed.add("select");
+          }
+          if (removalAllowed(entry, "request")) allowed.add("requestRemoval");
+          if (removalAllowed(entry, "approve")) {
+            allowed.add("approveRemoval");
+            allowed.add("declineRemoval");
           }
           if (canAmend && entry.tab && canWriteEntry) {
             allowed.add("accept");
@@ -2288,11 +2597,11 @@ export default function PersonDetailScreen() {
                       }
                   : undefined
               }
-              selecting={hidden || (selecting && canOpenSheet)}
+              selecting={hidden || (selecting && canSelectEntry)}
               selected={!hidden && selecting && selectedEntryIds.has(entry.id)}
               selectionDisabled={selectionBusy || hidden}
               onToggleSelection={
-                !hidden && canOpenSheet
+                !hidden && canSelectEntry
                   ? reuseTallyRows
                     ? selectTallyRow
                     : toggleSelection
@@ -2301,6 +2610,29 @@ export default function PersonDetailScreen() {
               attribution={attribution.get(entry.id)}
               tab={entry.tab}
               selfAccountId={getAccountIdSync()}
+              showRemovalStatus={
+                !!entryLink &&
+                entryLink.closed_at == null &&
+                entryLink.tab_id === (period?.financialTab ?? period?.tab)?.tab_id
+              }
+              removalBusy={selectionBusy}
+              openRequestKey={
+                !hidden &&
+                entryId === entry.id &&
+                entry.tab?.removal_state === "pending" &&
+                entry.tab.removal_request_by === "them"
+                  ? (notificationKey ?? entryId)
+                  : undefined
+              }
+              onRequestRemoval={
+                !hidden && removalAllowed(entry, "request") ? requestRemovalRow : undefined
+              }
+              onApproveRemoval={
+                !hidden && removalAllowed(entry, "approve") ? approveRemovalRow : undefined
+              }
+              onDeclineRemoval={
+                !hidden && removalAllowed(entry, "decline") ? declineRemovalRow : undefined
+              }
               onAccept={
                 !hidden && canAmend && entry.tab && canWriteEntry
                   ? reuseTallyRows
@@ -2342,8 +2674,8 @@ export default function PersonDetailScreen() {
   const confirmationVersion = selectionConfirmationVersion.current;
   // The modal keeps rendering during its exit animation. Preserve the last
   // visible count when deletion or closing selection clears the picked rows.
-  if (selecting && confirmSelectionDelete && selectedEntries.length > 0)
-    selectionDeleteCount.current = selectedEntries.length;
+  if (selecting && confirmSelectionDelete && selectedPrivateEntries.length > 0)
+    selectionDeleteCount.current = selectedPrivateEntries.length;
   const selectionToolbar = (
     <SelectionToolbar
       count={selectedEntries.length}
@@ -2365,19 +2697,43 @@ export default function PersonDetailScreen() {
         });
       }}
       actions={[
-        {
-          key: "delete",
-          label: t("selection.delete"),
-          icon: "trash-outline",
-          destructive: true,
-          disabled: selectedEntries.length === 0,
-          onPress: () => {
-            if (selectionBusyRef.current || !searchIsCurrent() || !selectedEntries.length) return;
-            dismissSearchKeyboard();
-            selectionConfirmationVersion.current++;
-            setConfirmSelectionDelete(true);
-          },
-        },
+        ...(selectedPrivateEntries.length > 0 ||
+        (selectedEntries.length === 0 && selectableEntries.some((entry) => !entry.tab))
+          ? [
+              {
+                key: "delete",
+                label: selectedEntries.some((entry) => entry.tab)
+                  ? `${t("selection.delete")} (${selectedPrivateEntries.length})`
+                  : t("selection.delete"),
+                icon: "trash-outline" as const,
+                destructive: true,
+                disabled: selectedPrivateEntries.length === 0,
+                onPress: () => {
+                  if (
+                    selectionBusyRef.current ||
+                    !searchIsCurrent() ||
+                    !selectedPrivateEntries.length
+                  )
+                    return;
+                  dismissSearchKeyboard();
+                  selectionConfirmationVersion.current++;
+                  setConfirmSelectionDelete(true);
+                },
+              },
+            ]
+          : []),
+        ...(selectedRemovalEntries.length > 0 ||
+        selectableEntries.some((entry) => removalAllowed(entry, "request"))
+          ? [
+              {
+                key: "request-removal",
+                label: t("tab.removal.requestCount", { count: selectedRemovalEntries.length }),
+                icon: "trash-outline" as const,
+                disabled: selectedRemovalEntries.length === 0,
+                onPress: () => askRemoval("request", selectedRemovalEntries),
+              },
+            ]
+          : []),
       ]}
     />
   );
@@ -3612,7 +3968,7 @@ export default function PersonDetailScreen() {
       />
 
       <ConfirmDialog
-        visible={selecting && confirmSelectionDelete && selectedEntries.length > 0}
+        visible={selecting && confirmSelectionDelete && selectedPrivateEntries.length > 0}
         title={t("selection.deleteTalliesTitle", { count: selectionDeleteCount.current })}
         description={t("selection.deleteTalliesDescription", {
           count: selectionDeleteCount.current,
@@ -3635,6 +3991,46 @@ export default function PersonDetailScreen() {
             return;
           selectionConfirmationVersion.current++;
           void deleteSelectedTallies();
+        }}
+      />
+
+      <ConfirmDialog
+        visible={!!visibleRemovalConfirmation}
+        title={t(
+          removalConfirmation?.action === "approve"
+            ? "tab.removal.approveTitle"
+            : removalConfirmation?.action === "decline"
+              ? "tab.removal.declineTitle"
+              : "tab.removal.requestTitle",
+        )}
+        description={
+          t(
+            removalConfirmation?.action === "approve"
+              ? "tab.removal.approveBody"
+              : removalConfirmation?.action === "decline"
+                ? "tab.removal.declineBody"
+                : "tab.removal.requestBody",
+            { count: removalConfirmation?.targets.length ?? 0 },
+          ) +
+          (removalConfirmation?.targets.length === 1
+            ? `\n\n${formatAmount(removalConfirmation.targets[0].entry.amount_afn)} ${getCurrencyLabel(removalConfirmation.targets[0].entry.currency ?? person.currency ?? selectedCurrency)}`
+            : "")
+        }
+        confirmLabel={t(
+          removalConfirmation?.action === "approve"
+            ? "tab.removal.approve"
+            : removalConfirmation?.action === "decline"
+              ? "tab.removal.decline"
+              : "tab.removal.request",
+        )}
+        destructive={removalConfirmation?.action === "approve"}
+        onConfirm={() => {
+          if (removalConfirmation) void performRemoval(removalConfirmation);
+        }}
+        onCancel={() => {
+          if (removalConfirmationRef.current !== removalConfirmation) return;
+          removalConfirmationRef.current = null;
+          setRemovalConfirmation(null);
         }}
       />
 

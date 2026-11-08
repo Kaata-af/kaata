@@ -157,7 +157,10 @@ export function notificationAllowed(
           ? "tallies"
           : kind === "entry_accepted" || kind === "entry_rejected"
             ? "reviews"
-            : kind === "entry_voided"
+            : kind === "entry_voided" ||
+                kind === "entry_removal_requested" ||
+                kind === "entry_removal_approved" ||
+                kind === "entry_removal_declined"
               ? "cancellations"
               : "connections";
   if (!policy[category]) return false;

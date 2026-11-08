@@ -267,6 +267,12 @@ func detailedPushBody(kind, locale, actor string, minor int64, direction, curren
 			return fmt.Sprintf("ستاسو راکړه ورکړه (%s) د %s له خوا رد شوه. په پاتې حساب کې نه شمېرل کېږي.", amount, actor)
 		case "entry_voided":
 			return fmt.Sprintf("%s یوه راکړه ورکړه (%s) لغوه کړه.", actor, amount)
+		case "entry_removal_requested":
+			return fmt.Sprintf("%s د راکړې ورکړې (%s) د لرې کولو غوښتنه کړې.", actor, amount)
+		case "entry_removal_approved":
+			return fmt.Sprintf("%s د راکړې ورکړې (%s) لرې کول تایید کړل.", actor, amount)
+		case "entry_removal_declined":
+			return fmt.Sprintf("%s د راکړې ورکړې (%s) د لرې کولو غوښتنه رد کړه.", actor, amount)
 		}
 	}
 	if locale == "fa" {
@@ -282,6 +288,12 @@ func detailedPushBody(kind, locale, actor string, minor int64, direction, curren
 			return fmt.Sprintf("ثبت %s شما توسط %s رد شد؛ در مانده حساب نمی‌شود.", amount, actor)
 		case "entry_voided":
 			return fmt.Sprintf("ثبت %s توسط %s لغو شد.", amount, actor)
+		case "entry_removal_requested":
+			return fmt.Sprintf("%s درخواست حذف ثبت %s را فرستاد.", actor, amount)
+		case "entry_removal_approved":
+			return fmt.Sprintf("%s حذف ثبت %s را تأیید کرد.", actor, amount)
+		case "entry_removal_declined":
+			return fmt.Sprintf("%s درخواست حذف ثبت %s را رد کرد.", actor, amount)
 		}
 	}
 	switch kind {
@@ -296,6 +308,12 @@ func detailedPushBody(kind, locale, actor string, minor int64, direction, curren
 		return fmt.Sprintf("Your tally (%s) was rejected by %s. Excluded from the balance.", amount, actor)
 	case "entry_voided":
 		return fmt.Sprintf("%s voided a tally (%s).", actor, amount)
+	case "entry_removal_requested":
+		return fmt.Sprintf("%s requested to remove a tally (%s).", actor, amount)
+	case "entry_removal_approved":
+		return fmt.Sprintf("%s approved removing a tally (%s).", actor, amount)
+	case "entry_removal_declined":
+		return fmt.Sprintf("%s declined to remove a tally (%s).", actor, amount)
 	}
 	return actor + ": " + pushBodyFor(kind, locale, canReview)
 }

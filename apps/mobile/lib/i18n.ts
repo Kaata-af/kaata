@@ -32,7 +32,7 @@ const en = {
   "notificationSettings.types": "Notify me about",
   "notificationSettings.tallies": "New tallies",
   "notificationSettings.reviews": "Accept / reject decisions",
-  "notificationSettings.cancellations": "Cancelled tallies",
+  "notificationSettings.cancellations": "Tally removals",
   "notificationSettings.connections": "Linked-account updates",
   "notificationSettings.reminders": "Customer reminders",
   "notificationSettings.delivery": "Alert style",
@@ -2559,6 +2559,26 @@ const en = {
   "tab.void.body":
     "It stays visible, struck through, and no longer counts. Add a new tally if the amount was wrong.",
   "tab.voided": "Tally voided",
+  "tab.removal.request": "Request removal",
+  "tab.removal.requestCount": "Request removal ({count})",
+  "tab.removal.requested": "Removal requested",
+  "tab.removal.awaitingApproval": "Removal awaiting your approval",
+  "tab.removal.approve": "Approve removal",
+  "tab.removal.decline": "Decline removal",
+  "tab.removal.requestTitle": "Request removal?",
+  "tab.removal.requestBody":
+    "Ask the other person to remove the selected tallies ({count}). The shared balance changes after they approve.",
+  "tab.removal.approveTitle": "Approve removal?",
+  "tab.removal.approveBody":
+    "This agreed tally will be removed from both sides and the shared balance will update.",
+  "tab.removal.declineTitle": "Decline removal?",
+  "tab.removal.declineBody": "This tally will stay on the shared account.",
+  "tab.removal.sent": "Removal request sent",
+  "tab.removal.approved": "Tally removed by agreement",
+  "tab.removal.declined": "Removal request declined",
+  "tab.removal.failed": "Could not complete the removal request. Try again.",
+  "tab.removal.partial":
+    "Sent {count} of {total} removal requests. Review the remaining tallies and try again.",
   "tab.accept": "Accept",
   "tab.accepted": "Accepted",
   "tab.rejectedHint": "Not included in the balance.",
@@ -2578,7 +2598,8 @@ const en = {
     "Sharing stopped on {date}. Confirmed records stay saved and pending tallies can still be reviewed. New tallies here are private.",
   "tab.settle.confirm":
     "The reviewed balance with {name} is zero. Move these tallies into shared history for both of you and start a fresh page? The records stay saved, and you can keep using this shared account.",
-  "tab.settle.pending": "Review and sync all pending tallies before clearing this account.",
+  "tab.settle.pending":
+    "Resolve pending tallies and removal requests before settling this account.",
   "tab.settle.changed": "The shared history changed. Review it, then try clearing again.",
   "tab.settle.failed":
     "Could not clear this shared account. Connect to the internet and try again.",
@@ -2587,7 +2608,7 @@ const en = {
   "tab.cancelledBy": "Cancelled by {name}",
   "tab.needsConnection": "Go online to add to a shared account.",
   "tab.editLocked":
-    "Shared tallies cannot be edited. You can cancel your own pending tally; corrections to accepted tallies need a new record.",
+    "Shared tallies are fixed once reviewed. Open an agreed tally to request its removal.",
   "tab.currencyLocked": "Unlink shared accounts before changing the currency.",
   // D17 settlement double-log warning, toasted after the save lands.
   "tab.duplicateHint": "Already recorded by {name} — check it isn't counted twice.",
@@ -2720,7 +2741,7 @@ const fa: Partial<Record<Key, string>> = {
   "notificationSettings.types": "دریافت اطلاعیه برای",
   "notificationSettings.tallies": "ثبت‌های جدید",
   "notificationSettings.reviews": "تصمیم‌های تأیید یا رد",
-  "notificationSettings.cancellations": "ثبت‌های لغوشده",
+  "notificationSettings.cancellations": "حذف و لغو ثبت‌ها",
   "notificationSettings.connections": "تغییرات حساب‌های وصل‌شده",
   "notificationSettings.reminders": "یادآوری‌های مخاطبین",
   "notificationSettings.delivery": "نوع هشدار",
@@ -5012,6 +5033,26 @@ const fa: Partial<Record<Key, string>> = {
   "tab.void.body":
     "ثبت با خط خورده دیده می‌شود و دیگر حساب نمی‌شود. اگر مقدار غلط بود، یک ثبت نو اضافه کنید.",
   "tab.voided": "ثبت باطل شد",
+  "tab.removal.request": "درخواست حذف",
+  "tab.removal.requestCount": "درخواست حذف ({count})",
+  "tab.removal.requested": "درخواست حذف فرستاده شد",
+  "tab.removal.awaitingApproval": "درخواست حذف در انتظار تأیید شماست",
+  "tab.removal.approve": "تأیید حذف",
+  "tab.removal.decline": "رد درخواست حذف",
+  "tab.removal.requestTitle": "درخواست حذف فرستاده شود؟",
+  "tab.removal.requestBody":
+    "از طرف مقابل بخواهید ثبت‌های انتخاب‌شده ({count}) را حذف کند. پس از تأیید او، ماندهٔ حساب مشترک تغییر می‌کند.",
+  "tab.removal.approveTitle": "حذف را تأیید می‌کنید؟",
+  "tab.removal.approveBody":
+    "این ثبت پذیرفته‌شده از حساب هر دو طرف حذف می‌شود و ماندهٔ حساب مشترک به‌روز می‌شود.",
+  "tab.removal.declineTitle": "درخواست حذف را رد می‌کنید؟",
+  "tab.removal.declineBody": "این ثبت در حساب مشترک باقی می‌ماند.",
+  "tab.removal.sent": "درخواست حذف فرستاده شد",
+  "tab.removal.approved": "ثبت با توافق دو طرف حذف شد",
+  "tab.removal.declined": "درخواست حذف رد شد",
+  "tab.removal.failed": "درخواست حذف تکمیل نشد. دوباره کوشش کنید.",
+  "tab.removal.partial":
+    "{count} از {total} درخواست حذف فرستاده شد. ثبت‌های باقی‌مانده را بررسی کنید و دوباره کوشش کنید.",
   "tab.accept": "تأیید",
   "tab.accepted": "تأیید شد",
   "tab.rejectedHint": "در ماندهٔ حساب حساب نمی‌شود.",
@@ -5031,7 +5072,7 @@ const fa: Partial<Record<Key, string>> = {
     "اشتراک در {date} متوقف شد. ثبت‌های تأییدشده محفوظ‌اند و ثبت‌های در انتظار هنوز قابل بررسی هستند. ثبت‌های تازه اینجا شخصی هستند.",
   "tab.settle.confirm":
     "بیلانس بررسی‌شده با {name} صفر است. این ثبت‌ها به سابقهٔ مشترک هر دوی شما منتقل و صفحهٔ تازه باز شود؟ ثبت‌ها محفوظ می‌مانند و می‌توانید از همین حساب مشترک استفاده کنید.",
-  "tab.settle.pending": "پیش از صاف‌کردن حساب، همهٔ ثبت‌های در انتظار را بررسی و همگام کنید.",
+  "tab.settle.pending": "پیش از صاف‌کردن حساب، ثبت‌ها و درخواست‌های حذف در انتظار را بررسی کنید.",
   "tab.settle.changed": "سابقهٔ مشترک تغییر کرده است. آن را بررسی کنید و دوباره کوشش کنید.",
   "tab.settle.failed": "حساب مشترک صاف نشد. به اینترنت وصل شوید و دوباره کوشش کنید.",
   "tab.settle.history": "صاف‌شده توسط {name} · {date}",
@@ -5039,7 +5080,7 @@ const fa: Partial<Record<Key, string>> = {
   "tab.cancelledBy": "لغوکننده: {name}",
   "tab.needsConnection": "برای ثبت در حساب مشترک آنلاین شوید.",
   "tab.editLocked":
-    "ثبت‌های مشترک ویرایش نمی‌شوند. ثبت در انتظار خودتان را می‌توانید لغو کنید؛ اصلاح ثبت پذیرفته‌شده به یک ثبت نو نیاز دارد.",
+    "ثبت‌های مشترک پس از بررسی ثابت می‌مانند. برای درخواست حذف، ثبت پذیرفته‌شده را باز کنید.",
   "tab.currencyLocked": "پیش از تغییر ارز، پیوند حساب‌های مشترک را قطع کنید.",
   "tab.duplicateHint": "پیشتر توسط {name} ثبت شده — بررسی کنید دو بار حساب نشود.",
   "tab.them": "او",
@@ -5127,7 +5168,7 @@ const ps: Record<Key, string> = {
   "notificationSettings.types": "په دې اړه خبر راکړئ",
   "notificationSettings.tallies": "نوي ثبتونه",
   "notificationSettings.reviews": "د منلو او ردولو پرېکړې",
-  "notificationSettings.cancellations": "لغوه شوي ثبتونه",
+  "notificationSettings.cancellations": "د راکړو ورکړو لرې کول",
   "notificationSettings.connections": "د نښلول شوو حسابونو بدلونونه",
   "notificationSettings.reminders": "د اړیکو یادونې",
   "notificationSettings.delivery": "د خبرتیا ډول",
@@ -6760,6 +6801,26 @@ const ps: Record<Key, string> = {
   "tab.void.body":
     "ښکاره پاتې کېږي، کرښه پرې راکاږل کېږي او نور نه شمېرل کېږي. که مبلغ ناسم و، نوې راکړه ورکړه زیاته کړئ.",
   "tab.voided": "راکړه ورکړه لغوه شوه",
+  "tab.removal.request": "د لرې کولو غوښتنه",
+  "tab.removal.requestCount": "د لرې کولو غوښتنه ({count})",
+  "tab.removal.requested": "د لرې کولو غوښتنه لېږل شوې",
+  "tab.removal.awaitingApproval": "د لرې کولو غوښتنه ستاسو تایید ته په تمه ده",
+  "tab.removal.approve": "لرې کول تایید کړئ",
+  "tab.removal.decline": "د لرې کولو غوښتنه رد کړئ",
+  "tab.removal.requestTitle": "د لرې کولو غوښتنه ولېږئ؟",
+  "tab.removal.requestBody":
+    "له بل لوري وغواړئ چې ټاکل شوې راکړې ورکړې ({count}) لرې کړي. د هغه له تایید وروسته د ګډ حساب پاتې اندازه بدلېږي.",
+  "tab.removal.approveTitle": "لرې کول تاییدوئ؟",
+  "tab.removal.approveBody":
+    "دا منل شوې راکړه ورکړه به د دواړو لورو له حسابه لرې شي او ګډ پاتې حساب به تازه شي.",
+  "tab.removal.declineTitle": "د لرې کولو غوښتنه ردوئ؟",
+  "tab.removal.declineBody": "دا راکړه ورکړه به په ګډ حساب کې پاتې شي.",
+  "tab.removal.sent": "د لرې کولو غوښتنه ولېږل شوه",
+  "tab.removal.approved": "راکړه ورکړه د دواړو په هوکړه لرې شوه",
+  "tab.removal.declined": "د لرې کولو غوښتنه رد شوه",
+  "tab.removal.failed": "د لرې کولو غوښتنه بشپړه نه شوه. بیا هڅه وکړئ.",
+  "tab.removal.partial":
+    "له {total} غوښتنو څخه {count} ولېږل شوې. پاتې راکړې ورکړې وګورئ او بیا هڅه وکړئ.",
   "tab.accept": "ومنئ",
   "tab.accepted": "ومنل شوه",
   "tab.rejectedHint": "په پاتې حساب کې نه شمېرل کېږي.",
@@ -6779,8 +6840,7 @@ const ps: Record<Key, string> = {
     "ګډ کار په {date} ودرول شو. تایید شوې راکړې ورکړې ساتل کېږي او په تمه راکړې ورکړې لا هم کتل کېدای شي. دلته نوې راکړې ورکړې شخصي دي.",
   "tab.settle.confirm":
     "له {name} سره بیاکتل شوی پاتې حساب صفر دی. دا راکړې ورکړې ستاسو دواړو ګډې مخینې ته ولېږدوئ او نوې پاڼه پیل کړئ؟ ریکارډونه خوندي پاتې کېږي او دا ګډ حساب همداسې کارولای شئ.",
-  "tab.settle.pending":
-    "د دې حساب تر تصفیې مخکې ټولې په تمه راکړې ورکړې بیا وګورئ او همغږې یې کړئ.",
+  "tab.settle.pending": "د دې حساب تر تصفیې مخکې په تمه راکړې ورکړې او د لرې کولو غوښتنې حل کړئ.",
   "tab.settle.changed": "ګډه مخینه بدله شوه. بیا یې وګورئ او د تصفیې هڅه بیا وکړئ.",
   "tab.settle.failed": "دا ګډ حساب تصفیه نه شو. له انټرنېټ سره وصل شئ او بیا هڅه وکړئ.",
   "tab.settle.history": "د {name} له خوا تصفیه شو · {date}",
@@ -6788,7 +6848,7 @@ const ps: Record<Key, string> = {
   "tab.cancelledBy": "د {name} له خوا لغوه شوې",
   "tab.needsConnection": "ګډ حساب ته د راکړې ورکړې د زیاتولو لپاره له انټرنېټ سره وصل شئ.",
   "tab.editLocked":
-    "ګډې راکړې ورکړې نه شي سمېدای. خپله په تمه راکړه ورکړه لغوه کولای شئ؛ د منل شوې راکړې ورکړې سمون نوي ثبت ته اړتیا لري.",
+    "ګډې راکړې ورکړې تر بیاکتنې وروسته ثابتې وي. منل شوې راکړه ورکړه پرانیزئ او د لرې کولو غوښتنه وکړئ.",
   "tab.currencyLocked": "د پیسو د ډول تر بدلولو مخکې د ګډو حسابونو اړیکې پرې کړئ.",
   "tab.duplicateHint": "د {name} له خوا له مخکې ثبت شوې — وګورئ چې دوه ځله ونه شمېرل شي.",
   "tab.them": "بل لوری",

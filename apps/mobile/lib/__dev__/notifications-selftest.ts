@@ -434,6 +434,18 @@ async function main() {
       "review must read exactly the notice the push announced",
     );
   });
+  await test("removal notices never dispatch the original tally review action", async () => {
+    for (const kind of [
+      "entry_removal_requested",
+      "entry_removal_approved",
+      "entry_removal_declined",
+    ]) {
+      for (const action of ["tab-accept", "tab-reject"])
+        await task({ data: response(action, { ...payload, kind }) });
+    }
+    assert.equal(queued.size, 0);
+    assert.equal(inboxMarks.length, 0);
+  });
   await test("explicit old notification reviews still reach the server after either closure reason", async () => {
     for (const closed_reason of [null, "account_deleted"] as const) {
       links = [{ ...link, closed_at: 10, closed_reason }];
@@ -833,6 +845,9 @@ async function main() {
       ["tallies", "entry_created"],
       ["reviews", "entry_accepted"],
       ["cancellations", "entry_voided"],
+      ["cancellations", "entry_removal_requested"],
+      ["cancellations", "entry_removal_approved"],
+      ["cancellations", "entry_removal_declined"],
       ["connections", "joined"],
       ["reminders", "customer_reminder"],
     ] as const) {

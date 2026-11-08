@@ -477,6 +477,8 @@ func main() {
 			Post("/v1/tabs/{tab_id}/entries/{id}/dispute", tabsH.Dispute)
 		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
 			Post("/v1/tabs/{tab_id}/entries/{id}/void", tabsH.Void)
+		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
+			Post("/v1/tabs/{tab_id}/entries/{id}/removal", tabsH.Removal)
 		pr.With(httpx.RateLimitPerIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).
 			Post("/v1/tabs/{tab_id}/close", tabsH.Close)
 		// Rotating B's link mints a new kaata.af/t/<token>; same budget as

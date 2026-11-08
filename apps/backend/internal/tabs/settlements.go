@@ -131,7 +131,7 @@ func (s *Service) Settle(ctx context.Context, p Party, in SettleInput) (Settleme
 	err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(seq),0),
 		COALESCE(SUM(CASE WHEN direction='a_to_b' THEN amount_minor ELSE -amount_minor END)
 		  FILTER (WHERE kind<>'void' AND voided_by_entry_id IS NULL AND status<>'disputed'),0)::bigint,
-		COUNT(*) FILTER (WHERE kind<>'void' AND voided_by_entry_id IS NULL AND status='pending'),
+		COUNT(*) FILTER (WHERE kind<>'void' AND voided_by_entry_id IS NULL AND (status='pending' OR removal_state='pending')),
 		COUNT(*) FILTER (WHERE kind<>'void' AND seq>COALESCE(
 		  (SELECT MAX(through_seq) FROM tab_settlements WHERE tab_id=$1::uuid),0))
 		FROM tab_entries WHERE tab_id=$1::uuid`, p.TabID).Scan(&throughSeq, &balance, &pending, &newEntries)
