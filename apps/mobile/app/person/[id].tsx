@@ -2652,9 +2652,7 @@ export default function PersonDetailScreen() {
               >
                 <View>
                   <View style={styles.info}>
-                    {visibleCustomerNote &&
-                    (visibleCustomerNote.note !== null || visibleCustomerNote.history.length > 0) &&
-                    !selecting ? (
+                    {visibleCustomerNote?.note?.trim() && !selecting ? (
                       <CustomerNoteCard
                         key={customerNoteKey}
                         scopeKey={flowScope}

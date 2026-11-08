@@ -166,6 +166,7 @@ const backListeners = new Set<() => boolean>();
 let ledgerRefresh = async () => {};
 let person: any, entries: any[], preLink: any[], failed: any[], link: any;
 let staffNote: string | null = null;
+let staffNoteHistory: import("../person-note").PersonNoteRevision[] = [];
 let noteReadGate: Promise<string | null> | null = null;
 const currencyPeriods = new Map<
   string,
@@ -407,12 +408,13 @@ const mocks: Record<string, any> = {
       const details = (note: string | null) => ({
         note,
         author: null,
-        updated: null,
-        history: [],
+        updated: staffNoteHistory[0] ?? null,
+        history: staffNoteHistory,
         hasMoreHistory: false,
         historyCursor: null,
       });
-      if (vault !== "vault" || customer !== "person") return details(null);
+      if (vault !== "vault" || customer !== "person")
+        return { ...details(null), updated: null, history: [] };
       return noteReadGate ? noteReadGate.then(details) : details(staffNote);
     },
     getPersonNoteHistory: async () => ({ entries: [], hasMore: false, nextCursor: null }),
@@ -745,6 +747,7 @@ const tally = (
 });
 function fixture(shared = false) {
   staffNote = null;
+  staffNoteHistory = [];
   noteReadGate = null;
   carouselInteractions = 0;
   currencyPeriods.clear();
@@ -4044,6 +4047,26 @@ async function main() {
         !JSON.stringify(shares).includes("TEAM-ONLY-NOTE"),
         "Staff notes stay out of bill/reminder sharing",
       );
+      const originalNote = staffNote;
+      staffNoteHistory = [
+        { eventId: "clear-note", note: null, actor: null, at: 200 },
+        { eventId: "original-note", note: staffNote, actor: null, at: 100 },
+      ];
+      for (const emptyNote of [null, "", " \n\t "]) {
+        staffNote = emptyNote;
+        await ledgerRefresh();
+        await flush();
+        assert.equal(
+          find("CustomerNoteCard"),
+          undefined,
+          "The same customer's refreshed empty note hides its card even with revision history",
+        );
+      }
+      staffNote = originalNote;
+      staffNoteHistory = [];
+      await ledgerRefresh();
+      await flush();
+      assert.ok(find("CustomerNoteCard"), "Adding current text brings the note card back");
       vaultId = "another-kaata";
       render();
       assert.equal(
