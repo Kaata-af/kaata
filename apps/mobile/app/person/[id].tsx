@@ -26,6 +26,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { TallyDateFilterSheet } from "../../components/TallyDateFilterSheet";
 import { BottomSheet } from "../../components/BottomSheet";
+import { ExportSheet } from "../../components/ExportSheet";
 import { Button } from "../../components/Button";
 import { Chip } from "../../components/Chip";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -90,8 +91,10 @@ import {
   savedMessage,
   type ExportDestination,
   type ExportFormat,
+  type ExportOptions,
 } from "../../lib/export";
 import { useLedgerRefresh } from "../../lib/ledger-events";
+import { exportFailureMessage } from "../../lib/export-feedback";
 import {
   getPersonNoteDetails,
   getPersonNoteHistory,
@@ -754,19 +757,23 @@ export default function PersonDetailScreen() {
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
 
-  async function onExport(format: ExportFormat, destination: ExportDestination) {
+  async function onExport(
+    format: ExportFormat,
+    destination: ExportDestination,
+    options: ExportOptions,
+  ) {
     if (!id || exportingRef.current) return;
     exportingRef.current = true;
     setExporting(true);
     try {
-      const outcome = await exportPersonStatement(id, format, destination);
+      const outcome = await exportPersonStatement(id, format, destination, options);
       // Non-null only on a completed save to the phone — a share needs no
       // confirmation and a cancelled destination picker stays silent.
       const msg = savedMessage(t, bidiIsolate, outcome);
       if (msg) toast.push(msg, "success");
     } catch (err) {
       console.warn("[person] export failed", err);
-      toast.push(t("personEdit.exportFailed"), "error");
+      toast.push(exportFailureMessage(err, t("personEdit.exportFailed")), "error");
     } finally {
       exportingRef.current = false;
       setExporting(false);
@@ -4142,34 +4149,13 @@ export default function PersonDetailScreen() {
         }}
       />
 
-      {/* Statement export chooser. BottomSheet's 220ms action defer doubles as
-          clearance for the OS share sheet that follows generation. */}
-      <BottomSheet
+      <ExportSheet
         visible={exportSheetVisible}
+        contextKey={`${getAccountIdSync()}:${activeVaultId}:${id}`}
         title={t("personEdit.export")}
+        kind="person"
         onDismiss={() => setExportSheetVisible(false)}
-        actions={[
-          {
-            label: t("export.action.sharePdf"),
-            icon: "share-outline",
-            onPress: () => void onExport("pdf", "share"),
-          },
-          {
-            label: t("export.action.shareCsv"),
-            icon: "share-outline",
-            onPress: () => void onExport("csv", "share"),
-          },
-          {
-            label: t("export.action.savePdf"),
-            icon: "download-outline",
-            onPress: () => void onExport("pdf", "save"),
-          },
-          {
-            label: t("export.action.saveCsv"),
-            icon: "download-outline",
-            onPress: () => void onExport("csv", "save"),
-          },
-        ]}
+        onExport={(format, destination, options) => void onExport(format, destination, options)}
       />
 
       <BottomSheet

@@ -5,38 +5,16 @@
 // that read ever fails we still print — system WebView fonts shape Arabic
 // script correctly, just off-brand.
 //
-// LAYOUT (rebuilt 2026-09 after a shopkeeper called the old one "ugly, not
-// structured, unreadable"). The old document was five columns of small grey
-// text under a hairline, three of them numeric (gave / received / running
-// balance), with the one number anybody actually wanted — the balance — as a
-// small chip at the very bottom. Nothing told the eye where to land.
-//
-// What replaced it, in reading order:
-//   1. a full-bleed dark masthead carrying the shop name and what the document
-//      IS, so page one announces itself;
-//   2. a party card naming the other side of the account;
-//   3. summary cards, so the totals are readable in one second instead of
-//      requiring you to scroll to the end;
-//   4. a titled section, then ONE table with a dark header band, row numbers
-//      and zebra striping.
-//
-// The old table had THREE numeric columns — gave, received, running balance —
-// and that, not the balance itself, was the clutter. Collapsing gave/received
-// into one amount column plus a type word leaves room for the running balance
-// to come back, which a statement needs: the document exists to be checked,
-// and without it the reader must add every line to see how the total arose.
-// The two numeric columns carry different weights of meaning, so only the
-// amount is coloured; see the comment at the balance cell.
-//
-// Two print-only details that are easy to lose and silently ruin the result:
-//   - `print-color-adjust: exact` — WebView print drops background colors by
-//     default, which would render the masthead and the table header band as
-//     white-on-white.
-//   - `thead { display: table-header-group }` — repeats the column band on
-//     every page. These statements run to several pages routinely.
+// Public exports use a paper statement with a clear closing balance, explicit
+// direction columns, opening balance, and a separate section for optional notes.
+// Technical receipts and earlier books are only appended in detailed mode.
+// Raw legacy snapshots (without exportOptions) retain their archival rendering.
+// Fonts are embedded for offline Arabic-script shaping; table headers repeat
+// across pages, and each numeric value is isolated from surrounding RTL prose.
 import { Asset } from "expo-asset";
 import { File } from "expo-file-system";
 import * as Print from "expo-print";
+import { Platform } from "react-native";
 import { Vazirmatn_400Regular, Vazirmatn_700Bold } from "@expo-google-fonts/vazirmatn";
 import { colors } from "../colors";
 import { IS_EXPO_GO } from "../expo-go";
@@ -53,9 +31,16 @@ import {
   type VaultReport,
 } from "./data";
 import { EVIDENCE_KEYS, evidenceCells, evidenceTime, recordStatus } from "./evidence";
-import { balanceContribution, isExcludedRecord, recordTotals } from "./shared-record";
+import {
+  balanceContribution,
+  countsTowardBalance,
+  isExcludedRecord,
+  recordTotals,
+} from "./shared-record";
 import type { Entry } from "../types";
 import type { TabEntryMeta } from "../tabs/types";
+import { pdfCopy } from "./pdf-copy";
+import type { ExportNote } from "./data";
 
 let cachedFontCss: string | null = null;
 
@@ -118,6 +103,17 @@ function isolated(text: string): string {
   return `<span style="unicode-bidi:isolate" dir="auto">${esc(text)}</span>`;
 }
 
+/** Names retain their own script direction inside a translated sentence. */
+function pdfSentence(
+  locale: LocaleCode,
+  key: Parameters<typeof pdfCopy>[1],
+  values: Record<string, string>,
+): string {
+  return esc(pdfCopy(locale, key)).replace(/\{(\w+)\}/g, (placeholder, name: string) =>
+    values[name] == null ? placeholder : isolated(values[name]),
+  );
+}
+
 /** A machine identifier or UTC stamp: printed as recorded, LTR-isolated, and
  *  free to wrap (a UUID would otherwise overrun its half of the grid). */
 function code(text: string): string {
@@ -140,7 +136,7 @@ function htmlShell(opts: {
 ${opts.fontCss}
 /* Full bleed: the masthead runs to the paper edge like a letterhead, so the
    page itself carries no margin and each block owns its own padding. */
-@page{margin:0}
+@page{size:A4;margin:14mm 12mm 16mm;@bottom-right{content:counter(page);font-size:9px;color:#667085}}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{font-family:'Vazirmatn','Segoe UI',-apple-system,sans-serif;color:${colors.textEmphasis};font-size:12px;line-height:1.45}
@@ -208,6 +204,7 @@ td.note{color:${colors.textDefault}}
 .code{direction:ltr;unicode-bidi:isolate}
 .evidenceLabel{font-weight:700}
 tr.evidence td{background:${colors.bgMuted};padding:8px 10px 12px}
+tbody.receipt{break-inside:avoid;page-break-inside:avoid}
 .excluded{text-decoration:line-through;color:${colors.textSubtle}}
 /* An excluded amount cell also carries its direction class; without this the
    more specific td.gave/td.received colour wins over the grey. */
@@ -230,6 +227,53 @@ footer{margin-top:26px;padding:14px 36px 26px;text-align:center;font-size:9px;co
 /* Tracking severs Arabic-script joining (same fix as the web app's fa
    handling) — zero it wherever the labels are Dari. */
 [dir=rtl] .brand,[dir=rtl] th,[dir=rtl] .cardLabel{letter-spacing:0}
+/* Paper-first defaults also apply to the optional detailed record. */
+body{font-size:12px;color:#20272b}
+.masthead{background:white;color:#20272b;padding:0 0 14px;text-align:start;border-bottom:2px solid #31594f}
+.docTitle,.mastMeta{color:#58635e}
+.mastMeta .sep{color:#8b9690}
+.content{padding:0}
+.section{margin-top:18px}
+.sectionTitle{border:0;padding:0;font-size:13px}
+.party{background:white;border:0;padding:14px 0 0}
+.card{border-radius:4px;background:white!important;border:1px solid #d9dfdb!important}
+th{color:#25372f;background:#edf1ee;border-top:1px solid #cdd6cf;border-bottom:1px solid #cdd6cf;white-space:normal}
+td{overflow-wrap:anywhere}
+footer{padding:10px 0 0;margin-top:22px;color:#69736c}
+.summaryTop{display:flex;align-items:flex-start;justify-content:space-between;gap:22px;margin:18px 0}
+.customerName{font-size:20px;font-weight:700;overflow-wrap:anywhere}
+.customerInfo{min-width:0;flex:1}
+.subtle{font-size:10px;color:#59665e;line-height:1.6}
+.closing{text-align:end;max-width:50%;min-width:0}
+.closingValue{font-size:24px;font-weight:700;margin:3px 0;overflow-wrap:anywhere}
+.closingValue .num{white-space:normal}
+.balanceDirection{font-size:11px;overflow-wrap:anywhere}
+.facts{display:flex;gap:16px;justify-content:space-between;border-block:1px solid #d9dfdb;padding:10px 0;margin:12px 0}
+.fact{flex:1;min-width:0}
+.factValue{display:block;font-size:13px;font-weight:700;margin-top:2px}
+.factValue .num{white-space:normal}
+.ledger{table-layout:fixed;font-size:11px;margin-top:12px}
+.ledger th,.ledger td{padding:8px 6px}
+.ledger td{font-size:12px}
+.ledger .date{font-size:11px;color:#59665e}
+.ledger .description{font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.ledger td.n{font-variant-numeric:tabular-nums}
+.ledger td.n .num{white-space:normal;overflow-wrap:anywhere}
+.ledger .balanceRow td{background:#f3f5f2;font-weight:700;border-top:1px solid #b4c3b9}
+.ledger .identity th{font-size:9px;font-weight:400;color:#59665e;background:white;border:0;padding:0 0 7px}
+.ledger .settled td{background:#f3f5f2;border-block:1px solid #cdd6cf;font-weight:400;text-align:start}
+.ledger .excluded .num{text-decoration:line-through;color:#69736c}
+.status{display:block;font-size:9px;color:#75613b;margin-top:3px}
+.internalNote{border-inline-start:3px solid #cdbb8d;padding:8px 10px;background:#faf7ed;break-inside:avoid;page-break-inside:avoid;margin-top:7px}
+.noteBody{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}
+.noteMeta{font-size:9px;color:#70674f;margin-top:4px}
+.noteNumber{font-size:11px;color:#75613b;margin-top:4px}
+.reportName{font-weight:700}
+.reportPhone{display:block;font-size:9px;color:#69736c;margin-top:2px}
+.reportDescription{font-size:11px;color:#59665e;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:4px}
+.summaryTop,.facts,.cards,.party{break-inside:avoid;page-break-inside:avoid}
+h2{break-after:avoid;page-break-after:avoid}
+@media print{thead{display:table-header-group}tfoot{display:table-row-group}}
 </style>
 </head>
 <body>
@@ -263,16 +307,25 @@ ${opts.note ? `<div class="cardNote" dir="auto">${esc(opts.note)}</div>` : ""}
 }
 
 async function printToTarget(html: string, fileName: string): Promise<File> {
+  // WebKit uses the native printable rectangle; Android uses CSS @page.
+  // Keeping the paper size and physical margins explicit avoids a statement
+  // that is readable in previews but touches the page edge on iOS.
+  const options = {
+    html: Platform.OS === "ios" ? html.replace("margin:14mm 12mm 16mm", "margin:0") : html,
+    width: 595.28,
+    height: 841.89,
+    ...(Platform.OS === "ios" ? { margins: { top: 40, right: 34, bottom: 45, left: 34 } } : {}),
+  };
   if (IS_EXPO_GO) {
     // Expo Go prints outside the experience's scoped FileSystem directory.
     // Read the bytes through Print, then write only within our own cache.
-    const { base64 } = await Print.printToFileAsync({ html, base64: true });
+    const { base64 } = await Print.printToFileAsync({ ...options, base64: true });
     if (!base64) throw new Error("The printed PDF is unavailable. Please try again.");
     const target = exportFileTarget(fileName);
     target.writeSync(base64, { encoding: "base64" });
     return target;
   }
-  const { uri } = await Print.printToFileAsync({ html });
+  const { uri } = await Print.printToFileAsync(options);
   const printed = new File(uri);
   const target = exportFileTarget(fileName);
   // AWAIT is load-bearing. Expo SDK 56 made move() asynchronous, and move()
@@ -344,7 +397,7 @@ function evidenceValueHtml(
   return shown === null ? code(value) : `<span dir="auto">${esc(shown)}</span>`;
 }
 
-function recordDetailHtml(entry: Entry, locale: LocaleCode): string {
+function recordDetailHtml(entry: Pick<Entry, "id" | "tab">, locale: LocaleCode): string {
   if (!entry.tab) return "";
   const tab = entry.tab;
   const values = evidenceCells(tab, locale);
@@ -369,6 +422,13 @@ function recordDetailHtml(entry: Entry, locale: LocaleCode): string {
     `<div><span class="evidenceLabel" dir="auto">${esc(tIn(locale, "export.col.id"))}: </span>${code(entry.id)}</div>`,
   );
   return `<tr class="evidence"><td colspan="6"><div class="evidenceGrid">${details.join("")}</div></td></tr>`;
+}
+
+function receiptsHtml(
+  entries: readonly Pick<Entry, "id" | "tab" | "created_at" | "note" | "amount_afn">[],
+  doc: Pick<PersonStatement, "locale" | "calendar" | "currencyCode">,
+): string {
+  return `<table>${entries.map((entry) => `<tbody class="receipt"><tr><td colspan="6" dir="auto"><strong>${esc(formatSettlementDate(entry.created_at, doc.locale, doc.calendar))}</strong> · ${esc(noteFor(entry.note, entry.tab?.kind, doc.locale) || "—")} · ${num(`${formatAmount(entry.amount_afn)} ${esc(doc.currencyCode)}`)}</td></tr>${recordDetailHtml(entry, doc.locale)}</tbody>`).join("")}</table>`;
 }
 
 function settlementRowHtml(
@@ -429,7 +489,7 @@ ${period.link.closed_reason === "account_deleted" ? `<p class="recordNotes" dir=
 <th class="n">${esc(tIn(locale, "export.col.num"))}</th><th>${esc(tIn(locale, "export.col.date"))}</th>
 <th class="c">${esc(tIn(locale, "export.col.type"))}</th><th class="n">${esc(tIn(locale, "export.col.amount"))}</th>
 <th class="n">${esc(tIn(locale, "export.record.periodBalance"))}</th><th>${esc(tIn(locale, "export.col.note"))}</th>
-</tr></thead><tbody>${rows}</tbody></table></section>`;
+</tr></thead><tbody>${st.exportOptions?.period ? `<tr class="settled"><td colspan="4" dir="auto">${esc(pdfCopy(locale, "earlierOpening"))}</td><td class="n">${num(fmtSigned(period.openingBalance ?? 0))}</td><td></td></tr>` : ""}${rows}</tbody></table></section>`;
 }
 
 function preLinkHistoryHtml(st: PersonStatement): string {
@@ -459,10 +519,179 @@ function preLinkHistoryHtml(st: PersonStatement): string {
 <th class="n">${esc(tIn(locale, "export.col.num"))}</th><th>${esc(tIn(locale, "export.col.date"))}</th>
 <th class="c">${esc(tIn(locale, "export.col.type"))}</th><th class="n">${esc(tIn(locale, "export.col.amount"))}</th>
 <th class="n">${esc(tIn(locale, "export.record.periodBalance"))}</th><th>${esc(tIn(locale, "export.col.note"))}</th>
-</tr></thead><tbody>${rows}</tbody></table></section>`;
+</tr></thead><tbody>${st.exportOptions?.period ? `<tr class="settled"><td colspan="4" dir="auto">${esc(pdfCopy(locale, "earlierOpening"))}</td><td class="n">${num(fmtSigned(st.preLinkOpeningBalance ?? 0))}</td><td></td></tr>` : ""}${rows}</tbody></table></section>`;
+}
+
+type DocumentContext = Pick<
+  PersonStatement,
+  "locale" | "calendar" | "generatedAtMs" | "exportOptions" | "hasEarlierHistory"
+>;
+
+function periodLabel(doc: DocumentContext): string {
+  const period = doc.exportOptions?.period;
+  const date = (ms: number) => formatSettlementDate(ms, doc.locale, doc.calendar);
+  if (period?.startMs != null && period.endMs != null)
+    return `${date(period.startMs)} — ${date(period.endMs - 1)}`;
+  if (period?.startMs != null) return pdfCopy(doc.locale, "from", { date: date(period.startMs) });
+  if (period?.endMs != null)
+    return pdfCopy(doc.locale, "through", { date: date(period.endMs - 1) });
+  return pdfCopy(
+    doc.locale,
+    doc.hasEarlierHistory && doc.exportOptions?.detail === "standard"
+      ? "currentHistory"
+      : "allTime",
+  );
+}
+
+function documentMeta(doc: DocumentContext, currency: string): string[] {
+  return [
+    `${esc(pdfCopy(doc.locale, "period"))}: ${isolated(periodLabel(doc))}`,
+    `${esc(pdfCopy(doc.locale, "currency"))}: ${num(esc(currency))}`,
+    isolated(
+      tIn(doc.locale, "export.doc.generated", {
+        date: formatSettlementDate(doc.generatedAtMs, doc.locale, doc.calendar),
+      }),
+    ),
+  ];
+}
+
+function fact(label: string, value: string): string {
+  return `<div class="fact"><span class="subtle" dir="auto">${esc(label)}</span><span class="factValue">${value}</span></div>`;
+}
+
+function internalNotesHtml(
+  notes: ExportNote[] | undefined,
+  doc: DocumentContext,
+  withPerson = false,
+): string {
+  if (!doc.exportOptions?.includeNotes || !notes?.length) return "";
+  return `<section class="section"><h2 class="sectionTitle" dir="auto">${esc(pdfCopy(doc.locale, "notes"))}</h2>
+<p class="subtle" dir="auto">${esc(pdfCopy(doc.locale, "notesHelp"))}</p>
+${notes
+  .map(
+    (note) => `<div class="internalNote">
+${withPerson ? `<div class="reportName" dir="auto">${esc(note.personName)}</div>` : ""}
+<div class="noteBody" dir="auto">${esc(note.note)}</div>
+${note.noteNumber != null ? `<div class="noteNumber">${isolated(pdfCopy(doc.locale, "noteNumber"))}: ${num(esc(note.noteNumber))}</div>` : ""}
+<div class="noteMeta">${isolated(formatSettlementDate(note.createdAt, doc.locale, doc.calendar))}${note.authorName ? ` · ${isolated(pdfCopy(doc.locale, "by", { name: note.authorName }))}` : ""}</div>
+</div>`,
+  )
+  .join("")}</section>`;
+}
+
+/** A customer-facing statement uses one column per movement direction. Currency
+ * is declared once, and pending/excluded records stay visible without affecting
+ * the opening, running or closing balance. The detailed record remains opt-in. */
+function compactStatementBody(st: PersonStatement): string {
+  const { locale, calendar } = st;
+  const shop = st.vaultName || st.self?.shop_name || tIn(locale, "export.doc.summaryTitle");
+  const entries = st.rows.flatMap((row) => (row.kind === "entry" ? [row.entry] : []));
+  const totals = st.periodTotals ?? {
+    gave: sumAmounts(
+      entries.filter((entry) => balanceContribution(entry) > 0).map((entry) => entry.amount_afn),
+    ),
+    received: sumAmounts(
+      entries.filter((entry) => balanceContribution(entry) < 0).map((entry) => entry.amount_afn),
+    ),
+  };
+  const direction =
+    st.balance === 0
+      ? esc(pdfCopy(locale, "balanced"))
+      : pdfSentence(locale, st.balance > 0 ? "owesShop" : "shopOwes", {
+          person: st.person.name,
+          shop,
+        });
+  const balanceRow = (label: string, balance: number) =>
+    `<tr class="balanceRow"><td colspan="4" dir="auto">${esc(label)}</td><td class="n">${num(fmtSigned(balance))}</td></tr>`;
+  const rows = st.rows
+    .map((row) => {
+      if (row.kind === "settled") {
+        const date = formatSettlementDate(row.ms, locale, calendar);
+        const label = row.shared
+          ? clearanceNote(row.shared.settlement.actor_name, date, locale, {
+              text: esc,
+              value: isolated,
+            })
+          : esc(tIn(locale, "export.doc.settledOn", { date }));
+        return `<tr class="settled"><td colspan="4" dir="auto">${label}</td><td class="n">${num(fmtSigned(row.balanceAfter))}</td></tr>`;
+      }
+      const e = row.entry;
+      const description = noteFor(e.note, e.tab?.kind, locale) || "—";
+      const counts = countsTowardBalance(e);
+      const status = e.tab
+        ? `<span class="status" dir="auto">${esc(recordStatus(e.tab, locale))}${!counts ? ` · ${isolated(tIn(locale, e.type === "debt" ? "export.col.gave" : "export.col.received"))} ${num(`${formatAmount(e.amount_afn)} ${esc(st.currencyCode)}`)}` : ""}</span>`
+        : "";
+      const amount = num(formatAmount(e.amount_afn));
+      const cls = isExcludedRecord(e) ? " excluded" : "";
+      return `<tr>
+<td class="date" dir="auto">${esc(formatSettlementDate(e.created_at, locale, calendar))}</td>
+<td class="description" dir="auto">${esc(description)}${status}</td>
+<td class="n amount${cls}">${counts && e.type === "debt" ? amount : "—"}</td>
+<td class="n amount${cls}">${counts && e.type === "payment" ? amount : "—"}</td>
+<td class="n bal">${num(fmtSigned(row.balanceAfter))}</td>
+</tr>`;
+    })
+    .join("");
+  const context = `${isolated(shop)} · ${isolated(st.person.name)} · ${num(esc(st.currencyCode))}`;
+  return `${masthead({ brand: shop, docTitle: tIn(locale, "export.doc.statementTitle"), meta: documentMeta(st, st.currencyCode) })}
+<div class="summaryTop">
+<div class="customerInfo"><div class="subtle" dir="auto">${esc(pdfCopy(locale, "customer"))}</div><div class="customerName" dir="auto">${esc(st.person.name)}</div>${st.person.phone ? `<div class="subtle">${num(esc(st.person.phone))}</div>` : ""}${st.exportOptions?.includeNotes && st.personDescription ? `<div class="reportDescription" dir="auto">${esc(st.personDescription)}</div>` : ""}</div>
+<div class="closing"><div class="subtle" dir="auto">${esc(pdfCopy(locale, "closing"))}</div><div class="closingValue">${num(`${formatAmount(st.balance)} ${esc(st.currencyCode)}`)}</div><div class="balanceDirection" dir="${locale === "en" ? "ltr" : "rtl"}">${direction}</div></div>
+</div>
+<div class="facts">${fact(pdfCopy(locale, "opening"), num(fmtSigned(st.openingBalance ?? 0)))}${fact(tIn(locale, "export.doc.totalGave"), num(formatAmount(totals.gave)))}${fact(tIn(locale, "export.doc.totalReceived"), num(formatAmount(totals.received)))}</div>
+<p class="subtle" dir="${locale === "en" ? "ltr" : "rtl"}">${pdfSentence(locale, "perspective", { shop })}</p>
+${entries.some((entry) => !!entry.tab) ? `<p class="subtle" dir="auto">${esc(pdfCopy(locale, "unconfirmed"))}</p>` : ""}
+${st.exportOptions?.period ? `<p class="subtle" dir="auto">${esc(pdfCopy(locale, "selectedDates"))}</p>` : ""}
+${st.hasEarlierHistory && st.exportOptions?.detail === "standard" ? `<p class="subtle" dir="auto">${esc(pdfCopy(locale, "earlierAvailable"))}</p>` : ""}
+<table class="ledger"><colgroup><col style="width:17%"><col style="width:35%"><col style="width:16%"><col style="width:16%"><col style="width:16%"></colgroup>
+<thead><tr class="identity"><th colspan="5">${context}</th></tr><tr>
+<th>${esc(tIn(locale, "export.col.date"))}</th><th>${esc(pdfCopy(locale, "description"))}</th><th class="n">${esc(tIn(locale, "export.col.gave"))}</th><th class="n">${esc(tIn(locale, "export.col.received"))}</th><th class="n">${esc(tIn(locale, "export.col.balance"))}</th>
+</tr></thead><tbody>${balanceRow(pdfCopy(locale, "opening"), st.openingBalance ?? 0)}${rows || `<tr><td colspan="5" class="empty" dir="auto">${esc(pdfCopy(locale, "noActivity"))}</td></tr>`}${balanceRow(pdfCopy(locale, "closing"), st.balance)}</tbody></table>
+${internalNotesHtml(st.notes, st)}`;
+}
+
+function compactReportBody(report: VaultReport): string {
+  const { locale, calendar, currencyCode } = report;
+  const asOf = formatSettlementDate(
+    (report.exportOptions?.period?.endMs ?? report.generatedAtMs + 1) - 1,
+    locale,
+    calendar,
+  );
+  const rows = report.people
+    .map(
+      (person) => `<tr>
+<td><div class="reportName" dir="auto">${esc(person.name)}</div>${person.phone ? `<span class="reportPhone">${num(esc(person.phone))}</span>` : ""}${report.exportOptions?.includeNotes && person.description ? `<div class="reportDescription" dir="auto">${esc(person.description)}</div>` : ""}</td>
+<td class="date" dir="auto">${person.lastEntryAt ? esc(formatSettlementDate(person.lastEntryAt, locale, calendar)) : "—"}</td>
+<td class="n amount">${person.balance > 0 ? num(formatAmount(person.balance)) : "—"}</td>
+<td class="n amount">${person.balance < 0 ? num(formatAmount(person.balance)) : "—"}</td>
+</tr>`,
+    )
+    .join("");
+  return `${masthead({ brand: report.vaultName, docTitle: tIn(locale, "export.doc.summaryTitle"), meta: documentMeta(report, currencyCode) })}
+<section class="section"><h2 class="sectionTitle" dir="auto">${esc(pdfCopy(locale, "asOf", { date: asOf }))}</h2>
+<div class="facts">${fact(pdfCopy(locale, "collect"), num(`${formatAmount(report.totals.collect)} ${esc(currencyCode)}`))}${fact(pdfCopy(locale, "pay"), num(`${formatAmount(report.totals.pay)} ${esc(currencyCode)}`))}${fact(tIn(locale, "export.doc.net"), num(`${fmtSigned(report.totals.net)} ${esc(currencyCode)}`))}</div>
+${report.exportOptions?.period && report.periodTotals ? `<p class="subtle" dir="auto">${esc(pdfCopy(locale, "periodFlows"))}: ${isolated(tIn(locale, "export.col.gave"))} ${num(formatAmount(report.periodTotals.gave))} · ${isolated(tIn(locale, "export.col.received"))} ${num(formatAmount(report.periodTotals.received))}</p>` : ""}
+<table class="ledger"><colgroup><col style="width:44%"><col style="width:20%"><col style="width:18%"><col style="width:18%"></colgroup>
+<thead><tr class="identity"><th colspan="4">${isolated(report.vaultName)} · ${num(esc(currencyCode))}</th></tr><tr><th>${esc(tIn(locale, "export.col.person"))}</th><th>${esc(tIn(locale, "export.col.lastActivity"))}</th><th class="n">${esc(pdfCopy(locale, "collect"))}</th><th class="n">${esc(pdfCopy(locale, "pay"))}</th></tr></thead>
+<tbody>${rows || `<tr><td colspan="4" class="empty" dir="auto">${esc(tIn(locale, "export.doc.empty"))}</td></tr>`}</tbody></table></section>
+${internalNotesHtml(report.notes, report, true)}`;
 }
 
 function personStatementBody(st: PersonStatement): string {
+  if (st.exportOptions) {
+    const sharedEntries = st.rows.flatMap((row) =>
+      row.kind === "entry" && row.entry.tab ? [row.entry] : [],
+    );
+    const detail = st.exportOptions.detail === "detailed";
+    return (
+      compactStatementBody(st) +
+      (detail
+        ? `
+${sharedEntries.length ? `<section class="section"><h2 class="sectionTitle" dir="auto">${esc(pdfCopy(st.locale, "details"))}</h2>${receiptsHtml(sharedEntries, st)}</section>` : ""}
+${preLinkHistoryHtml(st)}${(st.archivedSharedPeriods ?? []).map((period) => archivedPeriodHtml(period, st)).join("")}`
+        : "")
+    );
+  }
   const { locale, calendar, currencySymbol: sym } = st;
   const shopName = st.self?.shop_name ?? st.self?.name ?? "";
   const entries = st.rows.filter((r) => r.kind === "entry");
@@ -641,7 +870,44 @@ export async function renderPersonCurrenciesPdf(
   );
 }
 
+function reportJournalHtml(report: VaultReport): string {
+  const { locale, calendar, currencyCode } = report;
+  return report.people
+    .map((person) => {
+      const entries = report.journal.filter((entry) => entry.person_id === person.id);
+      if (!entries.length) return "";
+      const rows = entries
+        .map((entry) => {
+          const counts = countsTowardBalance(entry);
+          const status = entry.tab
+            ? `<span class="status" dir="auto">${esc(recordStatus(entry.tab, locale))}${!counts ? ` · ${isolated(tIn(locale, entry.type === "debt" ? "export.col.gave" : "export.col.received"))} ${num(`${formatAmount(entry.amount_afn)} ${esc(currencyCode)}`)}` : ""}</span>`
+            : "";
+          return `<tr><td class="date" dir="auto">${esc(formatSettlementDate(entry.created_at, locale, calendar))}</td><td class="description" dir="auto">${esc(noteFor(entry.note, entry.tab?.kind, locale) || "—")}${status}</td><td class="n">${counts && entry.type === "debt" ? num(formatAmount(entry.amount_afn)) : "—"}</td><td class="n">${counts && entry.type === "payment" ? num(formatAmount(entry.amount_afn)) : "—"}</td><td class="n">${num(fmtSigned(entry.balanceAfter))}</td></tr>`;
+        })
+        .join("");
+      return `<section class="section"><h2 class="sectionTitle" dir="auto">${esc(person.name)} — ${esc(pdfCopy(locale, "journal"))}</h2>
+<table class="ledger"><colgroup><col style="width:17%"><col style="width:35%"><col style="width:16%"><col style="width:16%"><col style="width:16%"></colgroup>
+<thead><tr class="identity"><th colspan="5">${isolated(report.vaultName)} · ${isolated(person.name)} · ${num(esc(currencyCode))}</th></tr><tr><th>${esc(tIn(locale, "export.col.date"))}</th><th>${esc(pdfCopy(locale, "description"))}</th><th class="n">${esc(tIn(locale, "export.col.gave"))}</th><th class="n">${esc(tIn(locale, "export.col.received"))}</th><th class="n">${esc(tIn(locale, "export.col.balance"))}</th></tr></thead>
+<tbody><tr class="balanceRow"><td colspan="4" dir="auto">${esc(pdfCopy(locale, "opening"))}</td><td class="n">${num(fmtSigned(person.openingBalance ?? 0))}</td></tr>${rows}<tr class="balanceRow"><td colspan="4" dir="auto">${esc(pdfCopy(locale, "closing"))}</td><td class="n">${num(fmtSigned(person.balance))}</td></tr></tbody></table>
+${
+  entries.some((entry) => entry.tab)
+    ? `<p class="subtle" dir="auto">${esc(pdfCopy(locale, "unconfirmed"))}</p>${receiptsHtml(
+        entries.filter((entry) => entry.tab),
+        report,
+      )}`
+    : ""
+}
+</section>`;
+    })
+    .join("");
+}
+
 function vaultReportBody(report: VaultReport): string {
+  if (report.exportOptions)
+    return (
+      compactReportBody(report) +
+      (report.exportOptions.detail === "detailed" ? reportJournalHtml(report) : "")
+    );
   const { locale, calendar, currencySymbol: sym } = report;
 
   const meta = [

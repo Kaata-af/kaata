@@ -80,6 +80,7 @@
     "selftest:tab-join": "tsx lib/__dev__/tab-join-selftest.ts",
     "selftest:update-url": "tsx lib/__dev__/update-url-selftest.ts",
     "preview:pdf": "tsx lib/__dev__/pdf-preview.ts",
+    "selftest:exports": "tsx lib/__dev__/export-scope-selftest.ts && tsx lib/__dev__/export-pdf-selftest.ts && tsx lib/__dev__/export-ui-selftest.ts && tsx lib/__dev__/multi-currency-export-selftest.ts",
     "selftest:tally-search": "tsx lib/__dev__/tally-search-selftest.ts",
     "selftest:sheet-backdrop": "tsx lib/__dev__/sheet-backdrop-selftest.ts",
     "selftest:sheet-safe-area": "tsx lib/__dev__/sheet-safe-area-selftest.ts",

@@ -24,6 +24,7 @@ import { tallyScrollTarget } from "../tally-viewport";
 import { compareTallyReviews } from "../tally-review-feedback";
 import { entryTypeFor } from "../tabs/direction";
 import { compileUI, deferred } from "./ui-fixture";
+import { ExportScopeError } from "../export/options";
 
 const { summarizeSelectionEntries } = compileUI("../selection-summary", {
   "./currency-totals": require("../currency-totals"),
@@ -224,6 +225,7 @@ const shares: any[] = [],
   exports: any[] = [],
   routes: any[] = [],
   toasts: any[] = [];
+let exportFailure: Error | null = null;
 const tabListeners = new Set<(event: any) => void>();
 const appListeners = new Set<(state: string) => void>();
 // Tabs the screen keeps on the sync loop's 5 s backstop (watchTab refcounts).
@@ -337,6 +339,7 @@ const native: any = {
 const components = Object.fromEntries(
   [
     "BottomSheet",
+    "ExportSheet",
     "Button",
     "TallyDateFilterSheet",
     "SearchControlSlot",
@@ -511,10 +514,17 @@ const mocks: Record<string, any> = {
   "../../lib/export": {
     exportPersonStatement: async (...args: any[]) => {
       exports.push(args);
+      if (exportFailure) throw exportFailure;
       return null;
     },
     savedMessage: () => null,
   },
+  "../../lib/export-feedback": compileUI("../export-feedback", {
+    "./export/options": { ExportScopeError },
+    "./export-copy": compileUI("../export-copy", {
+      "./i18n": { getLocale: () => balanceLabelLocale ?? (rtl ? "fa" : "en") },
+    }),
+  }),
   "../../lib/export/shared-record": require("../export/shared-record"),
   "../../lib/ledger-events": {
     useLedgerRefresh(_: string, load: () => Promise<void>) {
@@ -819,6 +829,7 @@ function fixture(shared = false) {
   shares.length = 0;
   seen.length = 0;
   exports.length = 0;
+  exportFailure = null;
   routes.length = 0;
   toasts.length = 0;
   now = 0;
@@ -3802,9 +3813,9 @@ async function customerTallyFilterTests() {
   await flush();
   const exportSheet = nodes(tree).find(
     (node) =>
-      node.type === "BottomSheet" && node.props.visible && node.props.title === "personEdit.export",
+      node.type === "ExportSheet" && node.props.visible && node.props.title === "personEdit.export",
   )!;
-  await exportSheet.props.actions[0].onPress();
+  await exportSheet.props.onExport("pdf", "share", { detail: "standard", includeNotes: false });
   await flush();
   assert.equal(exports.length, 1);
   assert.equal(
@@ -4356,7 +4367,46 @@ async function privateRecordedSettlementTests() {
   );
 }
 
+async function exportScopeFeedbackTests() {
+  for (const locale of ["en", "fa", "ps"] as const) {
+    fixture();
+    balanceLabelLocale = locale;
+    await flush();
+    const copy = compileUI("../export-copy", { "./i18n": { getLocale: () => locale } });
+    exportFailure = new ExportScopeError("beforeSharedOpening");
+    find("ExportSheet")!.props.onExport("pdf", "share", { period: { startMs: 1, endMs: 2 } });
+    await flush();
+    assert.equal(toasts.at(-1)?.[1], "error");
+    assert.equal(
+      toasts.at(-1)?.[0],
+      copy.tExport("beforeSharedOpening", {
+        all: copy.tExport("all"),
+        detailed: copy.tExport("detailed"),
+      }),
+    );
+    exportFailure = new Error("private diagnostic path");
+    find("ExportSheet")!.props.onExport("pdf", "share", {});
+    await flush();
+    assert.equal(toasts.at(-1)?.[0], "personEdit.exportFailed");
+    exportFailure = null;
+    const notifications = toasts.length;
+    find("ExportSheet")!.props.onExport("pdf", "share", { detail: "detailed" });
+    await flush();
+    assert.equal(
+      exports.length,
+      3,
+      "Failed scope checks release the export guard for a corrected retry",
+    );
+    assert.equal(toasts.length, notifications, "Successful sharing has no redundant toast");
+    unmount();
+  }
+  console.log(
+    "PASS export scope feedback: actionable localized date guidance, generic error fallback and retry on the real customer screen",
+  );
+}
+
 async function main() {
+  await exportScopeFeedbackTests();
   for (const notePlatform of ["ios", "android"])
     for (const direction of [false, true]) {
       fixture();
@@ -5193,13 +5243,13 @@ async function main() {
         "flow totals include settled history and do not narrow with search",
       );
       const exportSheet = nodes(tree).find(
-        (n) => n.type === "BottomSheet" && n.props.title === "personEdit.export",
+        (n) => n.type === "ExportSheet" && n.props.title === "personEdit.export",
       )!;
-      exportSheet.props.actions[0].onPress();
+      exportSheet.props.onExport("pdf", "share", { detail: "standard", includeNotes: false });
       await flush();
       assert.deepEqual(
         exports,
-        [["person", "pdf", "share"]],
+        [["person", "pdf", "share", { detail: "standard", includeNotes: false }]],
         "export still reads the entire person statement",
       );
       const firstPing = pingButton();

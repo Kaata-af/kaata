@@ -7,6 +7,13 @@ import * as settings from "../currency-settings";
 import { Mutex } from "../util/mutex";
 import { CURRENCIES, searchCurrencies } from "../currency-catalog";
 import { ltrIsolate } from "../bidi";
+import { ExportScopeError } from "../export/options";
+
+const exportCopy = compileUI("../export-copy", { "./i18n": { getLocale: () => "en" } });
+const exportFeedback = compileUI("../export-feedback", {
+  "./export/options": { ExportScopeError },
+  "./export-copy": exportCopy,
+});
 
 function currencyRow(tree: any, code: string) {
   const mounted = nodes(tree).find(
@@ -40,9 +47,11 @@ function defaultAction(tree: any, code: string) {
 }
 
 function fixture() {
+  let exportFailure: Error | null = null;
   const store = new Database(":memory:");
   store.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY,name TEXT,currency TEXT,legacy_currency TEXT,default_entry_currency TEXT,archived_at INTEGER,updated_at INTEGER,vault_trust_anchor_pubkey TEXT);
     CREATE TABLE vault_settings(vault_id TEXT,key TEXT,value TEXT,hlc_pms INTEGER,hlc_l INTEGER,hlc_did TEXT,updated_at INTEGER,PRIMARY KEY(vault_id,key));
+    CREATE TABLE vault_members_mirror(vault_id TEXT,revoked_at INTEGER);
     CREATE TABLE entries(id TEXT,currency TEXT,amount_afn REAL);
     INSERT INTO vaults VALUES('v','Shop','AFN','AFN','AFN',NULL,1,'anchor');
     INSERT INTO entries VALUES('old-usd','USD',123.45);`);
@@ -110,6 +119,7 @@ function fixture() {
     "./tabs/errors": require("../tabs/errors"),
     "./tabs/history": require("../tabs/history"),
     "./entry-date": require("../entry-date"),
+    "./customer-note": require("../customer-note"),
     "./currency-scope": scope,
     "./currency-settings": settings,
     "./projection": {
@@ -328,7 +338,7 @@ function fixture() {
     },
   }).EnabledCurrenciesSheet;
   const componentNames = [
-    "BottomSheet",
+    "ExportSheet",
     "Button",
     "ConfirmDialog",
     "CurrencyPickerSheet",
@@ -397,7 +407,14 @@ function fixture() {
     "../../lib/projection": { applyEventMutex: projectionMutex },
     "../../lib/db": { getAppMeta: async () => account, countArchivedPeople: async () => 0 },
     "../../lib/effective-account": {},
-    "../../lib/export": {},
+    "../../lib/export": {
+      exportVaultReport: async () => {
+        if (exportFailure) throw exportFailure;
+        return null;
+      },
+      savedMessage: () => null,
+    },
+    "../../lib/export-feedback": exportFeedback,
     "../../lib/direction": {
       bidiIsolate: (s: string) => s,
       rowDir: () => ({}),
@@ -472,6 +489,9 @@ function fixture() {
     remoteQueued: () => remoteQueued,
     session,
     toasts,
+    setExportFailure: (error: Error | null) => {
+      exportFailure = error;
+    },
     setRole: (next: string) => {
       role = next;
     },
@@ -872,6 +892,43 @@ async function checkBillLinkSettings() {
 }
 
 async function main() {
+  {
+    const f = fixture();
+    f.hooks.render(f.screen);
+    for (let i = 0; i < 12; i++) {
+      await settleUI();
+      f.hooks.render();
+    }
+    const sheet = () => nodes(f.hooks.tree).find((node) => node.type === "ExportSheet")!;
+    assert.equal(f.toasts.length, 0, "The Kaata loads successfully before exporting");
+    f.setExportFailure(new ExportScopeError("beforeSharedOpening"));
+    sheet().props.onExport("pdf", "share", { period: { startMs: 1, endMs: 2 } });
+    await settleUI();
+    f.hooks.render();
+    assert.equal(
+      f.toasts.at(-1),
+      exportCopy.tExport("beforeSharedOpening", {
+        all: exportCopy.tExport("all"),
+        detailed: exportCopy.tExport("detailed"),
+      }),
+    );
+    f.setExportFailure(new Error("private diagnostic path"));
+    sheet().props.onExport("pdf", "share", {});
+    await settleUI();
+    f.hooks.render();
+    assert.equal(f.toasts.at(-1), "vaultSettings.toast.exportFailed");
+    f.setExportFailure(null);
+    const notifications = f.toasts.length;
+    sheet().props.onExport("pdf", "share", { detail: "detailed" });
+    await settleUI();
+    f.hooks.render();
+    assert.equal(f.toasts.length, notifications);
+    f.hooks.unmount();
+    f.store.close();
+    console.log(
+      "PASS Kaata export scope feedback: actionable date guidance, generic fallback and corrected retry",
+    );
+  }
   await checkBillLinkSettings();
   {
     const virtual = fixture();

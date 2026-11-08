@@ -18,9 +18,17 @@
 // date column just before the entry id (audit #15), so no other column moves
 // and every other calendar's file is unchanged.
 import { tIn } from "../i18n";
+import { tExportIn } from "../export-copy";
 import { clearanceNote, noteFor } from "./note";
 import { formatSettlementDate } from "../jalali";
-import { isoDate, qamariDate, shamsiDate, type PersonStatement, type VaultReport } from "./data";
+import {
+  isoDate,
+  qamariDate,
+  shamsiDate,
+  type ExportNote,
+  type PersonStatement,
+  type VaultReport,
+} from "./data";
 import { EVIDENCE_KEYS, evidenceCells, evidenceTime } from "./evidence";
 import {
   addRecordTotal,
@@ -30,6 +38,7 @@ import {
   type AmountRow,
   type RecordTotals,
 } from "./shared-record";
+import { recordStatus } from "./evidence";
 
 // Excel needs the BOM to detect UTF-8 (otherwise Dari text opens as mojibake)
 // and CRLF is the least-surprising row separator across spreadsheet apps.
@@ -52,7 +61,7 @@ function csvField(v: string | number | null | undefined): string {
 // string; csvLine's csvField does the quoting.
 function guardText(v: string | null | undefined): string {
   const s = v == null ? "" : String(v);
-  return /^[=+\-@\t\r]/.test(s) ? `\t${s}` : s;
+  return /^[\s]*[=+\-@]/.test(s) || /^[\t\r\n]/.test(s) ? `\t${s}` : s;
 }
 
 function csvLine(cells: Array<string | number | null | undefined>): string {
@@ -79,12 +88,14 @@ function clearanceEvidence(tabId: string, ms: number): string[] {
 }
 
 export function buildPersonCsv(st: PersonStatement): string {
+  if (st.exportOptions?.detail === "standard") return standardPersonCsv([st]);
   return BOM + personCsvLines(st).join(CRLF) + CRLF;
 }
 
 /** A single table labels every amount's currency; running balances reset per code. */
 export function buildPersonCurrenciesCsv(statements: readonly PersonStatement[]): string {
   if (statements.length === 0) throw new Error("No currency statements");
+  if (statements[0].exportOptions?.detail === "standard") return standardPersonCsv(statements);
   if (statements.length === 1) return buildPersonCsv(statements[0]);
   const shared = statements.some(
     (statement) =>
@@ -99,6 +110,7 @@ export function buildPersonCurrenciesCsv(statements: readonly PersonStatement[])
       recorded: statements.some((st) =>
         st.rows.some((row) => row.kind === "entry" && row.entry.tab?.status === "recorded"),
       ),
+      notes: statements.some((st) => st.exportOptions?.includeNotes),
     }),
   );
   return BOM + [tables[0][0], ...tables.flatMap((rows) => rows.slice(1))].join(CRLF) + CRLF;
@@ -106,10 +118,11 @@ export function buildPersonCurrenciesCsv(statements: readonly PersonStatement[])
 
 function personCsvLines(
   st: PersonStatement,
-  options: { currency?: boolean; shared?: boolean; recorded?: boolean } = {},
+  options: { currency?: boolean; shared?: boolean; recorded?: boolean; notes?: boolean } = {},
 ): string[] {
   const { locale, calendar, currencyCode: code } = st;
   const qamari = calendar === "qamari";
+  const notes = options.notes ?? st.exportOptions?.includeNotes === true;
   const recordedColumn =
     options.recorded ??
     st.rows.some((row) => row.kind === "entry" && row.entry.tab?.status === "recorded");
@@ -146,9 +159,64 @@ function personCsvLines(
           ]
         : []),
       ...(qamari ? [tIn(locale, "export.col.dateQamari")] : []),
+      ...(notes
+        ? [
+            tExportIn(locale, "noteNumber"),
+            tIn(locale, "export.record.author"),
+            tExportIn(locale, "customerDetails"),
+          ]
+        : []),
       tIn(locale, "export.col.id"),
     ]),
   ];
+  const auxiliary = (
+    ms: number,
+    label: string,
+    balance?: number,
+    note?: ExportNote,
+    history?: { scope: string; currency: string; balance: number },
+  ) =>
+    csvLine([
+      isoDate(ms),
+      shamsiDate(ms),
+      "",
+      "",
+      balance ?? "",
+      guardText(label),
+      ...(options.currency && !shared ? [note ? "" : code] : []),
+      ...(shared
+        ? [
+            history?.scope ??
+              (note ? tExportIn(locale, "internalNote") : tIn(locale, "export.record.current")),
+            history?.currency ?? (note ? "" : code),
+            "",
+            history?.balance ?? "",
+            "",
+            "",
+            "",
+            "",
+            ...(recordedColumn ? [""] : []),
+            ...EVIDENCE_KEYS.map(() => ""),
+          ]
+        : []),
+      ...(qamari ? [qamariDate(ms)] : []),
+      ...(notes
+        ? [
+            guardText(note?.noteNumber),
+            guardText(note?.authorName),
+            guardText(st.personDescription),
+          ]
+        : []),
+      note?.id ?? "",
+    ]);
+  if (st.exportOptions?.period?.startMs != null)
+    lines.push(
+      auxiliary(
+        st.exportOptions.period.startMs,
+        tExportIn(locale, "openingBalance"),
+        st.openingBalance ?? 0,
+      ),
+    );
   for (const row of st.rows) {
     if (row.kind === "settled") {
       const date = formatSettlementDate(row.ms, locale, calendar);
@@ -182,6 +250,7 @@ function personCsvLines(
               ]
             : []),
           ...(qamari ? [qamariDate(row.ms)] : []),
+          ...(notes ? ["", "", guardText(st.personDescription)] : []),
           row.shared?.settlement.id ?? "",
         ]),
       );
@@ -212,12 +281,37 @@ function personCsvLines(
             ]
           : []),
         ...(qamari ? [qamariDate(e.created_at)] : []),
+        ...(notes ? ["", "", guardText(st.personDescription)] : []),
         e.id,
       ]),
     );
   }
+  if (st.exportOptions)
+    lines.push(
+      auxiliary(
+        st.exportOptions.period?.endMs != null
+          ? st.exportOptions.period.endMs - 1
+          : st.generatedAtMs,
+        tExportIn(locale, "closingBalance"),
+        st.balance,
+      ),
+    );
   // The opening already carries this private history. Keep its original
   // amounts and historical balance without entering any current money column.
+  if (st.preLinkRows?.length && st.exportOptions?.period?.startMs != null)
+    lines.push(
+      auxiliary(
+        st.exportOptions.period.startMs,
+        tExportIn(locale, "openingBalance"),
+        undefined,
+        undefined,
+        {
+          scope: tIn(locale, "export.record.beforeLink"),
+          currency: code,
+          balance: st.preLinkOpeningBalance ?? 0,
+        },
+      ),
+    );
   for (const row of st.preLinkRows ?? []) {
     const entry = row.kind === "entry" ? row.entry : null;
     const ms = row.kind === "entry" ? row.entry.created_at : row.ms;
@@ -246,11 +340,26 @@ function personCsvLines(
         ...(recordedColumn ? [""] : []),
         ...(entry ? evidenceCells(undefined, locale) : EVIDENCE_KEYS.map(() => "")),
         ...(qamari ? [qamariDate(ms)] : []),
+        ...(notes ? ["", "", guardText(st.personDescription)] : []),
         entry?.id ?? "",
       ]),
     );
   }
   for (const period of st.archivedSharedPeriods ?? []) {
+    if (st.exportOptions?.period?.startMs != null)
+      lines.push(
+        auxiliary(
+          st.exportOptions.period.startMs,
+          tExportIn(locale, "openingBalance"),
+          undefined,
+          undefined,
+          {
+            scope: tIn(locale, "export.record.archived"),
+            currency: period.link.currency,
+            balance: period.openingBalance ?? 0,
+          },
+        ),
+      );
     for (const row of period.rows) {
       if (row.kind === "settled") {
         lines.push(
@@ -278,6 +387,7 @@ function personCsvLines(
             ...(recordedColumn ? [""] : []),
             ...clearanceEvidence(period.link.tab_id, row.ms),
             ...(qamari ? [qamariDate(row.ms)] : []),
+            ...(notes ? ["", "", guardText(st.personDescription)] : []),
             row.shared?.settlement.id ?? "",
           ]),
         );
@@ -306,15 +416,26 @@ function personCsvLines(
           ...(recordedColumn ? [""] : []),
           ...evidenceCells(entry.tab, locale).map(guardText),
           ...(qamari ? [qamariDate(entry.created_at)] : []),
+          ...(notes ? ["", "", guardText(st.personDescription)] : []),
           entry.id,
         ]),
       );
     }
   }
+  for (const note of notes ? (st.notes ?? []) : [])
+    lines.push(
+      auxiliary(
+        note.createdAt,
+        `${tExportIn(locale, "internalNote")}: ${note.note}`,
+        undefined,
+        note,
+      ),
+    );
   return lines;
 }
 
 export function buildVaultCsv(report: VaultReport): string {
+  if (report.exportOptions?.detail === "standard") return standardVaultCsv([report]);
   return BOM + vaultCsvLines(report).join(CRLF) + CRLF;
 }
 
@@ -322,6 +443,7 @@ export function buildVaultCsv(report: VaultReport): string {
  * currency of every amount and each person's running balance. */
 export function buildVaultCurrenciesCsv(reports: readonly VaultReport[]): string {
   if (reports.length === 0) throw new Error("No currency reports");
+  if (reports[0].exportOptions?.detail === "standard") return standardVaultCsv(reports);
   if (reports.length === 1) return buildVaultCsv(reports[0]);
   const shared = reports.some((report) => report.journal.some((row) => row.tab));
   const tables = reports.map((report) =>
@@ -329,6 +451,7 @@ export function buildVaultCurrenciesCsv(reports: readonly VaultReport[]): string
       currency: true,
       shared,
       recorded: reports.some((r) => r.journal.some((row) => row.tab?.status === "recorded")),
+      notes: reports.some((report) => report.exportOptions?.includeNotes),
     }),
   );
   return BOM + [tables[0][0], ...tables.flatMap((table) => table.slice(1))].join(CRLF) + CRLF;
@@ -336,10 +459,12 @@ export function buildVaultCurrenciesCsv(reports: readonly VaultReport[]): string
 
 function vaultCsvLines(
   report: VaultReport,
-  options: { currency?: boolean; shared?: boolean; recorded?: boolean } = {},
+  options: { currency?: boolean; shared?: boolean; recorded?: boolean; notes?: boolean } = {},
 ): string[] {
   const { locale, currencyCode: code } = report;
   const qamari = report.calendar === "qamari";
+  const notes = options.notes ?? report.exportOptions?.includeNotes === true;
+  const descriptions = new Map(report.people.map((person) => [person.id, person.description]));
   const recordedColumn =
     options.recorded ?? report.journal.some((row) => row.tab?.status === "recorded");
   const shared = options.shared ?? report.journal.some((r) => r.tab);
@@ -376,9 +501,52 @@ function vaultCsvLines(
           ]
         : []),
       ...(qamari ? [tIn(locale, "export.col.dateQamari")] : []),
+      ...(notes
+        ? [
+            tExportIn(locale, "noteNumber"),
+            tIn(locale, "export.record.author"),
+            tExportIn(locale, "customerDetails"),
+          ]
+        : []),
       tIn(locale, "export.col.id"),
     ]),
   ];
+  const auxiliary = (
+    ms: number,
+    person: { name: string; phone: string | null; description?: string },
+    label: string,
+    balance?: number,
+    note?: ExportNote,
+  ) =>
+    csvLine([
+      isoDate(ms),
+      shamsiDate(ms),
+      guardText(person.name),
+      guardText(person.phone),
+      ...(options.currency ? [note ? "" : code] : []),
+      "",
+      "",
+      balance ?? "",
+      guardText(label),
+      ...(shared
+        ? ["", "", "", "", "", ...(recordedColumn ? [""] : []), ...EVIDENCE_KEYS.map(() => "")]
+        : []),
+      ...(qamari ? [qamariDate(ms)] : []),
+      ...(notes
+        ? [guardText(note?.noteNumber), guardText(note?.authorName), guardText(person.description)]
+        : []),
+      note?.id ?? "",
+    ]);
+  if (report.exportOptions?.period?.startMs != null)
+    for (const person of report.people)
+      lines.push(
+        auxiliary(
+          report.exportOptions.period.startMs,
+          person,
+          tExportIn(locale, "openingBalance"),
+          person.openingBalance ?? 0,
+        ),
+      );
   for (const row of report.journal) {
     const totals = addRecordTotal(
       totalsByPerson.get(row.person_id) ?? { acknowledged: 0, pending: 0, private: 0 },
@@ -407,9 +575,267 @@ function vaultCsvLines(
             ]
           : []),
         ...(qamari ? [qamariDate(row.created_at)] : []),
+        ...(notes ? ["", "", guardText(descriptions.get(row.person_id))] : []),
         row.id,
       ]),
     );
   }
+  if (report.exportOptions)
+    for (const person of report.people)
+      lines.push(
+        auxiliary(
+          report.exportOptions.period?.endMs != null
+            ? report.exportOptions.period.endMs - 1
+            : report.generatedAtMs,
+          person,
+          tExportIn(locale, "closingBalance"),
+          person.balance,
+        ),
+      );
+  for (const note of notes ? (report.notes ?? []) : [])
+    lines.push(
+      auxiliary(
+        note.createdAt,
+        { name: note.personName, phone: null, description: descriptions.get(note.personId) },
+        `${tExportIn(locale, "internalNote")}: ${note.note}`,
+        undefined,
+        note,
+      ),
+    );
   return lines;
+}
+
+type CompactCsvContext = {
+  locale: PersonStatement["locale"];
+  calendar: PersonStatement["calendar"];
+  vault: boolean;
+  shared: boolean;
+  notes: boolean;
+  description?: string;
+  descriptions?: Map<string, string | undefined>;
+};
+
+/** The everyday spreadsheet is a ledger, with evidence kept in Detailed. */
+function compactHeader(ctx: CompactCsvContext): string {
+  const { locale } = ctx;
+  return csvLine([
+    tIn(locale, "export.col.date"),
+    tIn(locale, "export.col.dateShamsi"),
+    ...(ctx.calendar === "qamari" ? [tIn(locale, "export.col.dateQamari")] : []),
+    ...(ctx.vault ? [tIn(locale, "export.col.person"), tIn(locale, "export.col.phone")] : []),
+    tIn(locale, "export.record.currency"),
+    tExportIn(locale, "recordType"),
+    tIn(locale, "export.col.gave"),
+    tIn(locale, "export.col.received"),
+    tIn(locale, "export.col.balance"),
+    tIn(locale, "export.col.note"),
+    ...(ctx.shared
+      ? [tIn(locale, "export.record.status"), tIn(locale, "export.record.recordedAmount")]
+      : []),
+    ...(ctx.notes
+      ? [
+          tExportIn(locale, "noteNumber"),
+          tIn(locale, "export.record.author"),
+          tExportIn(locale, "customerDetails"),
+        ]
+      : []),
+    tIn(locale, "export.col.id"),
+  ]);
+}
+
+function compactRow(
+  ctx: CompactCsvContext,
+  row: {
+    ms?: number;
+    person?: { name: string; phone: string | null };
+    currency?: string;
+    type: string;
+    gave?: number | "";
+    received?: number | "";
+    balance?: number;
+    note?: string | null;
+    status?: string;
+    recorded?: number;
+    noteNumber?: string | null;
+    author?: string | null;
+    id?: string;
+    description?: string;
+  },
+): string {
+  return csvLine([
+    row.ms == null ? "" : isoDate(row.ms),
+    row.ms == null ? "" : shamsiDate(row.ms),
+    ...(ctx.calendar === "qamari" ? [row.ms == null ? "" : qamariDate(row.ms)] : []),
+    ...(ctx.vault ? [guardText(row.person?.name), guardText(row.person?.phone)] : []),
+    row.currency ?? "",
+    row.type,
+    row.gave ?? "",
+    row.received ?? "",
+    row.balance ?? "",
+    guardText(row.note),
+    ...(ctx.shared ? [row.status ?? "", row.recorded ?? ""] : []),
+    ...(ctx.notes
+      ? [
+          guardText(row.noteNumber),
+          guardText(row.author),
+          guardText(row.description ?? ctx.description),
+        ]
+      : []),
+    guardText(row.id),
+  ]);
+}
+
+function compactNote(ctx: CompactCsvContext, note: ExportNote): string {
+  return compactRow(ctx, {
+    ms: note.createdAt,
+    person: { name: note.personName, phone: null },
+    type: tExportIn(ctx.locale, "internalNote"),
+    note: note.note,
+    noteNumber: note.noteNumber,
+    author: note.authorName,
+    id: note.id,
+    description: ctx.descriptions?.get(note.personId),
+  });
+}
+
+function standardPersonCsv(statements: readonly PersonStatement[]): string {
+  const first = statements[0];
+  const ctx: CompactCsvContext = {
+    locale: first.locale,
+    calendar: first.calendar,
+    vault: false,
+    shared: statements.some((st) => st.rows.some((row) => row.kind === "entry" && row.entry.tab)),
+    notes: statements.some((st) => st.exportOptions?.includeNotes === true),
+  };
+  const lines = [compactHeader(ctx)];
+  for (const st of statements) {
+    ctx.description = st.personDescription;
+    const start = st.exportOptions?.period?.startMs;
+    if (start != null)
+      lines.push(
+        compactRow(ctx, {
+          ms: start,
+          currency: st.currencyCode,
+          type: tExportIn(st.locale, "openingBalance"),
+          balance: st.openingBalance ?? 0,
+        }),
+      );
+    for (const row of st.rows) {
+      if (row.kind === "settled") {
+        lines.push(
+          compactRow(ctx, {
+            ms: row.ms,
+            currency: st.currencyCode,
+            type: tExportIn(st.locale, "settlement"),
+            balance: row.balanceAfter,
+            note: row.shared
+              ? clearanceNote(
+                  row.shared.settlement.actor_name,
+                  formatSettlementDate(row.ms, st.locale, st.calendar),
+                  st.locale,
+                )
+              : tIn(st.locale, "export.doc.settledOn", {
+                  date: formatSettlementDate(row.ms, st.locale, st.calendar),
+                }),
+            id: row.shared?.settlement.id,
+          }),
+        );
+        continue;
+      }
+      const entry = row.entry;
+      const [gave, received] = countedCells(entry);
+      lines.push(
+        compactRow(ctx, {
+          ms: entry.created_at,
+          currency: st.currencyCode,
+          type: tExportIn(st.locale, "tally"),
+          gave,
+          received,
+          balance: row.balanceAfter,
+          note: noteFor(entry.note, entry.tab?.kind, st.locale),
+          status: entry.tab ? recordStatus(entry.tab, st.locale) : "",
+          recorded: countsTowardBalance(entry) ? undefined : recordedAmount(entry),
+          id: entry.id,
+        }),
+      );
+    }
+    lines.push(
+      compactRow(ctx, {
+        ms:
+          st.exportOptions?.period?.endMs != null
+            ? st.exportOptions.period.endMs - 1
+            : st.generatedAtMs,
+        currency: st.currencyCode,
+        type: tExportIn(st.locale, "closingBalance"),
+        balance: st.balance,
+      }),
+    );
+    for (const note of st.exportOptions?.includeNotes ? (st.notes ?? []) : [])
+      lines.push(compactNote(ctx, note));
+  }
+  return BOM + lines.join(CRLF) + CRLF;
+}
+
+function standardVaultCsv(reports: readonly VaultReport[]): string {
+  const first = reports[0];
+  const ctx: CompactCsvContext = {
+    locale: first.locale,
+    calendar: first.calendar,
+    vault: true,
+    shared: reports.some((report) => report.journal.some((row) => row.tab)),
+    notes: reports.some((report) => report.exportOptions?.includeNotes === true),
+  };
+  const lines = [compactHeader(ctx)];
+  for (const report of reports) {
+    ctx.descriptions = new Map(report.people.map((person) => [person.id, person.description]));
+    const start = report.exportOptions?.period?.startMs;
+    if (start != null)
+      for (const person of report.people)
+        lines.push(
+          compactRow(ctx, {
+            ms: start,
+            person,
+            currency: report.currencyCode,
+            type: tExportIn(report.locale, "openingBalance"),
+            balance: person.openingBalance ?? 0,
+            description: person.description,
+          }),
+        );
+    for (const row of report.journal) {
+      const [gave, received] = countedCells(row);
+      lines.push(
+        compactRow(ctx, {
+          ms: row.created_at,
+          person: { name: row.person_name, phone: row.person_phone },
+          currency: report.currencyCode,
+          type: tExportIn(report.locale, "tally"),
+          gave,
+          received,
+          balance: row.balanceAfter,
+          note: noteFor(row.note, row.kind, report.locale),
+          status: row.tab ? recordStatus(row.tab, report.locale) : "",
+          recorded: countsTowardBalance(row) ? undefined : recordedAmount(row),
+          id: row.id,
+          description: ctx.descriptions.get(row.person_id),
+        }),
+      );
+    }
+    for (const person of report.people)
+      lines.push(
+        compactRow(ctx, {
+          ms:
+            report.exportOptions?.period?.endMs != null
+              ? report.exportOptions.period.endMs - 1
+              : report.generatedAtMs,
+          person,
+          currency: report.currencyCode,
+          type: tExportIn(report.locale, "closingBalance"),
+          balance: person.balance,
+          description: person.description,
+        }),
+      );
+    for (const note of report.exportOptions?.includeNotes ? (report.notes ?? []) : [])
+      lines.push(compactNote(ctx, note));
+  }
+  return BOM + lines.join(CRLF) + CRLF;
 }

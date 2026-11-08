@@ -152,6 +152,7 @@ async function verifyExport() {
     }
   }
   const pdf = compileUI("../export/pdf", {
+    "react-native": { Platform: { OS: "android" } },
     "expo-asset": {
       Asset: {
         fromModule: () => {
@@ -168,12 +169,13 @@ async function verifyExport() {
     },
     "@expo-google-fonts/vazirmatn": { Vazirmatn_400Regular: 1, Vazirmatn_700Bold: 2 },
     "../colors": require("../colors"),
-    "../expo-go": { isExpoGo: () => false },
+    "../expo-go": { IS_EXPO_GO: false },
     "../format": format,
     "../i18n": language,
     "../mobile-copy": extra,
     "./note": note,
     "./evidence": evidence,
+    "./pdf-copy": require("../export/pdf-copy"),
     "../jalali": require("../jalali"),
     "../money": require("../money"),
     "./data": { exportFileTarget: () => new PrintFile("synthetic-target.pdf") },
@@ -182,6 +184,7 @@ async function verifyExport() {
   const file = await pdf.renderPersonStatementPdf(
     {
       locale: "ps",
+      exportOptions: { detail: "standard", includeNotes: false },
       calendar: "jalali",
       currencyCode: "AFN",
       currencySymbol: "؋",

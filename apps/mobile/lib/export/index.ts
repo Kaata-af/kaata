@@ -38,6 +38,14 @@ export function savedMessage(
 }
 import { buildPersonCurrenciesCsv, buildVaultCurrenciesCsv } from "./csv";
 import { renderPersonCurrenciesPdf, renderVaultCurrenciesPdf } from "./pdf";
+import {
+  normalizeExportOptions,
+  scopePersonStatement,
+  scopeVaultReport,
+  type ExportOptions,
+} from "./options";
+export type { ExportOptions } from "./options";
+export { ExportScopeError } from "./options";
 
 export type ExportFormat = "csv" | "pdf";
 /** Where the finished file goes: the OS share sheet, or a folder on the phone. */
@@ -55,7 +63,9 @@ export async function exportPersonStatement(
   personId: string,
   format: ExportFormat,
   destination: ExportDestination,
+  options: ExportOptions = {},
 ): Promise<ExportResult> {
+  const settings = normalizeExportOptions(options);
   const now = Date.now();
   const vaultId = getActiveVaultIdSyncMaybe();
   const accountId = getAccountIdSync();
@@ -64,23 +74,26 @@ export async function exportPersonStatement(
     if (getActiveVaultIdSyncMaybe() !== vaultId || getAccountIdSync() !== accountId)
       throw new Error("export: active Kaata changed");
   };
-  const statements = await buildPersonStatements(personId, vaultId, getLocale(), now);
+  const snapshots = await buildPersonStatements(personId, vaultId, getLocale(), now, settings);
   assertCurrent();
+  const statements = snapshots.map((statement) => scopePersonStatement(statement, settings));
   if (statements.length === 0) throw new Error("export: person not found");
-  const fileName = exportFileName(statements[0].person.name, now, format);
+  const fileName = exportFileName(`statement-${statements[0].person.name}`, now, format);
 
   if (format === "csv") {
     const csv = buildPersonCurrenciesCsv(statements);
-    if (destination === "save") return saveExportFile({ fileName, kind: "csv", contents: csv });
+    if (destination === "save")
+      return saveExportFile({ fileName, kind: "csv", contents: csv, assertCurrent });
     const file = writeExportFile(fileName, csv);
-    await shareExportFile(file.uri, "csv");
+    await shareExportFile(file.uri, "csv", assertCurrent);
     return null;
   }
 
   const file = await renderPersonCurrenciesPdf(statements, fileName);
   assertCurrent();
-  if (destination === "save") return saveExportFile({ fileName, kind: "pdf", source: file });
-  await shareExportFile(file.uri, "pdf");
+  if (destination === "save")
+    return saveExportFile({ fileName, kind: "pdf", source: file, assertCurrent });
+  await shareExportFile(file.uri, "pdf", assertCurrent);
   return null;
 }
 
@@ -91,21 +104,39 @@ export async function exportVaultReport(
   vault: { id: string; name: string; currency: string },
   format: ExportFormat,
   destination: ExportDestination,
+  options: ExportOptions = {},
 ): Promise<ExportResult> {
+  const settings = normalizeExportOptions(options);
   const now = Date.now();
-  const reports = await buildVaultReports(vault.id, vault.name, vault.currency, getLocale(), now);
-  const fileName = exportFileName(vault.name, now, format);
+  const accountId = getAccountIdSync();
+  const assertCurrent = () => {
+    if (getAccountIdSync() !== accountId) throw new Error("export: account changed");
+  };
+  const snapshots = await buildVaultReports(
+    vault.id,
+    vault.name,
+    vault.currency,
+    getLocale(),
+    now,
+    settings,
+  );
+  assertCurrent();
+  const reports = snapshots.map((report) => scopeVaultReport(report, settings));
+  const fileName = exportFileName(`report-${vault.name}`, now, format);
 
   if (format === "csv") {
     const csv = buildVaultCurrenciesCsv(reports);
-    if (destination === "save") return saveExportFile({ fileName, kind: "csv", contents: csv });
+    if (destination === "save")
+      return saveExportFile({ fileName, kind: "csv", contents: csv, assertCurrent });
     const file = writeExportFile(fileName, csv);
-    await shareExportFile(file.uri, "csv");
+    await shareExportFile(file.uri, "csv", assertCurrent);
     return null;
   }
 
   const file = await renderVaultCurrenciesPdf(reports, fileName);
-  if (destination === "save") return saveExportFile({ fileName, kind: "pdf", source: file });
-  await shareExportFile(file.uri, "pdf");
+  assertCurrent();
+  if (destination === "save")
+    return saveExportFile({ fileName, kind: "pdf", source: file, assertCurrent });
+  await shareExportFile(file.uri, "pdf", assertCurrent);
   return null;
 }

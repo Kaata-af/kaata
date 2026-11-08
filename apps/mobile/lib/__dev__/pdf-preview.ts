@@ -12,7 +12,7 @@
 // Fixtures are deliberately Dari-first with Afghan month names and real shop
 // vocabulary, because that is the document the complaint was about.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 function withModuleStubs<T>(stubs: Record<string, unknown>, load: () => T): T {
@@ -40,10 +40,7 @@ class PrintFile {
     this.uri = uri;
   }
   base64(): string {
-    // No font bytes in the preview: the browser substitutes a system Arabic
-    // face, which is enough to judge layout. Embedding ~1MB of base64 twice
-    // would make the output unopenable in an editor.
-    return "";
+    return readFileSync(this.uri).toString("base64");
   }
   async move(target: PrintFile) {
     this.uri = target.uri;
@@ -51,13 +48,22 @@ class PrintFile {
 }
 
 const stubs = {
+  "react-native": { Platform: { OS: "android" } },
+  "../expo-go": { IS_EXPO_GO: false },
   "expo-localization": { getLocales: () => [{ languageCode: "fa" }] },
   "../db": { getAppMeta: async () => null },
   "../calendar": { getEffectiveCalendar: () => "jalali" },
   "../currency": { getCurrentCurrencySymbol: () => "؋" },
   "expo-file-system": { File: PrintFile },
   "expo-asset": {
-    Asset: { fromModule: () => ({ downloadAsync: async () => {}, localUri: "preview-font" }) },
+    Asset: {
+      fromModule: (weight: number) => ({
+        downloadAsync: async () => {},
+        localUri: require.resolve(
+          `@expo-google-fonts/vazirmatn/${weight === 1 ? "400Regular/Vazirmatn_400Regular" : "700Bold/Vazirmatn_700Bold"}.ttf`,
+        ),
+      }),
+    },
   },
   "@expo-google-fonts/vazirmatn": { Vazirmatn_400Regular: 1, Vazirmatn_700Bold: 2 },
   "expo-print": {
@@ -165,6 +171,7 @@ function buildReport() {
     {
       id: "p1",
       name: "حاجی محمد اخلاص",
+      description: "مواد خوراکه برای دوکان — تحویل هفتگی",
       phone: "+93793134779",
       entryCount: 25,
       balance: 520,
@@ -431,7 +438,155 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await pdf.renderPersonStatementPdf(shared as any, "shared-fa.pdf");
 
-  const names = ["statement", "report", "shared-en", "shared-fa"];
+  const options = { detail: "standard" as const, includeNotes: true };
+  const standard = {
+    ...buildStatement(),
+    vaultName: "دوکان اخلاص",
+    exportOptions: options,
+    openingBalance: 0,
+    personDescription: "مواد خوراکه — حساب تحویل هفتگی",
+    notes: [
+      {
+        id: "note1",
+        note: "Please record the delivery after checking it.\nلطفاً پس از بررسی، تحویل را ثبت کنید.",
+        noteNumber: "12.5",
+        createdAt: BASE + DAY,
+        personId: "p1",
+        personName: "حاجی محمد اخلاص",
+        authorName: "Ahmad",
+      },
+    ],
+  };
+  for (const locale of ["en", "fa", "ps"]) {
+    await pdf.renderPersonStatementPdf({ ...standard, locale } as any, `compact-${locale}.pdf`);
+    await pdf.renderVaultReportPdf(
+      { ...buildReport(), locale, exportOptions: options } as any,
+      `summary-${locale}.pdf`,
+    );
+  }
+  await pdf.renderPersonStatementPdf(
+    {
+      ...shared,
+      locale: "en",
+      calendar: "gregorian",
+      vaultName: "Example shop",
+      exportOptions: options,
+    } as any,
+    "compact-shared.pdf",
+  );
+  let longBalance = 120;
+  const longRows = Array.from({ length: 140 }, (_, i) => {
+    const amount = i % 4 === 0 ? -50 : 22.5;
+    longBalance = Math.round((longBalance + amount) * 100) / 100;
+    return {
+      kind: "entry",
+      balanceAfter: longBalance,
+      entry: {
+        id: `long${i}`,
+        relationship_id: "r1",
+        created_at: BASE + i * DAY,
+        type: amount < 0 ? "payment" : "debt",
+        amount_afn: Math.abs(amount),
+        note:
+          i % 9 === 0
+            ? "A long delivery description, including bread, flour, rice and tea — آرد و روغن و چای — receipt ABC-1234567890"
+            : "Flour and tea — آرد و چای",
+      },
+    };
+  });
+  await pdf.renderPersonStatementPdf(
+    {
+      ...standard,
+      locale: "en",
+      calendar: "gregorian",
+      rows: longRows,
+      balance: longBalance,
+      openingBalance: 120,
+      exportOptions: { ...options, period: { startMs: BASE, endMs: BASE + 141 * DAY } },
+    } as any,
+    "long-statement.pdf",
+  );
+  await pdf.renderPersonStatementPdf(
+    { ...standard, rows: [], balance: 120, openingBalance: 120, notes: [] } as any,
+    "no-activity.pdf",
+  );
+  await pdf.renderPersonStatementPdf(
+    { ...standard, exportOptions: { detail: "standard", includeNotes: false } } as any,
+    "customer-statement.pdf",
+  );
+  const detailed = {
+    ...shared,
+    exportOptions: { detail: "detailed", includeNotes: true },
+    vaultName: "دوکان اخلاص",
+    notes: standard.notes,
+  };
+  await pdf.renderPersonStatementPdf(detailed as any, "detailed-shared.pdf");
+  await pdf.renderVaultReportPdf(
+    {
+      ...buildReport(),
+      people: [
+        {
+          id: "p1",
+          name: "حاجی محمد اخلاص",
+          phone: null,
+          entryCount: 8,
+          balance: shared.balance,
+          lastEntryAt: BASE + 6 * DAY,
+        },
+      ],
+      journal: shared.rows.flatMap((row: any) =>
+        row.kind === "entry"
+          ? [
+              {
+                ...row.entry,
+                person_id: "p1",
+                person_name: "حاجی محمد اخلاص",
+                person_phone: null,
+                balanceAfter: row.balanceAfter,
+              },
+            ]
+          : [],
+      ),
+      totals: { collect: shared.balance, pay: 0, net: shared.balance },
+      exportOptions: detailed.exportOptions,
+    } as any,
+    "detailed-report.pdf",
+  );
+  await pdf.renderPersonCurrenciesPdf(
+    [
+      { ...standard, exportOptions: { detail: "standard", includeNotes: false } },
+      {
+        ...standard,
+        currencyCode: "USD",
+        currencySymbol: "$",
+        rows: [],
+        balance: -42.5,
+        openingBalance: -42.5,
+        exportOptions: { detail: "standard", includeNotes: false },
+      },
+    ] as any,
+    "multi-currency.pdf",
+  );
+
+  const names = [
+    "statement",
+    "report",
+    "shared-en",
+    "shared-fa",
+    "compact-en",
+    "summary-en",
+    "compact-fa",
+    "summary-fa",
+    "compact-ps",
+    "summary-ps",
+    "compact-shared",
+    "long-statement",
+    "no-activity",
+    "customer-statement",
+    "detailed-shared",
+    "detailed-report",
+    "multi-currency",
+  ];
   captured.forEach((doc, i) => {
     const file = join(outDir, `${names[i] ?? doc.name}.html`);
     writeFileSync(file, doc.html, "utf8");

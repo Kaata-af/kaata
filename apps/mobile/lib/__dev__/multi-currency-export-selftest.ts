@@ -161,12 +161,21 @@ const language = compileUI("../i18n", {
   "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
   "./db": { getAppMeta: async () => null },
 }) as typeof import("../i18n");
+const exportCopy = compileUI("../export-copy", { "./i18n": language });
+const pdfCopy = compileUI("../export/pdf-copy", {});
+const scope = require("../export/options") as typeof import("../export/options");
 const csv = compileUI("../export/csv", {
   "../i18n": language,
+  "../export-copy": exportCopy,
   "./data": data,
   "../jalali": { formatSettlementDate },
   "./note": { noteFor: (note: string) => note, clearanceNote: () => "cleared" },
-  "./evidence": { EVIDENCE_KEYS: [], evidenceCells: () => [], evidenceTime: String },
+  "./evidence": {
+    EVIDENCE_KEYS: [],
+    evidenceCells: () => [],
+    evidenceTime: String,
+    recordStatus: () => "pending",
+  },
   "./shared-record": records,
 }) as typeof import("../export/csv");
 const pages: string[] = [];
@@ -187,6 +196,7 @@ class PrintedFile {
   }
 }
 const pdf = compileUI("../export/pdf", {
+  "react-native": { Platform: { OS: "android" } },
   "expo-asset": {
     Asset: { fromModule: () => ({ downloadAsync: async () => {}, localUri: "font" }) },
   },
@@ -227,6 +237,7 @@ const pdf = compileUI("../export/pdf", {
     recordStatus: () => "pending",
   },
   "./shared-record": records,
+  "./pdf-copy": pdfCopy,
 }) as typeof import("../export/pdf");
 
 // Read CSV as cells rather than splitting lines: notes contain real newlines.
@@ -512,11 +523,16 @@ async function main() {
     },
     "./csv": csv,
     "./pdf": pdf,
+    "./options": scope,
   }) as typeof import("../export");
   await api.exportPersonStatement("p", "csv", "share");
   const exported = table(exportFiles.get(outputs.at(-1).uri)!);
+  const exportedCurrency = exported[0].indexOf(language.tIn("en", "export.record.currency"));
   assert.deepEqual(
-    exported.slice(1).map((row) => row[personCurrency]),
+    exported
+      .slice(1)
+      .filter((row) => row.at(-1))
+      .map((row) => row[exportedCurrency]),
     ["AFN", "USD"],
     "the unchanged public customer export API exports all currencies",
   );

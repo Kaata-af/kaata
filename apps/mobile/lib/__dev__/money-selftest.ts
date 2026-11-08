@@ -640,6 +640,7 @@ async function main(): Promise<void> {
       }
     }
     const nativeStubs = {
+      "react-native": { Platform: { OS: "android" } },
       "../expo-go": { IS_EXPO_GO: false },
       "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
       "../db": { getAppMeta: async () => null },

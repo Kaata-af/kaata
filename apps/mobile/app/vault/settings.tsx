@@ -32,7 +32,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { BottomSheet } from "../../components/BottomSheet";
+import { ExportSheet } from "../../components/ExportSheet";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { FormField } from "../../components/FormField";
@@ -60,6 +60,7 @@ import {
   clearActiveVaultId,
   getActiveVaultId,
   getActiveVaultIdSyncMaybe,
+  getAccountIdSync,
   getDb,
   setActiveVaultId,
 } from "../../lib/db-tx";
@@ -86,8 +87,10 @@ import {
   savedMessage,
   type ExportDestination,
   type ExportFormat,
+  type ExportOptions,
 } from "../../lib/export";
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
+import { exportFailureMessage } from "../../lib/export-feedback";
 import { fonts } from "../../lib/fonts";
 import { getLocale, t } from "../../lib/i18n";
 import { icon } from "../../lib/tokens";
@@ -235,7 +238,11 @@ export default function VaultSettingsScreen() {
   // animation, so a double-tap schedules TWO deferred calls whose closures
   // both captured busy === null; only a call-time ref read stops the second.
   const exportingRef = useRef(false);
-  async function onExport(format: ExportFormat, destination: ExportDestination) {
+  async function onExport(
+    format: ExportFormat,
+    destination: ExportDestination,
+    options: ExportOptions,
+  ) {
     if (!vault || exportingRef.current || busy !== null) return;
     exportingRef.current = true;
     setBusy("export");
@@ -247,6 +254,7 @@ export default function VaultSettingsScreen() {
         { id: vault.id, name: vault.name, currency: vault.currency || "AFN" },
         format,
         destination,
+        options,
       );
       // Non-null only on a completed save — a share needs no confirmation
       // (the OS sheet is its own feedback) and a cancelled picker is silent.
@@ -254,7 +262,7 @@ export default function VaultSettingsScreen() {
       if (msg) toast.push(msg, "success");
     } catch (e) {
       console.warn("[vault/settings] export failed", e);
-      toast.push(t("vaultSettings.toast.exportFailed"), "error");
+      toast.push(exportFailureMessage(e, t("vaultSettings.toast.exportFailed")), "error");
     } finally {
       exportingRef.current = false;
       setBusy(null);
@@ -1308,35 +1316,13 @@ export default function VaultSettingsScreen() {
         isRTL={isRTL}
       />
 
-      {/* Export chooser. BottomSheet's 220ms action defer doubles as
-          clearance for the OS share sheet that follows generation — the
-          sheet's Modal is fully unmounted before shareAsync presents. */}
-      <BottomSheet
+      <ExportSheet
         visible={exportSheetVisible}
+        contextKey={`${getAccountIdSync()}:${vault?.id}`}
         title={t("vaultSettings.export.sheetTitle")}
+        kind="vault"
         onDismiss={() => setExportSheetVisible(false)}
-        actions={[
-          {
-            label: t("export.action.sharePdf"),
-            icon: "share-outline",
-            onPress: () => void onExport("pdf", "share"),
-          },
-          {
-            label: t("export.action.shareCsv"),
-            icon: "share-outline",
-            onPress: () => void onExport("csv", "share"),
-          },
-          {
-            label: t("export.action.savePdf"),
-            icon: "download-outline",
-            onPress: () => void onExport("pdf", "save"),
-          },
-          {
-            label: t("export.action.saveCsv"),
-            icon: "download-outline",
-            onPress: () => void onExport("csv", "save"),
-          },
-        ]}
+        onExport={(format, destination, options) => void onExport(format, destination, options)}
       />
     </SafeAreaView>
   );

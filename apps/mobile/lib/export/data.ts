@@ -19,6 +19,7 @@ import { getEffectiveCalendar, type Calendar } from "../calendar";
 import { getCurrencySymbol } from "../currency";
 import {
   getLocalSelf,
+  getDb,
   getPerson,
   listEntries,
   listEntriesForExport,
@@ -43,6 +44,20 @@ import { afterSharedSettlement } from "../tabs/chapters";
 import type { TabSettlement } from "../tabs/types";
 import { applyEventMutex } from "../projection";
 import { assertSingleCurrency } from "../currency-totals";
+import type { ExportOptions, NormalizedExportOptions } from "./options";
+
+/** Internal notes are unitless. They never enter a money column or balance. */
+export type ExportNote = {
+  id: string;
+  note: string;
+  noteNumber: string | null;
+  createdAt: number;
+  personId: string;
+  personName: string;
+  authorName: string | null;
+};
+
+export type ExportPeriodTotals = { gave: number; received: number };
 
 export type StatementRow =
   | { kind: "entry"; entry: Entry; balanceAfter: number }
@@ -60,6 +75,15 @@ export type StatementRow =
 export type PersonStatement = {
   person: PersonWithBalance;
   self: Self | null;
+  vaultName?: string;
+  personDescription?: string;
+  /** Earlier books exist separately from the current ledger's contributions. */
+  hasEarlierHistory?: boolean;
+  exportOptions?: NormalizedExportOptions;
+  openingBalance?: number;
+  periodTotals?: ExportPeriodTotals;
+  notes?: ExportNote[];
+  preLinkOpeningBalance?: number;
   /** Oldest-first, settlement markers interleaved after each closed chapter. */
   rows: StatementRow[];
   balance: number;
@@ -81,6 +105,7 @@ export type PersonStatement = {
   archivedSharedPeriods?: Array<
     Awaited<ReturnType<typeof listArchivedSharedPeriodsForExport>>[number] & {
       rows: StatementRow[];
+      openingBalance?: number;
     }
   >;
 };
@@ -172,6 +197,9 @@ export type ReportPerson = {
   entryCount: number;
   balance: number;
   lastEntryAt: number;
+  description?: string;
+  openingBalance?: number;
+  periodTotals?: ExportPeriodTotals;
 };
 
 export type VaultReport = {
@@ -188,6 +216,10 @@ export type VaultReport = {
   /** See PersonStatement.calendar. */
   calendar: Calendar;
   generatedAtMs: number;
+  exportOptions?: NormalizedExportOptions;
+  openingTotals?: { collect: number; pay: number; net: number };
+  periodTotals?: ExportPeriodTotals;
+  notes?: ExportNote[];
 };
 
 export async function buildPersonStatement(
@@ -210,6 +242,7 @@ export async function buildPersonStatements(
   vaultId: string,
   locale: LocaleCode,
   generatedAtMs: number,
+  options?: ExportOptions,
 ): Promise<PersonStatement[]> {
   return applyEventMutex.runExclusive(async () => {
     const calendar = getEffectiveCalendar();
@@ -236,7 +269,13 @@ export async function buildPersonStatements(
         !!statement.person.tab_id ||
         statement.person.tab_unsynced === 1,
     );
-    return populated.length ? populated : statements.slice(0, 1);
+    const result = populated.length ? populated : statements.slice(0, 1);
+    if (options?.includeNotes && result.length) {
+      const descriptions = await readExportDescriptions(vaultId);
+      for (const statement of result) statement.personDescription = descriptions.get(personId);
+      result[0] = { ...result[0], notes: await readExportNotes(vaultId, personId) };
+    }
+    return result;
   });
 }
 
@@ -300,6 +339,7 @@ async function buildPersonStatementSnapshot(
   return {
     person,
     self,
+    vaultName: self?.shop_name ?? "",
     rows,
     // Derive the headline from exactly the rows printed in this statement.
     balance: running,
@@ -393,6 +433,7 @@ export async function buildVaultReports(
   defaultCurrency: string,
   locale: LocaleCode,
   generatedAtMs: number,
+  options?: ExportOptions,
 ): Promise<VaultReport[]> {
   return applyEventMutex.runExclusive(async () => {
     const calendar = getEffectiveCalendar();
@@ -403,8 +444,57 @@ export async function buildVaultReports(
       ),
     );
     const populated = reports.filter((report) => report.journal.length > 0);
-    return populated.length ? populated : reports.slice(0, 1);
+    const result = populated.length ? populated : reports.slice(0, 1);
+    if (options?.includeNotes && result.length) {
+      const descriptions = await readExportDescriptions(vaultId);
+      for (const report of result)
+        report.people = report.people.map((person) => ({
+          ...person,
+          description: descriptions.get(person.id),
+        }));
+      result[0] = { ...result[0], notes: await readExportNotes(vaultId) };
+    }
+    return result;
   });
+}
+
+async function readExportDescriptions(vaultId: string): Promise<Map<string, string>> {
+  const rows = await (
+    await getDb()
+  ).getAllAsync<{ personId: string; note: string | null }>(
+    `SELECT user_b_id AS personId,note FROM relationships
+     WHERE vault_id=? AND archived_at IS NULL ORDER BY created_at ASC,id ASC`,
+    vaultId,
+  );
+  const descriptions = new Map<string, string>();
+  for (const row of rows) {
+    const note = row.note?.trim();
+    if (note) descriptions.set(row.personId, note);
+    else descriptions.delete(row.personId);
+  }
+  return descriptions;
+}
+
+/** Called inside the same projection mutex as the financial snapshot. */
+async function readExportNotes(vaultId: string, personId?: string): Promise<ExportNote[]> {
+  const db = await getDb();
+  return db.getAllAsync<ExportNote>(
+    `SELECT n.id, n.note, n.number_text AS noteNumber, n.created_at AS createdAt,
+            r.user_b_id AS personId, u.display_name AS personName,
+            (SELECT NULLIF(TRIM(m.display_name),'') FROM vault_members_mirror m
+             WHERE m.vault_id=n.vault_id AND m.account_id=COALESCE(n.author_account_id,
+               (SELECT d.account_id FROM vault_device_registry d
+                WHERE d.vault_id=n.vault_id AND d.device_id=n.author_device_id
+                ORDER BY d.removed_at_ms IS NOT NULL,d.added_at_ms DESC LIMIT 1))
+             LIMIT 1) AS authorName
+     FROM tally_notes n
+     JOIN relationships r ON r.id=n.relationship_id AND r.vault_id=n.vault_id
+     JOIN users u ON u.id=r.user_b_id
+     WHERE n.vault_id=? AND n.removed_at IS NULL AND r.archived_at IS NULL
+       ${personId ? "AND r.user_b_id=?" : ""}
+     ORDER BY n.created_at ASC,n.id ASC`,
+    ...[vaultId, ...(personId ? [personId] : [])],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -528,6 +618,7 @@ export async function saveExportFile(args: {
   contents?: string;
   /** Source file (the printed PDF) to copy bytes from. */
   source?: File;
+  assertCurrent?: () => void;
 }): Promise<SaveOutcome | null> {
   if (args.contents == null && !args.source) {
     throw new Error("saveExportFile: neither contents nor source given");
@@ -535,6 +626,7 @@ export async function saveExportFile(args: {
   const source = args.source ?? writeExportFile(args.fileName, args.contents!);
 
   await afterSheetTeardown();
+  args.assertCurrent?.();
   try {
     const result = await saveFileToPhone(source.uri, args.fileName, MIME[args.kind]);
     if (result == null) return null;
@@ -543,7 +635,7 @@ export async function saveExportFile(args: {
       : { via: "files", name: result.displayName };
   } catch (err) {
     if (errorCode(err) === SAVE_FILE_ERR.UNSUPPORTED) {
-      await shareExportFile(source.uri, args.kind);
+      await shareExportFile(source.uri, args.kind, args.assertCurrent);
       return { via: "share" };
     }
     // Recorded durably, with the step, before it surfaces as a toast: this
@@ -586,8 +678,13 @@ async function afterSheetTeardown(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 120));
 }
 
-export async function shareExportFile(uri: string, kind: "csv" | "pdf"): Promise<void> {
+export async function shareExportFile(
+  uri: string,
+  kind: "csv" | "pdf",
+  assertCurrent?: () => void,
+): Promise<void> {
   await afterSheetTeardown();
+  assertCurrent?.();
   await Sharing.shareAsync(
     uri,
     kind === "csv"
