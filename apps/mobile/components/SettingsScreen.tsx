@@ -166,6 +166,7 @@ export function NavRow(props: {
   iconColor?: string;
   label: string;
   hint?: string;
+  hintLines?: number;
   trailing?: string | ReactNode;
   onPress: () => void;
   isRTL: boolean;
@@ -243,7 +244,7 @@ export function NavRow(props: {
               textDir(props.isRTL),
               props.disabled && { color: colors.textMuted },
             ]}
-            numberOfLines={1}
+            numberOfLines={props.hintLines ?? 1}
           >
             {props.hint}
           </Text>

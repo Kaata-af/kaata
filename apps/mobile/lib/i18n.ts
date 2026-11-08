@@ -30,15 +30,19 @@ const en = {
   "backups.readFailed": "Could not read backup status. Try again.",
   "backups.personal": "Personal copies",
   "backups.personalHint":
-    "Save an encrypted copy yourself. Choose the provider in the Files save window. These copies are manual; Kaata cannot verify the provider’s cloud upload.",
+    "Choose the provider in the Files save window. Your confirmation records the save on this phone. The provider handles the cloud upload.",
   "backups.googleDrive": "Google Drive",
   "backups.icloudDrive": "iCloud Drive",
+  "backups.googleFormat": "Saves an unencrypted ZIP",
+  "backups.icloudFormat": "Saves a password-protected copy",
   "backups.lastSaved": "Last saved here: {when}",
   "backups.notSaved": "No saved copy confirmed on this phone",
   "backups.statusUnknown": "Backup status unavailable",
   "backups.saveTo": "Save a copy to {destination}",
   "backups.googleInstructions":
     "In the Files save window, choose Google Drive and the account and folder you want. On iPhone, use Browse → Google Drive. If Drive is missing, enable it in Files or open the Drive app first.",
+  "backups.googlePrivacy":
+    "This unencrypted ZIP contains spreadsheets and a restorable copy of your records. Anyone with access to the file can read its contents. Choose a private folder and keep sharing turned off.",
   "backups.icloudInstructions":
     "In Files, choose Browse → iCloud Drive and your folder. Choose iCloud Drive rather than On My iPhone.",
   "backups.password": "Backup password",
@@ -48,12 +52,18 @@ const en = {
   "backups.passwordMin": "Use a backup password with 12–256 characters.",
   "backups.passwordMismatch": "The backup passwords do not match.",
   "backups.saveCopy": "Create encrypted copy",
+  "backups.saveZip": "Create unencrypted ZIP",
   "backups.confirmSavedTitle": "Did you save the copy?",
   "backups.confirmSavedBody":
     "Confirm only after saving {file} to {destination}. This records your confirmation on this phone; it does not verify the cloud upload.",
   "backups.confirmSaved": "I saved it",
   "backups.notSavedYet": "Not saved",
   "backups.restorePersonal": "Restore a personal backup",
+  "backups.restoreChooseFormat": "Choose the format of your backup file.",
+  "backups.restoreZip": "ZIP backup (.zip)",
+  "backups.restoreEncrypted": "Password-protected backup (.kaatabackup)",
+  "backups.restoreZipInstructions":
+    "Choose the Kaata .zip backup in Files. Kaata restarts after restoring.",
   "backups.restoreInstructions":
     "Enter the password used for the backup, then choose its .kaatabackup file in Files. Kaata restarts after restoring.",
   "backups.restoreRestriction":
@@ -75,6 +85,8 @@ const en = {
   "backups.error.empty": "There is no data to back up yet.",
   "backups.error.unsupported":
     "Personal backups are not available in this version of the app. Update Kaata and try again.",
+  "backups.error.legacyUnsupported":
+    "Restore this older encrypted backup in Kaata on Android, then create a new Google Drive ZIP to restore on this phone.",
   "backups.error.tooLarge": "This backup is too large to save or restore on this phone.",
   "backups.error.password": "The backup password is incorrect, or the file is damaged.",
   "backups.error.sessionChanged": "Your account changed. Open Backups again before continuing.",
@@ -2821,15 +2833,19 @@ const fa: Partial<Record<Key, string>> = {
   "backups.readFailed": "وضعیت نسخه‌های پشتیبان خوانده نشد. دوباره تلاش کنید.",
   "backups.personal": "کاپی‌های شخصی",
   "backups.personalHint":
-    "خودتان یک کاپی رمزگذاری‌شده ذخیره کنید. سرویس را در پنجرۀ ذخیرۀ فایل‌ها انتخاب کنید. این کاپی‌ها دستی است؛ کاته نمی‌تواند ارسال آن‌ها به فضای ابری را تأیید کند.",
+    "سرویس را در پنجرۀ ذخیرۀ فایل‌ها انتخاب کنید. تأیید شما ذخیره‌شدن را در همین گوشی ثبت می‌کند. سرویس انتخاب‌شده فایل را به فضای ابری می‌فرستد.",
   "backups.googleDrive": "Google Drive",
   "backups.icloudDrive": "iCloud Drive",
+  "backups.googleFormat": "ذخیره به شکل ZIP بدون رمزگذاری",
+  "backups.icloudFormat": "ذخیرۀ کاپی محافظت‌شده با رمز",
   "backups.lastSaved": "آخرین ذخیره در این محل: {when}",
   "backups.notSaved": "هنوز ذخیرۀ کاپی در این گوشی تأیید نشده است",
   "backups.statusUnknown": "وضعیت نسخۀ پشتیبان در دسترس نیست",
   "backups.saveTo": "ذخیرۀ کاپی در {destination}",
   "backups.googleInstructions":
     "در پنجرۀ ذخیرۀ فایل‌ها، Google Drive و حساب و پوشۀ دلخواه را انتخاب کنید. در آیفون از Browse و سپس Google Drive بروید. اگر Drive دیده نمی‌شود، آن را در Files فعال کنید یا نخست برنامۀ Drive را باز کنید.",
+  "backups.googlePrivacy":
+    "این ZIP بدون رمزگذاری شامل جدول‌ها و نسخۀ قابل بازیابی سوابق شماست. هر کسی که به فایل دسترسی دارد، می‌تواند محتوای آن را بخواند. یک پوشۀ خصوصی انتخاب کنید و اشتراک‌گذاری را خاموش نگه دارید.",
   "backups.icloudInstructions":
     "در Files، از Browse به iCloud Drive بروید و پوشۀ دلخواه را انتخاب کنید. iCloud Drive را به‌جای On My iPhone انتخاب کنید.",
   "backups.password": "رمز نسخۀ پشتیبان",
@@ -2839,12 +2855,18 @@ const fa: Partial<Record<Key, string>> = {
   "backups.passwordMin": "رمز نسخۀ پشتیبان باید ۱۲ تا ۲۵۶ نویسه داشته باشد.",
   "backups.passwordMismatch": "رمزهای نسخۀ پشتیبان یکسان نیست.",
   "backups.saveCopy": "ساخت کاپی رمزگذاری‌شده",
+  "backups.saveZip": "ساخت ZIP بدون رمزگذاری",
   "backups.confirmSavedTitle": "کاپی را ذخیره کردید؟",
   "backups.confirmSavedBody":
     "فقط پس از ذخیرۀ {file} در {destination} تأیید کنید. این کار تأیید شما را در همین گوشی ثبت می‌کند؛ ارسال به فضای ابری را تأیید نمی‌کند.",
   "backups.confirmSaved": "ذخیره کردم",
   "backups.notSavedYet": "ذخیره نکردم",
   "backups.restorePersonal": "بازیابی نسخۀ پشتیبان شخصی",
+  "backups.restoreChooseFormat": "نوع فایل نسخۀ پشتیبان خود را انتخاب کنید.",
+  "backups.restoreZip": "نسخۀ پشتیبان ZIP (.zip)",
+  "backups.restoreEncrypted": "نسخۀ پشتیبان محافظت‌شده با رمز (.kaatabackup)",
+  "backups.restoreZipInstructions":
+    "فایل پشتیبان .zip کاته را در Files انتخاب کنید. کاته پس از بازیابی دوباره باز می‌شود.",
   "backups.restoreInstructions":
     "رمز نسخۀ پشتیبان را وارد کنید، سپس فایل .kaatabackup آن را در Files انتخاب کنید. کاته پس از بازیابی دوباره باز می‌شود.",
   "backups.restoreRestriction":
@@ -2866,6 +2888,8 @@ const fa: Partial<Record<Key, string>> = {
   "backups.error.empty": "هنوز اطلاعاتی برای پشتیبان‌گیری نیست.",
   "backups.error.unsupported":
     "نسخۀ پشتیبان شخصی در این نسخۀ برنامه در دسترس نیست. کاته را به‌روز کرده دوباره تلاش کنید.",
+  "backups.error.legacyUnsupported":
+    "این نسخۀ پشتیبان رمزگذاری‌شدۀ قدیمی را در کاته روی اندروید بازیابی کنید. سپس یک ZIP تازه در Google Drive بسازید تا در این گوشی بازیابی شود.",
   "backups.error.tooLarge": "این نسخه برای ذخیره یا بازیابی در این گوشی بیش از حد بزرگ است.",
   "backups.error.password": "رمز نسخۀ پشتیبان نادرست است، یا فایل آسیب دیده است.",
   "backups.error.sessionChanged":
@@ -5330,15 +5354,19 @@ const ps: Record<Key, string> = {
   "backups.readFailed": "د شاتړ حالت ونه لوستل شو. بیا هڅه وکړئ.",
   "backups.personal": "شخصي کاپۍ",
   "backups.personalHint":
-    "پخپله یوه رمز شوې کاپي وساتئ. د فایل ساتلو په کړکۍ کې خدمت غوره کړئ. دا کاپۍ لاسي دي؛ کاته یې کلاوډ ته لېږل نه شي تاییدولای.",
+    "د فایل ساتلو په کړکۍ کې خدمت غوره کړئ. ستاسو تایید په همدې موبایل کې د فایل ساتل ثبتوي. ټاکل شوی خدمت فایل کلاوډ ته لېږي.",
   "backups.googleDrive": "Google Drive",
   "backups.icloudDrive": "iCloud Drive",
+  "backups.googleFormat": "بې‌رمزه ZIP ساتي",
+  "backups.icloudFormat": "په پټنوم خوندي کاپي ساتي",
   "backups.lastSaved": "دلته وروستی ساتل: {when}",
   "backups.notSaved": "په دې موبایل کې لا د کاپۍ ساتل نه دي تایید شوي",
   "backups.statusUnknown": "د شاتړ حالت نه دی معلوم",
   "backups.saveTo": "په {destination} کې کاپي ساتل",
   "backups.googleInstructions":
     "د فایل ساتلو په کړکۍ کې Google Drive، بیا خپل حساب او فولډر غوره کړئ. په آیفون کې Browse او بیا Google Drive وټاکئ. که Drive نه ښکاري، په Files کې یې فعال کړئ یا لومړی د Drive اپ خلاص کړئ.",
+  "backups.googlePrivacy":
+    "په دې بې‌رمزه ZIP کې جدولونه او ستاسو د ثبتونو د بېرته راوستلو کاپي شته. هر څوک چې فایل ته لاسرسی لري، منځپانګه یې لوستلی شي. شخصي فولډر غوره کړئ او شریکول بند وساتئ.",
   "backups.icloudInstructions":
     "په Files کې Browse، بیا iCloud Drive او خپل فولډر غوره کړئ. د On My iPhone پر ځای iCloud Drive غوره کړئ.",
   "backups.password": "د شاتړ پټنوم",
@@ -5348,12 +5376,18 @@ const ps: Record<Key, string> = {
   "backups.passwordMin": "د شاتړ پټنوم باید له ۱۲ تر ۲۵۶ تورو ولري.",
   "backups.passwordMismatch": "د شاتړ پټنومونه یو شان نه دي.",
   "backups.saveCopy": "رمز شوې کاپي جوړول",
+  "backups.saveZip": "بې‌رمزه ZIP جوړول",
   "backups.confirmSavedTitle": "کاپي مو وساتله؟",
   "backups.confirmSavedBody":
     "یوازې په {destination} کې د {file} له ساتلو وروسته تایید کړئ. دا ستاسو تایید په همدې موبایل کې ثبتوي؛ کلاوډ ته لېږل نه تاییدوي.",
   "backups.confirmSaved": "ومې ساتله",
   "backups.notSavedYet": "نه ده ساتل شوې",
   "backups.restorePersonal": "شخصي شاتړ بېرته راوستل",
+  "backups.restoreChooseFormat": "د خپل شاتړ د فایل بڼه غوره کړئ.",
+  "backups.restoreZip": "ZIP شاتړ (.zip)",
+  "backups.restoreEncrypted": "په پټنوم خوندي شاتړ (.kaatabackup)",
+  "backups.restoreZipInstructions":
+    "د کاته .zip شاتړ په Files کې غوره کړئ. کاته له بېرته راوستلو وروسته بیا چالانېږي.",
   "backups.restoreInstructions":
     "د شاتړ پټنوم ولیکئ، بیا یې د .kaatabackup فایل په Files کې غوره کړئ. کاته له بېرته راوستلو وروسته بیا چالانېږي.",
   "backups.restoreRestriction":
@@ -5374,6 +5408,8 @@ const ps: Record<Key, string> = {
   "backups.error.invalid": "دا فایل د کاته معتبر شاتړ نه دی، یا خراب شوی دی.",
   "backups.error.empty": "لا د شاتړ لپاره معلومات نشته.",
   "backups.error.unsupported": "د اپ په دې نسخه کې شخصي شاتړ نشته. کاته تازه کړئ او بیا هڅه وکړئ.",
+  "backups.error.legacyUnsupported":
+    "دا پخوانی رمز شوی شاتړ په Android کې د کاته له لارې بېرته راوړئ. بیا په Google Drive کې نوی ZIP جوړ کړئ او په دې موبایل کې یې بېرته راوړئ.",
   "backups.error.tooLarge": "دا شاتړ په دې موبایل کې د ساتلو یا بېرته راوستلو لپاره ډېر لوی دی.",
   "backups.error.password": "د شاتړ پټنوم ناسم دی، یا فایل خراب شوی دی.",
   "backups.error.sessionChanged": "ستاسو حساب بدل شو. له دوام مخکې د شاتړونو پاڼه بیا خلاصه کړئ.",

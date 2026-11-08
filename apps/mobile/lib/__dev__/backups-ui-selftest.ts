@@ -26,11 +26,11 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
     receiptError: Error | null = null;
   let statusGate: Promise<any> | null = null,
     saveGate: Promise<any> | null = null;
-  let saveResult: any = { displayName: "kaata-backup.kaatabackup", opaque: "original" };
+  let saveResult: any = { displayName: "kaata-backup.zip", opaque: "original" };
   let restoreResult = false,
     restoreError: Error | null = null;
-  const saves: string[] = [],
-    restores: string[] = [],
+  const saves: { destination: string; password?: string }[] = [],
+    restores: { format: string; password?: string }[] = [],
     recorded: any[] = [];
   const status = {
     signedIn,
@@ -129,8 +129,8 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
       "../lib/personal-backup": {
         PersonalBackupError,
         readPersonalBackupReceipts: async () => ({ ...receipts }),
-        savePersonalBackup: async (password: string) => {
-          saves.push(password);
+        savePersonalBackup: async (destination: string, password?: string) => {
+          saves.push({ destination, password });
           return saveGate ?? saveResult;
         },
         recordPersonalBackup: async (destination: string, result: any) => {
@@ -138,8 +138,8 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
           if (receiptError) throw receiptError;
           receipts[destination] = { displayName: result.displayName, savedAt: 2000 };
         },
-        restorePersonalBackup: async (password: string) => {
-          restores.push(password);
+        restorePersonalBackup: async (format: string, password?: string) => {
+          restores.push({ format, password });
           if (restoreError) throw restoreError;
           return restoreResult;
         },
@@ -251,6 +251,8 @@ async function main() {
     assert.ok(f.text().includes('backups.lastUpload{"when":"date:1000"}'));
     assert.ok(f.text().includes("backups.pending"));
     assert.ok(f.text().includes('backups.localSaved{"when":"date:500"}'));
+    assert.ok(f.find("backups.googleDrive")!.props.hint.includes("backups.googleFormat"));
+    assert.equal(f.find("backups.googleDrive")!.props.hintLines, 0);
     assert.equal(Boolean(f.find("backups.icloudDrive")), platform === "ios");
     f.find("backups.restoreCloud")!.props.onPress();
     f.find("backups.restoreCloud")!.props.onPress();
@@ -266,42 +268,21 @@ async function main() {
   assert.ok(ninja.find("backups.restorePersonal"));
   ninja.find("backups.googleDrive")!.props.onPress();
   ninja.render();
-  ninja.fill("short");
-  ninja.find("backups.saveCopy")!.props.onPress();
-  ninja.render();
-  assert.ok(ninja.text().includes("backups.passwordMin"));
-  ninja.fill("🔒".repeat(6));
-  ninja.find("backups.saveCopy")!.props.onPress();
-  ninja.render();
-  assert.ok(
-    ninja.text().includes("backups.passwordMin"),
-    "password length counts Unicode characters, not UTF-16 units",
-  );
-  ninja.fill("x".repeat(257));
-  ninja.find("backups.saveCopy")!.props.onPress();
-  ninja.render();
-  assert.ok(
-    ninja.text().includes("backups.passwordMin"),
-    "password length is bounded before creating the file",
-  );
-  ninja.fill("long-password-123", "not-the-same-password");
-  ninja.find("backups.saveCopy")!.props.onPress();
-  ninja.render();
-  assert.ok(ninja.text().includes("backups.passwordMismatch"));
-  assert.deepEqual(ninja.saves, []);
+  assert.ok(ninja.text().includes("backups.googlePrivacy"));
+  assert.equal(ninja.find("backups.password"), undefined);
+  assert.equal(ninja.find("backups.confirmPassword"), undefined);
+  assert.deepEqual(ninja.saves, [], "opening the form never creates an unencrypted copy");
 
   const gate = deferred<any>();
   ninja.saveGate(gate.promise);
-  ninja.fill();
-  const save = ninja.find("backups.saveCopy")!.props.onPress;
+  const save = ninja.find("backups.saveZip")!.props.onPress;
   save();
   save();
   ninja.render();
-  assert.equal(ninja.saves.length, 1, "double press creates only one encrypted copy");
-  assert.equal(
-    ninja.find("backups.password")!.props.value,
-    "",
-    "password leaves UI state before Files opens",
+  assert.deepEqual(
+    ninja.saves,
+    [{ destination: "googleDrive", password: undefined }],
+    "a double press creates one ZIP with no password",
   );
   assert.equal(
     [...ninja.backHandlers][0](),
@@ -326,19 +307,49 @@ async function main() {
   assert.ok(ninja.find("backups.googleDrive")!.props.hint.includes("date:2000"));
   ninja.hooks.unmount();
 
+  const icloud = fixture({ platform: "ios" });
+  await icloud.flush();
+  icloud.find("backups.icloudDrive")!.props.onPress();
+  icloud.render();
+  assert.ok(icloud.text().includes("backups.passwordHint"));
+  for (const invalid of ["short", "🔒".repeat(6), "x".repeat(257)]) {
+    icloud.fill(invalid);
+    icloud.find("backups.saveCopy")!.props.onPress();
+    icloud.render();
+    assert.ok(icloud.text().includes("backups.passwordMin"));
+  }
+  icloud.fill("long-password-123", "not-the-same-password");
+  icloud.find("backups.saveCopy")!.props.onPress();
+  icloud.render();
+  assert.ok(icloud.text().includes("backups.passwordMismatch"));
+  assert.deepEqual(icloud.saves, []);
+  const encrypted = { displayName: "kaata-backup.kaatabackup", opaque: "encrypted" };
+  const encryptedGate = deferred<typeof encrypted>();
+  icloud.saveGate(encryptedGate.promise);
+  icloud.fill();
+  icloud.find("backups.saveCopy")!.props.onPress();
+  icloud.render();
+  assert.deepEqual(icloud.saves, [{ destination: "icloudDrive", password: "long-password-123" }]);
+  assert.equal(icloud.find("backups.password")!.props.value, "", "password clears before Files");
+  encryptedGate.resolve(encrypted);
+  await icloud.flush();
+  icloud.dialog().props.onConfirm();
+  await icloud.flush();
+  assert.deepEqual(icloud.recorded, [{ destination: "icloudDrive", result: encrypted }]);
+  assert.ok(icloud.find("backups.icloudDrive")!.props.hint.includes("date:2000"));
+  icloud.hooks.unmount();
+
   const cancelled = fixture();
   await cancelled.flush();
   cancelled.saveValue(null);
   cancelled.find("backups.googleDrive")!.props.onPress();
   cancelled.render();
-  cancelled.fill();
-  cancelled.find("backups.saveCopy")!.props.onPress();
+  cancelled.find("backups.saveZip")!.props.onPress();
   await cancelled.flush();
   assert.equal(cancelled.dialog().props.visible, false);
   assert.deepEqual(cancelled.recorded, []);
   cancelled.saveValue(cancelled.saveResult);
-  cancelled.fill();
-  cancelled.find("backups.saveCopy")!.props.onPress();
+  cancelled.find("backups.saveZip")!.props.onPress();
   await cancelled.flush();
   cancelled.dialog().props.onCancel();
   cancelled.render();
@@ -349,8 +360,7 @@ async function main() {
   await recordFailure.flush();
   recordFailure.find("backups.googleDrive")!.props.onPress();
   recordFailure.render();
-  recordFailure.fill();
-  recordFailure.find("backups.saveCopy")!.props.onPress();
+  recordFailure.find("backups.saveZip")!.props.onPress();
   await recordFailure.flush();
   recordFailure.receiptError(new PersonalBackupError("sessionChanged"));
   recordFailure.dialog().props.onConfirm();
@@ -359,35 +369,54 @@ async function main() {
     recordFailure.dialog().props.description.includes("backups.error.sessionChanged"),
     "a receipt failure is visible above the dialog backdrop",
   );
-  assert.equal(recordFailure.find("backups.googleDrive")!.props.hint, "backups.notSaved");
+  assert.ok(recordFailure.find("backups.googleDrive")!.props.hint.includes("backups.notSaved"));
   recordFailure.hooks.unmount();
 
   const restore = fixture({ signedIn: false, directRestore: true });
   await restore.flush();
-  assert.ok(restore.find("backups.chooseFile"), "restore=1 opens the personal restore form");
+  assert.ok(restore.find("backups.restoreZip"), "restore=1 opens the format choice");
+  assert.ok(restore.find("backups.restoreEncrypted"));
+  assert.equal(restore.find("backups.chooseFile"), undefined);
+  restore.find("backups.restoreZip")!.props.onPress();
+  restore.render();
+  assert.equal(restore.find("backups.password"), undefined);
   assert.equal(restore.find("backups.confirmPassword"), undefined);
   assert.ok(restore.text().includes("backups.restoreRestriction"));
-  restore.fill();
   restore.find("backups.chooseFile")!.props.onPress();
   await restore.flush();
-  assert.equal(restore.restores.length, 1);
+  assert.deepEqual(restore.restores, [{ format: "zip", password: undefined }]);
   assert.deepEqual(restore.recorded, [], "file-picker cancel never records a save or restore");
   restore.restoreError(new PersonalBackupError("notEmpty"));
-  restore.fill();
   restore.find("backups.chooseFile")!.props.onPress();
   await restore.flush();
   assert.ok(restore.text().includes("backups.error.notEmpty"));
   restore.hooks.unmount();
+
+  const oldRestore = fixture({ directRestore: true, platform: "ios" });
+  await oldRestore.flush();
+  oldRestore.find("backups.restoreEncrypted")!.props.onPress();
+  oldRestore.render();
+  assert.equal(oldRestore.find("backups.confirmPassword"), undefined);
+  oldRestore.find("backups.chooseFile")!.props.onPress();
+  oldRestore.render();
+  assert.ok(oldRestore.text().includes("backups.passwordMin"));
+  assert.deepEqual(oldRestore.restores, []);
+  oldRestore.fill();
+  oldRestore.restoreError(new PersonalBackupError("legacyUnsupported"));
+  oldRestore.find("backups.chooseFile")!.props.onPress();
+  await oldRestore.flush();
+  assert.deepEqual(oldRestore.restores, [{ format: "encrypted", password: "long-password-123" }]);
+  assert.ok(oldRestore.text().includes("backups.error.legacyUnsupported"));
+  oldRestore.hooks.unmount();
 
   for (const stale of ["account", "aba", "focus", "unmount"] as const) {
     const f = fixture();
     await f.flush();
     f.find("backups.googleDrive")!.props.onPress();
     f.render();
-    f.fill();
     const pending = deferred<any>();
     f.saveGate(pending.promise);
-    f.find("backups.saveCopy")!.props.onPress();
+    f.find("backups.saveZip")!.props.onPress();
     f.render();
     if (stale === "account" || stale === "aba") {
       f.identity("account-b");
@@ -449,9 +478,9 @@ async function main() {
   lifecycle.find("backups.googleDrive")!.props.onPress();
   lifecycle.render();
   assert.equal(
-    lifecycle.find("backups.saveCopy"),
+    lifecycle.find("backups.saveZip"),
     undefined,
-    "background callbacks cannot open a password form",
+    "background callbacks cannot open a save form",
   );
   lifecycle.appState("active");
   await lifecycle.flush();
@@ -472,7 +501,7 @@ async function main() {
   assert.equal(lifecycle.timers.size, 0);
 
   console.log(
-    "PASS Backups UI: scoped status, manual provider receipts, password checks, Ninja restore, cancellation, stale identity/focus, lifecycle and honest sync failures",
+    "PASS Backups UI: ZIP consent, encrypted iCloud, format-specific restore, scoped receipts and lifecycle",
   );
 }
 

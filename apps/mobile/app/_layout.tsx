@@ -394,6 +394,8 @@ function RootLayoutContent() {
         finishInterruptedRestore();
         const { finishPendingPersonalBackupRestore } = await import("../lib/personal-backup-db");
         await finishPendingPersonalBackupRestore();
+        const { clearInterruptedPersonalBackupExport } = await import("../lib/personal-backup");
+        clearInterruptedPersonalBackupExport();
       } catch (err) {
         console.error("[init] interrupted restore is still pending", err);
         setBootError(toBootError("init_db", err));

@@ -188,6 +188,7 @@ CREATE INDEX idx_tally_notes_relationship ON tally_notes(vault_id,relationship_i
         "../constants/env": { BACKEND_URL_FALLBACK: "https://trusted.example" },
         "./auth": auth,
         "./db-tx": { DB_NAME: "kaata.db", getDb },
+        "./drive-backup": require("../drive-backup"),
         "./db-backup": {
           PERSONAL_BACKUP_EXPORT: "kaata.personal.export.db",
           PERSONAL_BACKUP_RESTORE_STAGE: "kaata.personal.restore.db",

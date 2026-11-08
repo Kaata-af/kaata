@@ -12,6 +12,11 @@ import {
 } from "./auth";
 import { DB_NAME, getDb } from "./db-tx";
 import {
+  BACKUP_DATABASE_LIMIT,
+  DriveBackupTooLargeError,
+  readDriveBackupTables,
+} from "./drive-backup";
+import {
   PERSONAL_BACKUP_EXPORT as EXPORT,
   PERSONAL_BACKUP_RESTORE_STAGE as STAGE,
   PERSONAL_BACKUP_RESTORE_MARKER as RECEIPT,
@@ -26,6 +31,7 @@ export type PersonalBackupErrorCode =
   | "invalid"
   | "empty"
   | "unsupported"
+  | "legacyUnsupported"
   | "tooLarge"
   | "password"
   | "sessionChanged"
@@ -36,7 +42,6 @@ export class PersonalBackupError extends Error {
     this.name = "PersonalBackupError";
   }
 }
-export const PERSONAL_BACKUP_MAX_BYTES = 64 * 1024 * 1024;
 const INFO = "personal_backup_info";
 const ORIGINAL_SCHEMA = "051_tally_removal_requests";
 const TALLY_NOTES_SCHEMA = "052_tally_notes";
@@ -109,6 +114,7 @@ const TARGET_META = [
 ];
 const CLEAR_TABLES = [
   "pending_invitations",
+  "projection_conflicts",
   "vault_credentials",
   "mem_samples",
   "crash_outbox",
@@ -710,7 +716,7 @@ function identity(values: Meta): {
   return { installId, installedAt };
 }
 function validBytes(bytes: Uint8Array): void {
-  if (bytes.byteLength > PERSONAL_BACKUP_MAX_BYTES) fail("tooLarge");
+  if (bytes.byteLength > BACKUP_DATABASE_LIMIT) fail("tooLarge");
   const header = "SQLite format 3\0";
   if (
     bytes.byteLength < 100 ||
@@ -718,8 +724,9 @@ function validBytes(bytes: Uint8Array): void {
   )
     fail("invalid");
 }
-export async function createPersonalBackupSnapshot(): Promise<{
+export async function createPersonalBackupSnapshot(includeReadableTables = false): Promise<{
   file: File;
+  readableTables: Awaited<ReturnType<typeof readDriveBackupTables>>;
   dispose: () => void;
 }> {
   return exclusive(async () => {
@@ -774,13 +781,15 @@ export async function createPersonalBackupSnapshot(): Promise<{
       await applyForUnchangedLocalSession(session, async () => {
         matchSession(await meta(source), session, initialAccount);
       });
+      if (file(EXPORT).size > BACKUP_DATABASE_LIMIT) fail("tooLarge");
+      const readableTables = includeReadableTables ? await readDriveBackupTables(copy) : {};
       await copy.closeAsync();
       copy = null;
-      if (file(EXPORT).size > PERSONAL_BACKUP_MAX_BYTES) fail("tooLarge");
       exportHeld = true;
       let disposed = false;
       return {
         file: file(EXPORT),
+        readableTables,
         dispose: () => {
           if (disposed) return;
           disposed = true;
@@ -794,6 +803,7 @@ export async function createPersonalBackupSnapshot(): Promise<{
     } catch (error) {
       if (copy) await copy.closeAsync();
       removeDatabase(EXPORT);
+      if (error instanceof DriveBackupTooLargeError) fail("tooLarge");
       throw error;
     } finally {
       await source.closeAsync();

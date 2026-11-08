@@ -4,6 +4,6 @@
     "modules": ["expo.modules.kaatasavefile.KaataSaveFileModule"]
   },
   "ios": {
-    "modules": ["KaataSaveFileModule"]
+    "modules": ["KaataSaveFileModule", "KaataBackupCryptoModule"]
   }
 }

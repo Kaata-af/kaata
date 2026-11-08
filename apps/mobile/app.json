@@ -12,9 +12,10 @@
       "bundleIdentifier": "af.kaata.app",
       "usesAppleSignIn": true,
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "ExpoLocalization_forcesRTL": false
       },
-      "buildNumber": "54"
+      "buildNumber": "55"
     },
     "android": {
       "package": "af.kaata.app",

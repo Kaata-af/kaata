@@ -393,6 +393,9 @@ let lanRestartTimer: ReturnType<typeof setTimeout> | null = null;
  * with a typed error the UI can surface as a toast.
  */
 export async function startShopMode(): Promise<void> {
+  if (Platform.OS === "ios") {
+    throw new ShopModeNotAvailableError("Nearby sync is unavailable on iOS");
+  }
   if (state.running) {
     console.log("[mesh.start] already running, no-op");
     return;

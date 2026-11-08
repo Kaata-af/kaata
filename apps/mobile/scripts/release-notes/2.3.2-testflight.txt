@@ -1,6 +1,7 @@
-Kaata 2.3.2 testing build 54
+Kaata 2.3.2 testing build 55
 
 - Start a shared account from Search or Kaata Network. Require approval should be selected by default, and you can choose a different mode before sending.
 - In the bell popup and full notification list, tap an invitation card to review it. Accept goes straight to choosing the Kaata and contact, where you confirm the link. Reject declines the invitation from the inbox.
 - Test QR friendship, viewer notes on tallies, and requests to remove shared tallies by agreement with a second account.
-- Try creating and restoring an encrypted personal backup with test data. Confirm the intended Kaata, contact and tally history appear after restore.
+- Save a Google Drive backup with test data and open the CSV files inside its ZIP. Restore the original ZIP on an empty setup and verify the contact and tally history.
+- Save and restore a password-protected iCloud Drive backup with test data. Check that a wrong password is refused.

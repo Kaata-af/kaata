@@ -39,7 +39,10 @@ type BackupView = {
   status: Awaited<ReturnType<typeof readBackupStatus>>;
   receipts: Awaited<ReturnType<typeof readPersonalBackupReceipts>>;
 };
-type Form = { scope: string; mode: "restore" | PersonalBackupDestination };
+type Form = {
+  scope: string;
+  mode: "restore" | "restoreZip" | "restoreEncrypted" | PersonalBackupDestination;
+};
 type SavedCopy = {
   scope: string;
   destination: PersonalBackupDestination;
@@ -65,6 +68,8 @@ function backupError(error: unknown) {
         return t("backups.error.empty");
       case "unsupported":
         return t("backups.error.unsupported");
+      case "legacyUnsupported":
+        return t("backups.error.legacyUnsupported");
       case "tooLarge":
         return t("backups.error.tooLarge");
       case "password":
@@ -122,6 +127,8 @@ export default function BackupsScreen() {
   const [restored, setRestored] = useState<string | null>(null);
   const view = stored?.scope === scope ? stored : null;
   const currentForm = form?.scope === scope ? form : null;
+  const mode = currentForm?.mode;
+  const needsPassword = mode === "icloudDrive" || mode === "restoreEncrypted";
   const currentCopy = savedCopy?.scope === scope ? savedCopy : null;
   const currentError = error?.scope === scope ? error.message : null;
   const failed = readFailure === scope;
@@ -248,31 +255,36 @@ export default function BackupsScreen() {
     }
   }
   async function submit() {
-    if (!canAct() || !currentForm || currentCopy) return;
-    const passwordLength = Array.from(password).length;
-    if (passwordLength < 12 || passwordLength > 256) {
-      setError({ scope, message: t("backups.passwordMin") });
-      return;
+    if (!canAct() || !mode || mode === "restore" || currentCopy) return;
+    if (needsPassword) {
+      const passwordLength = Array.from(password).length;
+      if (passwordLength < 12 || passwordLength > 256) {
+        setError({ scope, message: t("backups.passwordMin") });
+        return;
+      }
     }
-    if (currentForm.mode !== "restore" && password !== confirmation) {
+    if (mode === "icloudDrive" && password !== confirmation) {
       setError({ scope, message: t("backups.passwordMismatch") });
       return;
     }
-    const mode = currentForm.mode;
-    const secret = password;
-    const token = start(mode === "restore" ? "restore" : "save");
+    const secret = needsPassword ? password : undefined;
+    const restoring = mode === "restoreZip" || mode === "restoreEncrypted";
+    const token = start(restoring ? "restore" : "save");
     Keyboard.dismiss();
     setPassword("");
     setConfirmation("");
     try {
-      if (mode === "restore") {
-        const imported = await restorePersonalBackup(secret);
+      if (restoring) {
+        const imported = await restorePersonalBackup(
+          mode === "restoreZip" ? "zip" : "encrypted",
+          secret,
+        );
         if (current() && imported) {
           setForm(null);
           setRestored(scope);
         }
       } else {
-        const result = await savePersonalBackup(secret);
+        const result = await savePersonalBackup(mode, secret);
         if (current() && result) {
           setForm(null);
           setSavedCopy({ scope, destination: mode, result });
@@ -403,16 +415,20 @@ export default function BackupsScreen() {
             ] as PersonalBackupDestination[]
           ).map((destination) => {
             const receipt = view?.receipts[destination];
+            const hint = [
+              t(destination === "googleDrive" ? "backups.googleFormat" : "backups.icloudFormat"),
+              receipt
+                ? `${t("backups.lastSaved", { when: formatTimestamp(receipt.savedAt) })}\n${receipt.displayName}`
+                : t(view ? "backups.notSaved" : "backups.statusUnknown"),
+            ].join("\n");
             return (
               <NavRow
                 key={destination}
                 icon={destination === "googleDrive" ? "logo-google" : "logo-apple"}
                 label={destinationLabel(destination)}
-                hint={
-                  receipt
-                    ? `${t("backups.lastSaved", { when: formatTimestamp(receipt.savedAt) })}\n${receipt.displayName}`
-                    : t(view ? "backups.notSaved" : "backups.statusUnknown")
-                }
+                hint={hint}
+                hintLines={0}
+                accessibilityHint={hint}
                 onPress={() => choose(destination)}
                 disabled={locked}
                 isRTL={rtl}
@@ -430,60 +446,96 @@ export default function BackupsScreen() {
           <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
             {t("backups.restoreRestriction")}
           </Text>
-          {currentForm ? (
+          {mode ? (
             <View style={styles.block}>
               <Text style={[styles.label, textDir(rtl)]}>
-                {currentForm.mode === "restore"
-                  ? t("backups.restorePersonal")
-                  : t("backups.saveTo", { destination: destinationLabel(currentForm.mode) })}
+                {mode === "googleDrive" || mode === "icloudDrive"
+                  ? t("backups.saveTo", { destination: destinationLabel(mode) })
+                  : t("backups.restorePersonal")}
               </Text>
-              <Text style={[styles.hint, textDir(rtl)]}>
-                {t(
-                  currentForm.mode === "restore"
-                    ? "backups.restoreInstructions"
-                    : currentForm.mode === "googleDrive"
-                      ? "backups.googleInstructions"
-                      : "backups.icloudInstructions",
-                )}
-              </Text>
-              <Text style={[styles.hint, textDir(rtl)]}>{t("backups.passwordHint")}</Text>
-              <PasswordField
-                label={t("backups.password")}
-                accessibilityLabel={t("backups.password")}
-                value={password}
-                onChangeText={(value) => {
-                  if (!canAct()) return;
-                  setPassword(value);
-                  setError(null);
-                }}
-                editable={!busy}
-                textContentType="none"
-                autoComplete="off"
-              />
-              {currentForm.mode !== "restore" ? (
-                <PasswordField
-                  label={t("backups.confirmPassword")}
-                  accessibilityLabel={t("backups.confirmPassword")}
-                  value={confirmation}
-                  onChangeText={(value) => {
-                    if (!canAct()) return;
-                    setConfirmation(value);
-                    setError(null);
-                  }}
-                  editable={!busy}
-                  textContentType="none"
-                  autoComplete="off"
-                />
-              ) : null}
-              <Button
-                label={t(
-                  currentForm.mode === "restore" ? "backups.chooseFile" : "backups.saveCopy",
-                )}
-                onPress={() => void submit()}
-                loading={busy === "save" || busy === "restore"}
-                disabled={Boolean(busy)}
-                wrapLabel
-              />
+              {mode === "restore" ? (
+                <>
+                  <Text style={[styles.hint, textDir(rtl)]}>
+                    {t("backups.restoreChooseFormat")}
+                  </Text>
+                  <Button
+                    label={t("backups.restoreZip")}
+                    variant="secondary"
+                    onPress={() => choose("restoreZip")}
+                    wrapLabel
+                  />
+                  <Button
+                    label={t("backups.restoreEncrypted")}
+                    variant="secondary"
+                    onPress={() => choose("restoreEncrypted")}
+                    wrapLabel
+                  />
+                </>
+              ) : (
+                <>
+                  {mode === "googleDrive" ? (
+                    <Text style={[styles.warning, textDir(rtl)]}>{t("backups.googlePrivacy")}</Text>
+                  ) : null}
+                  <Text style={[styles.hint, textDir(rtl)]}>
+                    {t(
+                      (
+                        {
+                          googleDrive: "backups.googleInstructions",
+                          icloudDrive: "backups.icloudInstructions",
+                          restoreZip: "backups.restoreZipInstructions",
+                          restoreEncrypted: "backups.restoreInstructions",
+                        } as const
+                      )[mode],
+                    )}
+                  </Text>
+                  {mode === "icloudDrive" ? (
+                    <Text style={[styles.hint, textDir(rtl)]}>{t("backups.passwordHint")}</Text>
+                  ) : null}
+                  {needsPassword ? (
+                    <PasswordField
+                      label={t("backups.password")}
+                      accessibilityLabel={t("backups.password")}
+                      value={password}
+                      onChangeText={(value) => {
+                        if (!canAct()) return;
+                        setPassword(value);
+                        setError(null);
+                      }}
+                      editable={!busy}
+                      textContentType="none"
+                      autoComplete="off"
+                    />
+                  ) : null}
+                  {mode === "icloudDrive" ? (
+                    <PasswordField
+                      label={t("backups.confirmPassword")}
+                      accessibilityLabel={t("backups.confirmPassword")}
+                      value={confirmation}
+                      onChangeText={(value) => {
+                        if (!canAct()) return;
+                        setConfirmation(value);
+                        setError(null);
+                      }}
+                      editable={!busy}
+                      textContentType="none"
+                      autoComplete="off"
+                    />
+                  ) : null}
+                  <Button
+                    label={t(
+                      mode === "googleDrive"
+                        ? "backups.saveZip"
+                        : mode === "icloudDrive"
+                          ? "backups.saveCopy"
+                          : "backups.chooseFile",
+                    )}
+                    onPress={() => void submit()}
+                    loading={busy === "save" || busy === "restore"}
+                    disabled={Boolean(busy)}
+                    wrapLabel
+                  />
+                </>
+              )}
               <Button
                 label={t("common.cancel")}
                 variant="secondary"
@@ -555,5 +607,6 @@ const styles = StyleSheet.create({
   },
   label: { ...typography.label, color: colors.textEmphasis },
   hint: { ...typography.body, color: colors.textSubtle },
+  warning: { ...typography.label, color: colors.textEmphasis },
   error: { ...typography.body, color: colors.danger },
 });

@@ -7,6 +7,7 @@ async function main() {
   let chooseFile = false;
   let completeSave = false;
   let switchWhileSaving = false;
+  let lastFileName = "";
   const events: string[] = [];
   const receipts = new Map<string, string>();
   class PersonalBackupError extends Error {
@@ -15,6 +16,7 @@ async function main() {
     }
   }
   class SessionChangedError extends Error {}
+  class LegacyBackupUnsupportedError extends Error {}
   class MockFile {
     static pickFileAsync = async () =>
       chooseFile ? { canceled: false, result: new MockFile() } : { canceled: true };
@@ -22,8 +24,8 @@ async function main() {
     uri = "file:///mock/kaata-backup";
     create() {}
     async write(bytes: Uint8Array) {
-      assert.deepEqual([...bytes], [91, 92, 93]);
-      events.push("encrypted");
+      assert.ok(bytes[0] === 81 || bytes[0] === 91);
+      events.push(bytes[0] === 81 ? "zip" : "encrypted");
     }
     open() {
       let read = false;
@@ -56,17 +58,19 @@ async function main() {
       Paths: { cache: {} },
     },
     "kaata-save-file": {
-      saveFileToLocation: async () => {
-        assert.equal(events.at(-1), "encrypted");
+      saveFileToLocation: async (_uri: string, name: string, mime: string) => {
+        lastFileName = name;
+        assert.equal(events.at(-1), mime === "application/zip" ? "zip" : "encrypted");
+        assert.equal(name.endsWith(mime === "application/zip" ? ".zip" : ".kaatabackup"), true);
         events.push("picker");
         if (switchWhileSaving) {
           account = "account-b";
           revision++;
         }
-        return completeSave ? { displayName: "Kaata backup.kaatabackup" } : null;
+        return completeSave ? { displayName: name } : null;
       },
     },
-    "react-native": { Platform: { OS: "android" } },
+    "react-native": { Platform: { OS: "ios" } },
     "./auth": {
       captureCurrentSession: async () => ({ accountId: account, bindingVersion: revision }),
       applyForUnchangedLocalSession: async (
@@ -84,57 +88,73 @@ async function main() {
       getAppMetaInTx: async (_db: unknown, key: string) => receipts.get(key),
       setAppMetaInTx: async (_db: unknown, key: string, value: string) => receipts.set(key, value),
     },
+    "./drive-backup": {
+      DRIVE_BACKUP_FILE_LIMIT: 1024,
+      createDriveBackup: () => Uint8Array.of(81, 82, 83),
+      openDriveBackup: () => Uint8Array.of(1, 2, 3),
+    },
     "./personal-backup-db": {
       PersonalBackupError,
       createPersonalBackupSnapshot: async () => ({
         file: new MockFile(),
+        readableTables: {},
         dispose: () => events.push("plain copy disposed"),
       }),
       stagePersonalBackupRestore: async () => events.push("staged"),
     },
     "./personal-backup-format": {
+      LegacyBackupUnsupportedError,
       BACKUP_RANDOM_LENGTH: 40,
       MAX_BACKUP_DATABASE_BYTES: 1024,
       MAX_BACKUP_FILE_BYTES: 1024,
       sealBackup: async () => Uint8Array.of(91, 92, 93),
       openBackup: async (_bytes: Uint8Array, password: string) => {
         if (password === "incorrect backup password") throw new Error("Invalid tag");
+        if (password === "old backup password") throw new LegacyBackupUnsupportedError();
         return Uint8Array.of(1, 2, 3);
       },
       validBackupPassword: () => true,
     },
   });
   const password = "test backup password";
-  assert.equal(await backup.savePersonalBackup(password), null);
-  assert.deepEqual(events, ["plain copy disposed", "encrypted", "picker"]);
+  assert.equal(await backup.savePersonalBackup("googleDrive"), null);
+  assert.deepEqual(events, ["plain copy disposed", "zip", "picker"]);
   assert.deepEqual(await backup.readPersonalBackupReceipts(), {});
   completeSave = true;
-  const result = await backup.savePersonalBackup(password);
+  const result = await backup.savePersonalBackup("googleDrive");
   assert.deepEqual(await backup.readPersonalBackupReceipts(), {});
   await assert.rejects(backup.recordPersonalBackup("googleDrive", { ...result }), {
     code: "sessionChanged",
   });
+  await assert.rejects(backup.recordPersonalBackup("icloudDrive", result), {
+    code: "sessionChanged",
+  });
   await backup.recordPersonalBackup("googleDrive", result);
-  assert.equal(
-    (await backup.readPersonalBackupReceipts()).googleDrive.displayName,
-    "Kaata backup.kaatabackup",
-  );
-  const another = await backup.savePersonalBackup(password);
+  assert.equal((await backup.readPersonalBackupReceipts()).googleDrive.displayName, lastFileName);
+  await assert.rejects(backup.savePersonalBackup("icloudDrive"), { code: "password" });
+  const another = await backup.savePersonalBackup("icloudDrive", password);
   switchWhileSaving = true;
-  await assert.rejects(backup.savePersonalBackup(password), { code: "sessionChanged" });
+  await assert.rejects(backup.savePersonalBackup("googleDrive"), { code: "sessionChanged" });
   await assert.rejects(backup.recordPersonalBackup("icloudDrive", another), {
     code: "sessionChanged",
   });
   assert.deepEqual(await backup.readPersonalBackupReceipts(), {});
-  assert.equal(await backup.restorePersonalBackup(password), false);
+  assert.equal(await backup.restorePersonalBackup("zip"), false);
   chooseFile = true;
-  await assert.rejects(backup.restorePersonalBackup("incorrect backup password"), {
+  await assert.rejects(backup.restorePersonalBackup("encrypted", "incorrect backup password"), {
     code: "invalid",
   });
   assert.ok(!events.includes("staged"));
-  assert.equal(await backup.restorePersonalBackup(password), true);
+  await assert.rejects(backup.restorePersonalBackup("encrypted", "old backup password"), {
+    code: "legacyUnsupported",
+  });
+  assert.equal(await backup.restorePersonalBackup("encrypted", password), true);
   assert.deepEqual(events.slice(-2), ["staged", "reload"]);
-  console.log("PASS personal backup files: encrypted save, confirmed receipts, scope and restore");
+  assert.equal(await backup.restorePersonalBackup("zip"), true);
+  assert.deepEqual(events.slice(-2), ["staged", "reload"]);
+  console.log(
+    "PASS personal backup files: ZIP and encrypted save/restore, provider receipts, scope and legacy errors",
+  );
 }
 
 void main();

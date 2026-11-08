@@ -50,19 +50,26 @@ public class KaataSaveFileModule: Module {
         return
       }
 
-      // Export the file under the name the caller wants, not expo-print's
-      // temp name. Stage a copy in tmp with that name; asCopy means iOS reads
-      // it and we can drop the stage afterwards.
-      let stageDir = FileManager.default.temporaryDirectory
-        .appendingPathComponent("kaata-save-\(UUID().uuidString)", isDirectory: true)
-      let staged = stageDir.appendingPathComponent(fileName)
-      do {
-        try FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: source, to: staged)
-      } catch {
-        try? FileManager.default.removeItem(at: stageDir)
-        promise.reject(Exception(name: "E_WRITE", description: error.localizedDescription, code: "E_WRITE"))
-        return
+      // Backup callers already stage a correctly named file. Avoid making
+      // another temporary copy of their data. Rename only when necessary.
+      let staged: URL
+      let stageDir: URL?
+      if source.lastPathComponent == fileName {
+        staged = source
+        stageDir = nil
+      } else {
+        let directory = FileManager.default.temporaryDirectory
+          .appendingPathComponent("kaata-save-\(UUID().uuidString)", isDirectory: true)
+        stageDir = directory
+        staged = directory.appendingPathComponent(fileName)
+        do {
+          try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+          try FileManager.default.copyItem(at: source, to: staged)
+        } catch {
+          try? FileManager.default.removeItem(at: directory)
+          promise.reject(Exception(name: "E_WRITE", description: error.localizedDescription, code: "E_WRITE"))
+          return
+        }
       }
 
       let picker = UIDocumentPickerViewController(forExporting: [staged], asCopy: true)
@@ -85,10 +92,10 @@ public class KaataSaveFileModule: Module {
 
   final class Coordinator: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
     private var promise: Promise?
-    private let stageDir: URL
+    private let stageDir: URL?
     private let done: () -> Void
 
-    init(promise: Promise, stageDir: URL, done: @escaping () -> Void) {
+    init(promise: Promise, stageDir: URL?, done: @escaping () -> Void) {
       self.promise = promise
       self.stageDir = stageDir
       self.done = done
@@ -97,7 +104,9 @@ public class KaataSaveFileModule: Module {
     private func finish(_ block: (Promise) -> Void) {
       guard let p = promise else { return }
       promise = nil
-      try? FileManager.default.removeItem(at: stageDir)
+      if let stageDir {
+        try? FileManager.default.removeItem(at: stageDir)
+      }
       block(p)
       done()
     }
