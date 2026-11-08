@@ -1,7 +1,6 @@
-Kaata 2.3.2 testing build 53
+Kaata 2.3.2 testing build 54
 
-- Invite another Kaata user from the existing Add member screen, then accept on their phone. The invitation must finish only after that phone's membership proof reaches the shared log.
-- Confirm the inviter sees an accepted member as Finishing setup while the guest's phone completes admission, then sees the ordinary member row after sync. Pending names must not create owner or admin permissions.
-- Retry an interrupted acceptance and check previously stranded joins, including a joined Kaata missing from the guest's phone. Recovery must preserve the original role and shared history without accepting the invitation again.
-- Check owner and admin invitations, existing invitation links and QR memberships. Removed members and devices must stay removed; a missing membership witness must remain pending rather than report success.
-- Check account switching, background/resume, offline retry, multiple Kaatas, and English, Dari and Pashto layouts. Existing friendship, shared tally and member invitation flows remain separate.
+- Start a shared account from Search or Kaata Network. Require approval should be selected by default, and you can choose a different mode before sending.
+- In the bell popup and full notification list, tap an invitation card to review it. Accept goes straight to choosing the Kaata and contact, where you confirm the link. Reject declines the invitation from the inbox.
+- Test QR friendship, viewer notes on tallies, and requests to remove shared tallies by agreement with a second account.
+- Try creating and restoring an encrypted personal backup with test data. Confirm the intended Kaata, contact and tally history appear after restore.

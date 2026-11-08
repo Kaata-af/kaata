@@ -6,20 +6,18 @@ import { readFileSync } from "node:fs";
 import { enableBuild, makeClient, parseArgs, setNotes, status } from "./asc-testflight.mjs";
 
 const APP_ID = "6789651127";
-const BUILD_ID = "test-build-53";
+const BUILD_ID = "test-build-54";
 const GROUP_ID = "fcb33597-43b6-42ba-8582-b85d26fc3895";
 const cfg = {
   appId: APP_ID,
   bundleId: "af.kaata.app",
   version: "2.3.2",
-  buildNumber: "53",
-  exemptEncryption: true,
+  buildNumber: "54",
 };
 const opts = {
   command: "enable",
   buildId: BUILD_ID,
   groupId: GROUP_ID,
-  setExemptEncryption: false,
 };
 const notes = {
   buildId: BUILD_ID,
@@ -38,7 +36,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     type: "builds",
     id: BUILD_ID,
     attributes: {
-      version: "53",
+      version: "54",
       processingState: "VALID",
       expired: false,
       usesNonExemptEncryption: false,
@@ -72,7 +70,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
     assert.equal(url.origin, "https://api.appstoreconnect.apple.com");
     assert.equal(init.redirect, "error");
     if (init.method === "POST" && route === "/betaBuildLocalizations") {
-      const localization = { ...body.data, id: "english-notes-53" };
+      const localization = { ...body.data, id: "english-notes-54" };
       localizations.push(localization);
       return Response.json({ data: localization }, { status: 201 });
     }
@@ -86,11 +84,6 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
       assigned.add(body.data[0].id);
       state = "IN_BETA_TESTING";
       return new Response(null, { status: 204 });
-    }
-    if (init.method === "PATCH" && route === `/builds/${BUILD_ID}`) {
-      build.attributes.usesNonExemptEncryption = false;
-      state = "READY_FOR_BETA_TESTING";
-      return Response.json({ data: build });
     }
     assert.equal(init.method, "GET", `Unexpected mutation: ${route}`);
     if (route === `/apps/${APP_ID}`)
@@ -138,7 +131,7 @@ function fixture(overrides = {}, options = opts, notesGrant = null) {
       return Response.json({
         data: {
           type: "buildBetaDetails",
-          id: "detail-53",
+          id: "detail-54",
           attributes: {
             internalBuildState: state,
             externalBuildState: "READY_FOR_BETA_SUBMISSION",
@@ -165,8 +158,8 @@ test("the default command is read-only; enable needs both exact resource IDs", (
   assert.equal(parseArgs([]).command, "status");
   assert.equal(parseArgs(["--status"]).command, "status");
   assert.throws(() => parseArgs(["enable", "--build-id", BUILD_ID]), /requires/);
-  assert.throws(() => parseArgs(["--set-exempt-encryption"]), /explicit enable/);
-  assert.throws(() => parseArgs(["--build-id", BUILD_ID]), /explicit enable/);
+  assert.throws(() => parseArgs(["--set-exempt-encryption"]), /Unknown argument/);
+  assert.throws(() => parseArgs(["--build-id", BUILD_ID]), /explicit command/);
   assert.throws(
     () => parseArgs(["enable", "--build-id", "../reviews", "--group-id", GROUP_ID]),
     /resource ID/,
@@ -289,7 +282,7 @@ test("enable refuses a different local build number or a different internal grou
     "50",
     "51",
     "52",
-    "54",
+    "53",
     "",
     "forty",
   ]) {
@@ -305,30 +298,10 @@ test("enable refuses a different local build number or a different internal grou
   assert.equal(calls.length, 0);
 });
 
-test("unset encryption is patched to the existing exemption only with the explicit option", async () => {
-  const exemptOpts = { ...opts, setExemptEncryption: true };
-  const { asc, calls } = fixture(
-    { build: { usesNonExemptEncryption: null }, state: "MISSING_EXPORT_COMPLIANCE" },
-    exemptOpts,
-  );
-  await enableBuild(asc, cfg, exemptOpts);
-  const writes = calls.filter((c) => c.method !== "GET");
-  assert.equal(writes.length, 2);
-  assert.deepEqual(writes[0], {
-    method: "PATCH",
-    route: `/builds/${BUILD_ID}`,
-    body: {
-      data: { type: "builds", id: BUILD_ID, attributes: { usesNonExemptEncryption: false } },
-    },
-  });
-  for (const localCfg of [cfg, { ...cfg, exemptEncryption: false }]) {
-    const { asc: client, calls: attempted } = fixture(
-      { build: { usesNonExemptEncryption: true } },
-      exemptOpts,
-    );
-    await assert.rejects(enableBuild(client, localCfg, exemptOpts), /override/);
-    assert(attempted.every((c) => c.method === "GET"));
-  }
+test("beta notes cannot bypass Apple's export compliance gate", async () => {
+  const { asc, calls } = fixture({ state: "MISSING_EXPORT_COMPLIANCE" }, null, notes);
+  await assert.rejects(setNotes(asc, cfg, notes), /MISSING_EXPORT_COMPLIANCE/);
+  assert(calls.every((c) => c.method === "GET"));
 });
 
 test("client rejects every production/review write, unrelated beta targets, destructive build updates and foreign URLs", async () => {
@@ -339,7 +312,7 @@ test("client rejects every production/review write, unrelated beta targets, dest
       throw new Error("Should never reach fetch");
     },
     token: () => "test-token",
-    enable: { ...opts, setExemptEncryption: true },
+    enable: opts,
   });
   for (const [method, endpoint, body] of [
     ["POST", "/appStoreVersions", { data: {} }],
@@ -364,6 +337,11 @@ test("client rejects every production/review write, unrelated beta targets, dest
       "PATCH",
       `/builds/${BUILD_ID}`,
       { data: { type: "builds", id: BUILD_ID, attributes: { expired: true } } },
+    ],
+    [
+      "PATCH",
+      `/builds/${BUILD_ID}`,
+      { data: { type: "builds", id: BUILD_ID, attributes: { usesNonExemptEncryption: false } } },
     ],
     ["GET", "https://other.invalid/v1/builds"],
     ["GET", "https://api.appstoreconnect.apple.com/v2/builds"],
@@ -416,7 +394,7 @@ test("notes creates only English beta metadata for the verified test build, pres
     ],
   );
   assert.equal(result.locale, "en-US");
-  assert.equal(result.localizationId, "english-notes-53");
+  assert.equal(result.localizationId, "english-notes-54");
   assert.equal(result.characters, notes.text.length);
   assert.equal(result.changed, true);
   assert.equal(result.production.versions[0].buildId, "production-build-39");
@@ -426,7 +404,7 @@ test("notes creates only English beta metadata for the verified test build, pres
 test("notes updates only the exact build's existing English localization and is idempotent", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-53",
+    id: "english-notes-54",
     attributes: { locale: "en-US", whatsNew: "Old test notes" },
   };
   const otherLocale = {
@@ -441,11 +419,11 @@ test("notes updates only the exact build's existing English localization and is 
     [
       {
         method: "PATCH",
-        route: "/betaBuildLocalizations/english-notes-53",
+        route: "/betaBuildLocalizations/english-notes-54",
         body: {
           data: {
             type: "betaBuildLocalizations",
-            id: "english-notes-53",
+            id: "english-notes-54",
             attributes: { whatsNew: notes.text },
           },
         },
@@ -498,13 +476,13 @@ test("notes capability cannot be granted to another local version or build", () 
     { ...cfg, buildNumber: "39" },
     { ...cfg, buildNumber: "41" },
   ])
-    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.2 \/ 53/);
+    assert.throws(() => makeClient(local, { notes }), /exact 2\.3\.2 \/ 54/);
 });
 
 test("notes capability requires preflight and blocks unrelated IDs, changed payloads and App Store metadata", async () => {
   const english = {
     type: "betaBuildLocalizations",
-    id: "english-notes-53",
+    id: "english-notes-54",
     attributes: { locale: "en-US", whatsNew: "Old" },
   };
   const { asc, calls } = fixture({ localizations: [english] }, null, notes);

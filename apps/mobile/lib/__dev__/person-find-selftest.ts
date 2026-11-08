@@ -430,6 +430,11 @@ const roleHooks = compile("../use-vault-role", {
   },
   "./effective-account": { resolveAccountIdCandidates: async () => ["account"] },
   "./projection/role-gate": { invalidateRoleGateCache() {} },
+  "./tally-note-policy": compile("../tally-note-policy", {
+    "./effective-account": { resolveAccountIdCandidates: async () => ["account"] },
+    "./events": require("../events"),
+    "./vault-roles": require("../vault-roles"),
+  }),
   "./vault-roles": { canPerformAction },
 });
 const sharedMocks: Record<string, any> = {

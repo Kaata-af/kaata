@@ -12,10 +12,9 @@
       "bundleIdentifier": "af.kaata.app",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
         "ExpoLocalization_forcesRTL": false
       },
-      "buildNumber": "53"
+      "buildNumber": "54"
     },
     "android": {
       "package": "af.kaata.app",
@@ -40,7 +39,7 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES"
       ],
-      "versionCode": 88
+      "versionCode": 89
     },
     "web": {
       "favicon": "./assets/favicon.png"

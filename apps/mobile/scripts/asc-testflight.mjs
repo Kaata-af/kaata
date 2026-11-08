@@ -1,15 +1,14 @@
 #!/usr/bin/env node
-// TestFlight only. Default/status reads ASC; enable adds the exact 2.3.2 / 53 build
+// TestFlight only. Default/status reads ASC; enable adds the exact 2.3.2 / 54 build
 // to an EXISTING internal group. App Store versions and reviews are read-only.
 //
 //   node scripts/asc-testflight.mjs
 //   node scripts/asc-testflight.mjs enable --build-id <ASC-build-id> --group-id <group-id>
-//   node scripts/asc-testflight.mjs enable --build-id <ASC-build-id> --group-id <group-id> --set-exempt-encryption
 //   node scripts/asc-testflight.mjs notes --build-id <ASC-build-id> --notes-file scripts/release-notes/2.3.2-testflight.txt
 //
-// --build-id is Apple's build resource ID, not the EAS build ID. The optional
-// encryption flag applies app.json's existing false exemption ONLY when Apple's
-// value is unset. It never overrides a declaration of non-exempt encryption.
+// --build-id is Apple's build resource ID, not the EAS build ID. Apple must
+// report that the build is ready for internal testing before distribution.
+// This helper cannot change encryption declarations.
 // Credentials come from submit.testing in eas.json and are never printed.
 // notes changes only English TestFlight beta-build metadata, never App Store text.
 
@@ -23,12 +22,12 @@ const API = "https://api.appstoreconnect.apple.com/v1";
 const KAATA_APP_ID = "6789651127";
 const KAATA_BUNDLE_ID = "af.kaata.app";
 const TEST_VERSION = "2.3.2";
-const TEST_BUILD_NUMBER = "53";
+const TEST_BUILD_NUMBER = "54";
 const TEST_GROUP_ID = "fcb33597-43b6-42ba-8582-b85d26fc3895";
 const ID = /^[A-Za-z0-9-]+$/;
 
 export function parseArgs(argv) {
-  const opts = { command: "status", setExemptEncryption: false };
+  const opts = { command: "status" };
   let commandSeen = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -47,28 +46,21 @@ export function parseArgs(argv) {
       if (!value || value.startsWith("--")) throw new Error("--notes-file needs a path.");
       if (opts.notesFile) throw new Error("--notes-file was supplied twice.");
       opts.notesFile = value;
-    } else if (arg === "--set-exempt-encryption") opts.setExemptEncryption = true;
-    else if (arg === "--help" || arg === "-h") opts.help = true;
+    } else if (arg === "--help" || arg === "-h") opts.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
   if (opts.help) return opts;
   if (opts.command === "enable" && (!opts.buildId || !opts.groupId)) {
     throw new Error("enable requires --build-id and --group-id.");
   }
-  if (
-    opts.command === "status" &&
-    (opts.buildId || opts.groupId || opts.setExemptEncryption || opts.notesFile)
-  ) {
-    throw new Error("Build/group/encryption options require the explicit enable command.");
+  if (opts.command === "status" && (opts.buildId || opts.groupId || opts.notesFile)) {
+    throw new Error("Build/group options require an explicit command.");
   }
   if (opts.command === "enable" && opts.notesFile)
     throw new Error("--notes-file requires the notes command.");
-  if (
-    opts.command === "notes" &&
-    (!opts.buildId || !opts.notesFile || opts.groupId || opts.setExemptEncryption)
-  ) {
+  if (opts.command === "notes" && (!opts.buildId || !opts.notesFile || opts.groupId)) {
     throw new Error(
-      "notes requires only --build-id and --notes-file; group/encryption options are not allowed.",
+      "notes requires only --build-id and --notes-file; group options are not allowed.",
     );
   }
   return opts;
@@ -76,7 +68,7 @@ export function parseArgs(argv) {
 
 function assertTestBuild(cfg, buildId, result) {
   if (cfg.version !== TEST_VERSION || cfg.buildNumber !== TEST_BUILD_NUMBER)
-    throw new Error("Local configuration must be 2.3.2 / iOS build 53.");
+    throw new Error("Local configuration must be 2.3.2 / iOS build 54.");
   const build = result.data;
   if (
     build?.type !== "builds" ||
@@ -119,7 +111,6 @@ function readConfig() {
     bundleId: app.ios.bundleIdentifier,
     version: app.version,
     buildNumber: String(app.ios.buildNumber ?? ""),
-    exemptEncryption: app.ios.infoPlist?.ITSAppUsesNonExemptEncryption === false,
     keyId: ios.ascApiKeyId,
     issuerId: ios.ascApiKeyIssuerId,
     privateKey,
@@ -154,7 +145,7 @@ export function makeClient(
       cfg.version !== TEST_VERSION ||
       cfg.buildNumber !== TEST_BUILD_NUMBER
     )
-      throw new Error("Notes require the exact 2.3.2 / 53 test build.");
+      throw new Error("Notes require the exact 2.3.2 / 54 test build.");
     assertNoteText(notes.text);
   }
   let notesBuildVerified = false;
@@ -172,9 +163,6 @@ export function makeClient(
     const readRoute =
       /^(?:\/builds(?:\/[A-Za-z0-9-]+(?:\/(?:buildBetaDetail|betaBuildLocalizations))?)?|\/betaGroups\/[A-Za-z0-9-]+(?:\/(?:builds|relationships\/builds))?)$/;
     const betaBody = { data: [{ type: "builds", id: enable?.buildId }] };
-    const encryptionBody = {
-      data: { type: "builds", id: enable?.buildId, attributes: { usesNonExemptEncryption: false } },
-    };
     const readAllowed =
       method === "GET" && body === undefined && (appRoute.test(route) || readRoute.test(route));
     const addAllowed =
@@ -185,13 +173,6 @@ export function makeClient(
       !url.search &&
       route === `/betaGroups/${enable.groupId}/relationships/builds` &&
       JSON.stringify(body) === JSON.stringify(betaBody);
-    const exemptionAllowed =
-      enable?.setExemptEncryption &&
-      cfg.exemptEncryption &&
-      method === "PATCH" &&
-      !url.search &&
-      route === `/builds/${enable.buildId}` &&
-      JSON.stringify(body) === JSON.stringify(encryptionBody);
     const createNotesBody = {
       data: {
         type: "betaBuildLocalizations",
@@ -219,10 +200,7 @@ export function makeClient(
         (method === "PATCH" &&
           englishLocalizationIds.has(localizationId) &&
           JSON.stringify(body) === JSON.stringify(updateNotesBody)));
-    if (
-      !url.pathname.startsWith("/v1/") ||
-      !(readAllowed || addAllowed || exemptionAllowed || notesAllowed)
-    ) {
+    if (!url.pathname.startsWith("/v1/") || !(readAllowed || addAllowed || notesAllowed)) {
       throw new Error(`Refusing non-allowlisted ASC operation: ${method} ${url.pathname}`);
     }
     const res = await fetchImpl(url, {
@@ -416,17 +394,7 @@ export async function enableBuild(asc, cfg, opts) {
     group.relationships?.app?.data?.id !== cfg.appId
   )
     throw new Error("Group must be an existing INTERNAL group belonging to Kaata.");
-  let detail = (await asc("GET", `/builds/${build.id}/buildBetaDetail`)).data?.attributes;
-  if (opts.setExemptEncryption) {
-    if (!cfg.exemptEncryption || build.attributes.usesNonExemptEncryption === true)
-      throw new Error("Refusing to override a non-exempt encryption declaration.");
-    if (build.attributes.usesNonExemptEncryption == null) {
-      await asc("PATCH", `/builds/${build.id}`, {
-        data: { type: "builds", id: build.id, attributes: { usesNonExemptEncryption: false } },
-      });
-      detail = (await asc("GET", `/builds/${build.id}/buildBetaDetail`)).data?.attributes;
-    }
-  }
+  const detail = (await asc("GET", `/builds/${build.id}/buildBetaDetail`)).data?.attributes;
   if (!["READY_FOR_BETA_TESTING", "IN_BETA_TESTING"].includes(detail?.internalBuildState))
     throw new Error(`Internal testing is not ready (${detail?.internalBuildState ?? "unknown"}).`);
   const builds = await listAll(asc, `/betaGroups/${group.id}/relationships/builds?limit=200`);
@@ -467,7 +435,7 @@ export async function setNotes(asc, cfg, opts) {
     !opts.buildId ||
     !ID.test(opts.buildId)
   )
-    throw new Error("Notes are restricted to the exact app.json 2.3.2 / 53 test build.");
+    throw new Error("Notes are restricted to the exact app.json 2.3.2 / 54 test build.");
   assertNoteText(opts.text);
   const [app, result] = await Promise.all([
     asc("GET", `/apps/${cfg.appId}?fields[apps]=bundleId`),
@@ -476,6 +444,9 @@ export async function setNotes(asc, cfg, opts) {
   if (app.data?.id !== cfg.appId || app.data?.attributes?.bundleId !== KAATA_BUNDLE_ID)
     throw new Error("ASC app identity does not match Kaata.");
   const build = assertTestBuild(cfg, opts.buildId, result);
+  const detail = (await asc("GET", `/builds/${build.id}/buildBetaDetail`)).data?.attributes;
+  if (!["READY_FOR_BETA_TESTING", "IN_BETA_TESTING"].includes(detail?.internalBuildState))
+    throw new Error(`Internal testing is not ready (${detail?.internalBuildState ?? "unknown"}).`);
   const localizations = await listAll(asc, `/builds/${build.id}/betaBuildLocalizations?limit=200`);
   const english = localizations.filter(
     (l) => l.type === "betaBuildLocalizations" && l.attributes?.locale === "en-US",
