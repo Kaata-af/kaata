@@ -8,6 +8,7 @@ import {
   type SessionSnapshot,
 } from "./auth";
 import {
+  BACKUP_DATABASE_LIMIT,
   createDriveBackup,
   DRIVE_BACKUP_FILE_LIMIT,
   DriveBackupTooLargeError,
@@ -18,17 +19,9 @@ import {
   PersonalBackupError,
   stagePersonalBackupRestore,
 } from "./personal-backup-db";
-import {
-  MAX_BACKUP_DATABASE_BYTES,
-  MAX_BACKUP_FILE_BYTES,
-  LegacyBackupUnsupportedError,
-  openBackup,
-  validBackupPassword,
-} from "./personal-backup-format";
 
 export { PersonalBackupError } from "./personal-backup-db";
 
-export type PersonalBackupRestoreFormat = "zip" | "encrypted";
 let busy = false;
 
 function exportCache() {
@@ -52,12 +45,6 @@ export async function withPersonalBackupSession<T>(session: SessionSnapshot, wor
     if (error instanceof SessionChangedError) throw new PersonalBackupError("sessionChanged");
     throw error;
   }
-}
-
-function requirePassword(password: string | undefined): string {
-  if (password === undefined || !validBackupPassword(password))
-    throw new PersonalBackupError("password");
-  return password;
 }
 
 async function runExclusive<T>(work: () => Promise<T>): Promise<T> {
@@ -142,7 +129,7 @@ export function withReadablePersonalBackup<T>(
     let archive: Uint8Array;
     try {
       try {
-        database = await readBounded(snapshot.file, MAX_BACKUP_DATABASE_BYTES);
+        database = await readBounded(snapshot.file, BACKUP_DATABASE_LIMIT);
       } finally {
         snapshot.dispose();
       }
@@ -168,21 +155,12 @@ export function withReadablePersonalBackup<T>(
   });
 }
 
-async function restoreFile(
-  session: SessionSnapshot,
-  input: File,
-  password: string | null,
-): Promise<boolean> {
-  const bytes = await readBounded(
-    input,
-    password === null ? DRIVE_BACKUP_FILE_LIMIT : MAX_BACKUP_FILE_BYTES,
-  );
+async function restoreFile(session: SessionSnapshot, input: File): Promise<boolean> {
+  const bytes = await readBounded(input, DRIVE_BACKUP_FILE_LIMIT);
   let database: Uint8Array;
   try {
-    database = password === null ? openDriveBackup(bytes) : await openBackup(bytes, password);
-  } catch (error) {
-    if (error instanceof LegacyBackupUnsupportedError)
-      throw new PersonalBackupError("legacyUnsupported");
+    database = openDriveBackup(bytes);
+  } catch {
     throw new PersonalBackupError("invalid");
   } finally {
     bytes.fill(0);
@@ -205,21 +183,17 @@ export function restoreDownloadedPersonalBackup(
       await withPersonalBackupSession(session, async () => {});
       await download(file);
       await withPersonalBackupSession(session, async () => {});
-      return restoreFile(session, file, null);
+      return restoreFile(session, file);
     }),
   );
 }
 
-export function restorePersonalBackup(
-  format: PersonalBackupRestoreFormat,
-  password?: string,
-): Promise<boolean> {
+export function restorePersonalBackup(): Promise<boolean> {
   return runExclusive(async () => {
-    const secret = format === "zip" ? null : requirePassword(password);
     const session = await captureCurrentSession();
     const pick = await File.pickFileAsync({ multipleFiles: false });
     if (pick.canceled) return false;
     await withPersonalBackupSession(session, async () => {});
-    return restoreFile(session, pick.result, secret);
+    return restoreFile(session, pick.result);
   });
 }

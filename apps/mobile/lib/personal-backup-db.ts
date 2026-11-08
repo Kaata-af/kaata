@@ -31,9 +31,7 @@ export type PersonalBackupErrorCode =
   | "invalid"
   | "empty"
   | "unsupported"
-  | "legacyUnsupported"
   | "tooLarge"
-  | "password"
   | "sessionChanged"
   | "busy";
 export class PersonalBackupError extends Error {

@@ -394,7 +394,7 @@ These are coordination patterns that recur across screens and bit us once each. 
 
 ### Where future Claude should look first
 
-- `docs/backlog.md` lists near-term deferred work. **The backup/restore item is no longer indefinitely deferred** — shopkeeper interviews validated it as the #1 ask; the next phase will likely ship either WhatsApp-share manual backup (cheap, no auth) or PIN-encrypted server backup (mid-cost, prepares for Phase 2 OTP). Persian-language translations are the #2 ask. Read backlog.md before building anything related.
+- `docs/backlog.md` lists near-term deferred work. **Personal backup/restore is implemented**: automatic Google Drive and iCloud Drive backups use readable ZIP files, with manual ZIP restoration in Backups. See `lib/personal-cloud-backup.ts`, `lib/personal-backup.ts`, and `lib/drive-backup.ts`. These personal copies are separate from signed-in Kaata server sync.
 - Multi-shop / vaults support is planned but not built — see `docs/phase-2-roadmap.md` "Multi-shop / vaults".
 - `docs/refactor-notes.md` documents the v0 → v1 schema move (function signature changes, what stayed, what didn't).
 - `docs/architecture.md` is the backend operations playbook — check-in compatibility, announcements, version comparison and force-update behavior.

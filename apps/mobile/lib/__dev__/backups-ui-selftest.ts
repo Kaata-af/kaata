@@ -33,7 +33,7 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
   let findResult: BackupChoice | null | undefined | Promise<BackupChoice | null | undefined>;
   let findError: Error | null = null;
   let fileError: Error | null = null;
-  const fileRestores: { format: string; password?: string }[] = [];
+  const fileRestores: unknown[][] = [];
   const operations: [string, PersonalCloudProviderId][] = [];
   const cloudRestores: BackupChoice[] = [];
   const status = {
@@ -90,8 +90,6 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
             return { remove: () => backHandlers.delete(callback) };
           },
         },
-        Keyboard: { dismiss: () => {} },
-        KeyboardAvoidingView: "KeyboardAvoidingView",
         Platform: { OS: platform },
         ScrollView: "ScrollView",
         Text: "Text",
@@ -101,7 +99,6 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
       "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
       "../components/Button": { Button: "Button" },
       "../components/ConfirmDialog": { ConfirmDialog: "ConfirmDialog" },
-      "../components/PasswordField": { PasswordField: "PasswordField" },
       "../components/SettingsScreen": {
         NavRow: "NavRow",
         ScreenHeader: "ScreenHeader",
@@ -138,8 +135,8 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
       },
       "../lib/personal-backup": {
         PersonalBackupError,
-        restorePersonalBackup: async (format: string, password?: string) => {
-          fileRestores.push({ format, password });
+        restorePersonalBackup: async (...args: unknown[]) => {
+          fileRestores.push(args);
           if (fileError) throw fileError;
           return false;
         },
@@ -300,7 +297,6 @@ async function main() {
   assert.ok(ninja.text().includes("backups.cloudSignedOut"));
   assert.equal(ninja.find("backups.syncNow"), undefined);
   ninja.press("backups.googleDrive");
-  assert.equal(ninja.find("backups.password"), undefined);
   assert.ok(ninja.text().includes("backups.readableBackup"));
   assert.deepEqual(ninja.operations, [], "opening a provider does not turn on backup");
 
@@ -384,22 +380,12 @@ async function main() {
   assert.equal(restore.find("backups.googleDrive")!.props.disabled, true);
   restore.press("backups.restoreFile");
   await restore.flush();
-  assert.deepEqual(restore.fileRestores, [{ format: "zip", password: undefined }]);
-  restore.press("backups.legacyRestoreFile");
-  restore.press("backups.chooseFile");
-  assert.ok(restore.text().includes("backups.passwordMin"));
-  assert.equal(restore.fileRestores.length, 1);
-  restore.find("backups.password")!.props.onChangeText("long-password-123");
-  restore.render();
-  restore.fileError(new PersonalBackupError("legacyUnsupported"));
-  restore.press("backups.chooseFile");
-  assert.equal(restore.find("backups.password")!.props.value, "");
+  assert.deepEqual(restore.fileRestores, [[]]);
+  restore.fileError(new PersonalBackupError("invalid"));
+  restore.press("backups.restoreFile");
   await restore.flush();
-  assert.deepEqual(restore.fileRestores.at(-1), {
-    format: "encrypted",
-    password: "long-password-123",
-  });
-  assert.ok(restore.text().includes("backups.error.legacyUnsupported"));
+  assert.equal(restore.fileRestores.length, 2);
+  assert.ok(restore.text().includes("backups.error.invalid"));
   restore.hooks.unmount();
 
   for (const stale of ["account", "aba", "focus", "unmount"] as const) {

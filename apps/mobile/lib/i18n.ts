@@ -55,7 +55,6 @@ const en = {
     "Kaata will look for your latest personal backup in {destination} and restart after restoring it. This requires an empty installation.",
   "backups.restoreFile": "Restore from a file",
   "backups.restoreFileHint": "Choose a Kaata ZIP backup",
-  "backups.legacyRestoreFile": "Older encrypted backup",
   "backups.readableBackup": "Backups are readable ZIP files. Keep the backup folder private.",
   "backups.providerOffline":
     "Connect to the internet to back up or restore from personal cloud storage.",
@@ -66,14 +65,9 @@ const en = {
     "Could not complete the backup action. Check your connection and try again.",
   "backups.noRemoteBackup": "No backup was found in {destination} for this Kaata account or mode.",
   "backups.statusUnknown": "Backup status unavailable",
-  "backups.password": "Backup password",
-  "backups.passwordMin": "Use a backup password with 12–256 characters.",
   "backups.restorePersonal": "Restore a personal backup",
-  "backups.restoreInstructions":
-    "Enter the password used for the backup, then choose its .kaatabackup file in Files. Kaata restarts after restoring.",
   "backups.restoreRestriction":
     "Personal restore requires an empty installation. Signed-in copies need the same Kaata account; Ninja copies restore in Ninja mode. Existing Kaatas will not be replaced.",
-  "backups.chooseFile": "Choose backup file",
   "backups.restoring": "Backup restored. Restarting Kaata…",
   "backups.onDevice": "On this phone",
   "backups.localSaved": "Recovery copy: {when}",
@@ -90,10 +84,7 @@ const en = {
   "backups.error.empty": "There is no data to back up yet.",
   "backups.error.unsupported":
     "Personal backups are not available in this version of the app. Update Kaata and try again.",
-  "backups.error.legacyUnsupported":
-    "Restore this older encrypted backup in Kaata on Android, then create a new Google Drive ZIP to restore on this phone.",
   "backups.error.tooLarge": "This backup is too large to save or restore on this phone.",
-  "backups.error.password": "The backup password is incorrect, or the file is damaged.",
   "backups.error.sessionChanged": "Your account changed. Open Backups again before continuing.",
   "backups.error.busy": "Another backup operation is running. Try again in a moment.",
   "backups.error.generic":
@@ -2866,7 +2857,6 @@ const fa: Partial<Record<Key, string>> = {
     "کاته آخرین نسخۀ پشتیبان شخصی را در {destination} پیدا می‌کند و پس از بازیابی دوباره باز می‌شود. برای بازیابی، نصب برنامه باید خالی باشد.",
   "backups.restoreFile": "بازیابی از فایل",
   "backups.restoreFileHint": "یک نسخۀ پشتیبان ZIP کاته را انتخاب کنید",
-  "backups.legacyRestoreFile": "نسخۀ پشتیبان رمزگذاری‌شدۀ قدیمی",
   "backups.readableBackup":
     "نسخه‌های پشتیبان فایل‌های ZIP قابل خواندن هستند. پوشۀ پشتیبان را خصوصی نگه دارید.",
   "backups.providerOffline": "برای پشتیبان‌گیری یا بازیابی از فضای ابری شخصی، به اینترنت وصل شوید.",
@@ -2876,14 +2866,9 @@ const fa: Partial<Record<Key, string>> = {
     "کار پشتیبان‌گیری تکمیل نشد. اتصال‌تان را بررسی کنید و دوباره تلاش کنید.",
   "backups.noRemoteBackup": "برای این حساب یا حالت کاته، نسخۀ پشتیبانی در {destination} پیدا نشد.",
   "backups.statusUnknown": "وضعیت نسخۀ پشتیبان در دسترس نیست",
-  "backups.password": "رمز نسخۀ پشتیبان",
-  "backups.passwordMin": "رمز نسخۀ پشتیبان باید ۱۲ تا ۲۵۶ نویسه داشته باشد.",
   "backups.restorePersonal": "بازیابی نسخۀ پشتیبان شخصی",
-  "backups.restoreInstructions":
-    "رمز نسخۀ پشتیبان را وارد کنید، سپس فایل .kaatabackup آن را در Files انتخاب کنید. کاته پس از بازیابی دوباره باز می‌شود.",
   "backups.restoreRestriction":
     "بازیابی شخصی به نصب خالی نیاز دارد. کاپی حساب‌دار به همان حساب کاته و کاپی نینجا به حالت نینجا نیاز دارد. کاته‌های موجود جایگزین نمی‌شود.",
-  "backups.chooseFile": "انتخاب فایل پشتیبان",
   "backups.restoring": "نسخۀ پشتیبان بازیابی شد. کاته دوباره باز می‌شود…",
   "backups.onDevice": "در این گوشی",
   "backups.localSaved": "کاپی بازیابی: {when}",
@@ -2900,10 +2885,7 @@ const fa: Partial<Record<Key, string>> = {
   "backups.error.empty": "هنوز اطلاعاتی برای پشتیبان‌گیری نیست.",
   "backups.error.unsupported":
     "نسخۀ پشتیبان شخصی در این نسخۀ برنامه در دسترس نیست. کاته را به‌روز کرده دوباره تلاش کنید.",
-  "backups.error.legacyUnsupported":
-    "این نسخۀ پشتیبان رمزگذاری‌شدۀ قدیمی را در کاته روی اندروید بازیابی کنید. سپس یک ZIP تازه در Google Drive بسازید تا در این گوشی بازیابی شود.",
   "backups.error.tooLarge": "این نسخه برای ذخیره یا بازیابی در این گوشی بیش از حد بزرگ است.",
-  "backups.error.password": "رمز نسخۀ پشتیبان نادرست است، یا فایل آسیب دیده است.",
   "backups.error.sessionChanged":
     "حساب شما تغییر کرد. پیش از ادامه، صفحۀ نسخه‌های پشتیبان را دوباره باز کنید.",
   "backups.error.busy": "یک کار پشتیبان‌گیری دیگر در جریان است. کمی بعد دوباره تلاش کنید.",
@@ -5394,7 +5376,6 @@ const ps: Record<Key, string> = {
     "کاته به په {destination} کې ستاسو وروستی شخصي شاتړ ولټوي او له بېرته راوستلو وروسته به بیا چالان شي. دا کار تش نصب ته اړتیا لري.",
   "backups.restoreFile": "له فایل څخه شاتړ بېرته راوستل",
   "backups.restoreFileHint": "د کاته یو ZIP شاتړ غوره کړئ",
-  "backups.legacyRestoreFile": "پخوانی رمز شوی شاتړ",
   "backups.readableBackup": "شاتړونه د لوستلو وړ ZIP فایلونه دي. د شاتړ فولډر شخصي وساتئ.",
   "backups.providerOffline": "له شخصي کلاوډ څخه د شاتړ یا بېرته راوستلو لپاره انټرنېټ سره وصل شئ.",
   "backups.providerUnavailable": "د شاتړ دا ځای اوس نشته.",
@@ -5402,14 +5383,9 @@ const ps: Record<Key, string> = {
   "backups.providerError": "د شاتړ کار بشپړ نه شو. انټرنېټ وګورئ او بیا هڅه وکړئ.",
   "backups.noRemoteBackup": "په {destination} کې د دې کاته حساب یا حالت لپاره شاتړ پیدا نه شو.",
   "backups.statusUnknown": "د شاتړ حالت نه دی معلوم",
-  "backups.password": "د شاتړ پټنوم",
-  "backups.passwordMin": "د شاتړ پټنوم باید له ۱۲ تر ۲۵۶ تورو ولري.",
   "backups.restorePersonal": "شخصي شاتړ بېرته راوستل",
-  "backups.restoreInstructions":
-    "د شاتړ پټنوم ولیکئ، بیا یې د .kaatabackup فایل په Files کې غوره کړئ. کاته له بېرته راوستلو وروسته بیا چالانېږي.",
   "backups.restoreRestriction":
     "د شخصي شاتړ راوستل تش نصب ته اړتیا لري. د حساب کاپۍ هماغه کاته حساب او د نینجا کاپۍ نینجا حالت ته اړتیا لري. شته کاتې نه بدلېږي.",
-  "backups.chooseFile": "د شاتړ فایل غوره کول",
   "backups.restoring": "شاتړ بېرته راوستل شو. کاته بیا چالانېږي…",
   "backups.onDevice": "په دې موبایل کې",
   "backups.localSaved": "د بېرته راوستلو کاپي: {when}",
@@ -5425,10 +5401,7 @@ const ps: Record<Key, string> = {
   "backups.error.invalid": "دا فایل د کاته معتبر شاتړ نه دی، یا خراب شوی دی.",
   "backups.error.empty": "لا د شاتړ لپاره معلومات نشته.",
   "backups.error.unsupported": "د اپ په دې نسخه کې شخصي شاتړ نشته. کاته تازه کړئ او بیا هڅه وکړئ.",
-  "backups.error.legacyUnsupported":
-    "دا پخوانی رمز شوی شاتړ په Android کې د کاته له لارې بېرته راوړئ. بیا په Google Drive کې نوی ZIP جوړ کړئ او په دې موبایل کې یې بېرته راوړئ.",
   "backups.error.tooLarge": "دا شاتړ په دې موبایل کې د ساتلو یا بېرته راوستلو لپاره ډېر لوی دی.",
-  "backups.error.password": "د شاتړ پټنوم ناسم دی، یا فایل خراب شوی دی.",
   "backups.error.sessionChanged": "ستاسو حساب بدل شو. له دوام مخکې د شاتړونو پاڼه بیا خلاصه کړئ.",
   "backups.error.busy": "د شاتړ بل کار روان دی. لږ وروسته بیا هڅه وکړئ.",
   "backups.error.generic": "د شاتړ کار بشپړ نه شو. د فایل ځای وګورئ او بیا هڅه وکړئ.",

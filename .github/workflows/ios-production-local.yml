@@ -147,9 +147,7 @@ jobs:
               lower_js = js.lower()
               for marker in (b'kaata-mesh-aead-v2', b'chacha20poly1305', b'scryptasync'):
                   assert marker not in lower_js, f'Non-system cipher marker in iOS bundle: {marker!r}'
-              assert b'kaatabackupcrypto' in lower_js and b'aesencryptionkey' in lower_js
               executable = z.read(root + info['CFBundleExecutable'])
-              assert b'CCKeyDerivationPBKDF' in executable, 'Expected native backup key derivation'
               assert b'KaataICloudBackup' in executable and b'iCloud.af.kaata.app' in executable, 'Expected native iCloud Drive backups'
           receipt = {
               'sourceCommit': os.environ['GITHUB_SHA'],

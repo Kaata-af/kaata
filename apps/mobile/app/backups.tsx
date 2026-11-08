@@ -5,8 +5,6 @@ import {
   ActivityIndicator,
   AppState,
   BackHandler,
-  Keyboard,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -16,7 +14,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { PasswordField } from "../components/PasswordField";
 import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/SettingsScreen";
 import { readBackupStatus, syncBackupNow } from "../lib/backup-status";
 import { colors } from "../lib/colors";
@@ -24,11 +21,7 @@ import { getAccountIdSync, getSessionAccountIdSync, onAccountIdentityChanged } f
 import { ltrIsolate, textDir, useIsRTL } from "../lib/direction";
 import { formatTimestamp } from "../lib/format";
 import { t } from "../lib/i18n";
-import {
-  PersonalBackupError,
-  restorePersonalBackup,
-  type PersonalBackupRestoreFormat,
-} from "../lib/personal-backup";
+import { PersonalBackupError, restorePersonalBackup } from "../lib/personal-backup";
 import {
   backUpToPersonalCloudNow,
   disablePersonalCloudBackup,
@@ -49,7 +42,6 @@ type BackupView = {
   kaata: Awaited<ReturnType<typeof readBackupStatus>> | null;
   personal: Awaited<ReturnType<typeof readPersonalCloudBackupStatuses>> | null;
 };
-type Mode = PersonalCloudProviderId | "legacy";
 type Busy = "sync" | "connect" | "disable" | "backup" | "find" | "restoreCloud" | "restoreFile";
 type Notice = {
   scope: string;
@@ -83,12 +75,8 @@ function backupError(code: string | undefined, destination?: PersonalCloudProvid
       return t(destination ? "backups.autoBackupEmpty" : "backups.error.empty");
     case "unsupported":
       return t("backups.error.unsupported");
-    case "legacyUnsupported":
-      return t("backups.error.legacyUnsupported");
     case "tooLarge":
       return t("backups.error.tooLarge");
-    case "password":
-      return t("backups.error.password");
     case "sessionChanged":
       return t("backups.error.sessionChanged");
     case "busy":
@@ -160,8 +148,7 @@ export default function BackupsScreen() {
   const [busy, setBusy] = useState<Busy | null>(null);
   const [stored, setStored] = useState<BackupView | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [form, setForm] = useState<{ scope: string; mode: Mode } | null>(null);
-  const [password, setPassword] = useState("");
+  const [form, setForm] = useState<{ scope: string; mode: PersonalCloudProviderId } | null>(null);
   const [candidate, setCandidate] = useState<RestoreCandidate | null>(null);
   const pendingRestore = useRef<RestoreCandidate | null>(null);
   const view = stored?.scope === scope ? stored : null;
@@ -204,7 +191,6 @@ export default function BackupsScreen() {
   }, []);
   useEffect(() => {
     opening.current = false;
-    setPassword("");
     pendingRestore.current = null;
     setCandidate(null);
     if (!focused || restoreOnly) return;
@@ -246,10 +232,8 @@ export default function BackupsScreen() {
     return () => subscription.remove();
   }, [focused, scope, mode, currentCandidate]);
 
-  function choose(next: Mode | null) {
+  function choose(next: PersonalCloudProviderId | null) {
     if (!canAct() || opening.current || pendingRestore.current) return;
-    Keyboard.dismiss();
-    setPassword("");
     setNotice(null);
     setForm(next && next !== mode ? { scope, mode: next } : null);
   }
@@ -262,7 +246,6 @@ export default function BackupsScreen() {
     if (!canAct() || opening.current || pendingRestore.current) return;
     if (path === "/restore" && (!signedIn || offline)) return;
     opening.current = true;
-    Keyboard.dismiss();
     router.push(path);
   }
   function showNotice(message: string, error = false, destination?: Notice["destination"]) {
@@ -330,21 +313,11 @@ export default function BackupsScreen() {
       destination,
     );
   }
-  function restoreFile(format: PersonalBackupRestoreFormat) {
+  function restoreFile() {
     if (!canAct() || pendingRestore.current) return;
-    const secret = format === "encrypted" ? password : undefined;
-    if (secret !== undefined) {
-      const length = Array.from(secret).length;
-      if (length < 12 || length > 256) {
-        showNotice(t("backups.passwordMin"), true);
-        return;
-      }
-    }
     return run("restoreFile", async () => {
-      Keyboard.dismiss();
-      setPassword("");
-      if (format === "zip") setForm(null);
-      if (await restorePersonalBackup(format, secret)) {
+      setForm(null);
+      if (await restorePersonalBackup()) {
         if (current()) setForm(null);
         showNotice(t("backups.restoring"));
       }
@@ -377,11 +350,8 @@ export default function BackupsScreen() {
           else router.replace("/");
         }}
       />
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <View style={styles.flex}>
+        <ScrollView contentContainerStyle={styles.content}>
           <SectionHeader label={t("backups.personal")} isRTL={rtl} />
           <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
             {t(
@@ -521,54 +491,16 @@ export default function BackupsScreen() {
             icon="folder-open-outline"
             label={t("backups.restoreFile")}
             hint={t("backups.restoreFileHint")}
-            onPress={() => void restoreFile("zip")}
-            disabled={locked}
-            isRTL={rtl}
-          />
-          <NavRow
-            icon="lock-closed-outline"
-            label={t("backups.legacyRestoreFile")}
-            onPress={() => choose("legacy")}
+            onPress={() => void restoreFile()}
             disabled={locked}
             isRTL={rtl}
             isLast
           />
-          {mode === "legacy" ? (
-            <View style={styles.block}>
-              <Text style={[styles.hint, textDir(rtl)]}>{t("backups.restoreInstructions")}</Text>
-              <PasswordField
-                label={t("backups.password")}
-                accessibilityLabel={t("backups.password")}
-                value={password}
-                onChangeText={(value) => {
-                  if (!canAct()) return;
-                  setPassword(value);
-                  setNotice(null);
-                }}
-                editable={!busy}
-                textContentType="none"
-                autoComplete="off"
-              />
-              <Button
-                label={t("backups.chooseFile")}
-                onPress={() => void restoreFile("encrypted")}
-                loading={busy === "restoreFile"}
-                disabled={locked}
-                wrapLabel
-              />
-              <Button
-                label={t("common.cancel")}
-                variant="secondary"
-                onPress={() => choose(null)}
-                disabled={locked}
-              />
-            </View>
-          ) : null}
           <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
             {t("backups.restoreRestriction")}
           </Text>
           {(restoreOnly && (busy === "find" || busy === "restoreCloud")) ||
-          (busy === "restoreFile" && mode !== "legacy") ? (
+          busy === "restoreFile" ? (
             <ActivityIndicator color={colors.textSubtle} style={styles.inset} />
           ) : null}
           {currentNotice?.destination === undefined ? statusMessage : null}
@@ -647,7 +579,7 @@ export default function BackupsScreen() {
             </>
           ) : null}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </View>
       <ConfirmDialog
         visible={Boolean(currentCandidate) && !busy}
         title={
