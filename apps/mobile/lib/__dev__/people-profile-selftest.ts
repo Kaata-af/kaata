@@ -1,5 +1,6 @@
 // Real profile/list screens at the hook boundary. All identities and transport are synthetic.
 import assert from "node:assert/strict";
+import { decodePeopleQr, encodePeopleQr } from "../people-qr";
 import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 const me = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -19,8 +20,10 @@ class TabApiError extends Error {
 type State = "none" | "incoming" | "outgoing" | "friends";
 type Session = { accountId: string | null; jwt: string; bindingVersion: number };
 
-function fixture(state: State = "none", list = false) {
+function fixture(state: State = "none", list = false, qrMode?: "scan" | "show") {
   const hooks = uiHooks();
+  let activeHooks = hooks;
+  let qrChild: { type: any; accountId: string; hooks: ReturnType<typeof uiHooks> } | undefined;
   let account: string | null = me,
     route = john,
     binding = 1,
@@ -34,6 +37,10 @@ function fixture(state: State = "none", list = false) {
   let mutationGate: Promise<any> | undefined;
   let dispatchGate: Promise<void> | undefined;
   let listGate: Promise<any> | undefined;
+  let accountMeGate: Promise<any> | undefined;
+  let discoveryEnabled = false;
+  let appState = "active";
+  const appListeners = new Set<(state: string) => void>();
   const calls: Array<{ action: string; target?: string; session: Session }> = [];
   const routes: any[] = [];
   const listeners = new Set<() => void>();
@@ -67,6 +74,17 @@ function fixture(state: State = "none", list = false) {
     Text: "Text",
     View: "View",
     Pressable: "Pressable",
+    AppState: {
+      get currentState() {
+        return appState;
+      },
+      addEventListener: (_event: string, listener: (state: string) => void) => {
+        appListeners.add(listener);
+        return { remove: () => appListeners.delete(listener) };
+      },
+    },
+    Linking: { openSettings: async () => {} },
+    useWindowDimensions: () => ({ width: 390, height: 844 }),
     Platform: {
       get OS() {
         return platform;
@@ -86,16 +104,28 @@ function fixture(state: State = "none", list = false) {
   }).PeopleScreen;
   const mocks = {
     react: {
-      ...hooks.react,
+      useState: (initial: any) => activeHooks.react.useState(initial),
+      useRef: (initial: any) => activeHooks.react.useRef(initial),
+      useMemo: (work: () => any, deps: unknown[]) => activeHooks.react.useMemo(work, deps),
+      useCallback: (work: () => any, deps: unknown[]) => activeHooks.react.useCallback(work, deps),
+      useEffect: (work: () => void | (() => void), deps?: unknown[]) =>
+        activeHooks.react.useEffect(work, deps),
+      useLayoutEffect: (work: () => void | (() => void), deps?: unknown[]) =>
+        activeHooks.react.useEffect(work, deps),
       useSyncExternalStore: (subscribe: (notify: () => void) => () => void, get: () => string) => {
-        hooks.react.useEffect(() => subscribe(() => {}), [subscribe]);
+        activeHooks.react.useEffect(() => subscribe(() => {}), [subscribe]);
         return get();
       },
     },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "expo-router": {
       useIsFocused: () => focused,
-      useLocalSearchParams: () => ({ accountId: route, name: "UNTRUSTED ROUTE NAME" }),
+      useNavigation: () => ({ isFocused: () => focused }),
+      useLocalSearchParams: () => ({
+        accountId: route,
+        name: "UNTRUSTED ROUTE NAME",
+        mode: qrMode === "scan" ? "scan" : undefined,
+      }),
       useRouter: () => ({
         push: (value: any) => routes.push(value),
         replace: (value: any) => routes.push(value),
@@ -107,6 +137,15 @@ function fixture(state: State = "none", list = false) {
     "expo-network": {
       useNetworkState: () => ({ isConnected: !offline, isInternetReachable: !offline }),
     },
+    "expo-camera": {
+      CameraView: "Camera",
+      useCameraPermissions: () => [
+        { granted: true, canAskAgain: true },
+        async () => ({ granted: true }),
+        async () => ({ granted: true }),
+      ],
+    },
+    "react-native-qrcode-svg": { __esModule: true, default: "QRCode" },
     "react-native": native,
     "react-native-safe-area-context": safeArea,
     "../../components/Button": { Button: "Button" },
@@ -128,6 +167,11 @@ function fixture(state: State = "none", list = false) {
       applyForCurrentSession: async (session: Session, work: () => Promise<any>) => {
         check(session);
         return work();
+      },
+      fetchAccountMe: async (session: Session) => {
+        check(session);
+        calls.push({ action: "accountMe", session });
+        return accountMeGate ?? { discoveryEnabled };
       },
     },
     "../../lib/db-tx": {
@@ -169,19 +213,46 @@ function fixture(state: State = "none", list = false) {
       ltrIsolate: (value: string) => value,
     },
     "../../lib/i18n": { t: (key: string) => key },
-    "../../lib/tokens": { typography: {}, TOUCH_MIN: 44 },
+    "../../lib/tokens": { typography: {}, TOUCH_MIN: 44, radius: {} },
     "../../lib/tabs/errors": { TabApiError },
+    "../../lib/people-qr": { encodePeopleQr, decodePeopleQr },
   };
   const Screen = compileUI(
-    list ? "../../app/people/friends" : "../../app/people/[accountId]",
+    qrMode
+      ? "../../app/people/qr"
+      : list
+        ? "../../app/people/friends"
+        : "../../app/people/[accountId]",
     mocks,
   ).default;
-  const render = () => hooks.render(() => Screen());
+  const render = () => {
+    activeHooks = hooks;
+    hooks.render(() => Screen());
+    if (!qrMode) return;
+    const child = nodes(hooks.tree).find(
+      (node) =>
+        typeof node.type === "function" &&
+        ["MyPeopleQr", "PeopleQrScanner"].includes(node.type.name),
+    );
+    if (qrChild && (qrChild.type !== child?.type || qrChild.accountId !== child?.props.accountId)) {
+      qrChild.hooks.unmount();
+      qrChild = undefined;
+    }
+    if (!child) return;
+    qrChild ??= { type: child.type, accountId: child.props.accountId, hooks: uiHooks() };
+    activeHooks = qrChild.hooks;
+    qrChild.hooks.render(() => child.type(child.props));
+    activeHooks = hooks;
+  };
+  const screenNodes = () => nodes([hooks.tree, qrChild?.hooks.tree]);
   const find = (type: string, label?: string) =>
-    nodes(hooks.tree).find((node) => node.type === type && (!label || node.props.label === label));
+    screenNodes().find((node) => node.type === type && (!label || node.props.label === label));
   const button = (key: string) => find("Button", key)!;
   const text = (key: string) =>
-    nodes(hooks.tree).some((node) => node.type === "Text" && node.props.children === key);
+    screenNodes().some(
+      (node) =>
+        (node.type === "Text" || node.type?.name === "QrMessage") && node.props.children === key,
+    );
   const flush = async () => {
     await settleUI();
     render();
@@ -197,6 +268,10 @@ function fixture(state: State = "none", list = false) {
     find,
     button,
     text,
+    unmount() {
+      qrChild?.hooks.unmount();
+      hooks.unmount();
+    },
     frame() {
       assert.equal(hooks.tree.type, PeopleScreen, "the route root owns its safe-area frame");
       return PeopleScreen(hooks.tree.props);
@@ -225,6 +300,14 @@ function fixture(state: State = "none", list = false) {
     setList(promise?: Promise<any>) {
       listGate = promise;
     },
+    setDiscovery(value: boolean, pending?: Promise<any>) {
+      discoveryEnabled = value;
+      accountMeGate = pending;
+    },
+    setAppState(value: string) {
+      appState = value;
+      appListeners.forEach((notify) => notify(value));
+    },
     setRoute(value: string) {
       route = value;
     },
@@ -242,7 +325,125 @@ function fixture(state: State = "none", list = false) {
   };
 }
 
+async function qrScreens() {
+  {
+    const f = fixture("none", false, "show");
+    f.identity(null);
+    f.render();
+    await f.flush();
+    assert.ok(f.text("peopleProfile.signIn"));
+    assert.equal(f.find("QRCode"), undefined);
+    assert.equal(f.find("Camera"), undefined);
+    assert.equal(f.calls.length, 0, "signed-out QR does not request account data");
+    f.unmount();
+  }
+  for (const discoverable of [false, true]) {
+    const f = fixture("none", false, "show");
+    const pending = deferred<any>();
+    f.setDiscovery(discoverable, pending.promise);
+    f.render();
+    await f.flush();
+    assert.equal(f.find("QRCode"), undefined, "unknown discoverability never exposes a code");
+    pending.resolve({ discoveryEnabled: discoverable });
+    await f.flush();
+    if (discoverable) {
+      assert.equal(f.find("QRCode")!.props.value, encodePeopleQr(me));
+      assert.equal(f.find("QRCode")!.props.quietZone, 16);
+      assert.ok(f.text("peopleQr.showHint"));
+    } else {
+      assert.equal(f.find("QRCode"), undefined, "hidden accounts do not display a personal code");
+      assert.ok(f.text("peopleQr.hidden"));
+    }
+    assert.equal(f.calls.filter((call) => call.action === "accountMe").length, 1);
+    f.setAppState("background");
+    f.render();
+    assert.equal(f.find("QRCode"), undefined, "backgrounding removes the personal code");
+    f.setDiscovery(false);
+    f.setAppState("active");
+    f.render();
+    assert.equal(f.find("QRCode"), undefined, "returning waits for a fresh privacy check");
+    await f.flush();
+    assert.ok(f.text("peopleQr.hidden"));
+    assert.equal(f.calls.filter((call) => call.action === "accountMe").length, 2);
+    f.unmount();
+  }
+  for (const invalid of ["not a Kaata person code", encodePeopleQr(me)!]) {
+    const f = fixture("none", false, "scan");
+    f.render();
+    const camera = f.find("Camera")!;
+    assert.deepEqual(camera.props.barcodeScannerSettings, { barcodeTypes: ["qr"] });
+    camera.props.onBarcodeScanned({ data: invalid });
+    camera.props.onBarcodeScanned({ data: encodePeopleQr(john) });
+    f.render();
+    assert.ok(f.text(invalid === encodePeopleQr(me) ? "peopleQr.own" : "peopleQr.invalid"));
+    assert.equal(f.find("Camera"), undefined);
+    assert.equal(
+      f.routes.length,
+      0,
+      "invalid/self codes remain on the scanner with explicit retry",
+    );
+    f.button("peopleQr.scanAgain").props.onPress();
+    f.render();
+    const retry = f.find("Camera")!.props.onBarcodeScanned;
+    retry({ data: encodePeopleQr(john) });
+    retry({ data: encodePeopleQr(jane) });
+    assert.deepEqual(f.routes, [{ pathname: "/people/[accountId]", params: { accountId: john } }]);
+    assert.equal(f.calls.length, 0, "scanning only opens a profile; it grants no relationship");
+    f.unmount();
+  }
+  for (const restriction of ["background", "blur", "signedOut"] as const) {
+    const f = fixture("none", false, "scan");
+    f.render();
+    const retained = f.find("Camera")!.props.onBarcodeScanned;
+    if (restriction === "background") f.setAppState("background");
+    if (restriction === "blur") f.setFocus(false);
+    if (restriction === "signedOut") f.identity(null);
+    retained({ data: encodePeopleQr(john) });
+    f.render();
+    assert.equal(f.find("Camera"), undefined, `${restriction} removes the camera`);
+    retained({ data: encodePeopleQr(john) });
+    assert.equal(f.routes.length, 0, `${restriction} rejects even a retained scan callback`);
+    f.unmount();
+  }
+}
+
 async function main() {
+  await qrScreens();
+  for (const offline of [false, true]) {
+    const f = fixture("none", true);
+    const pending = deferred<any>();
+    f.setList(pending.promise);
+    f.setOffline(offline);
+    f.render();
+    const qr = f.find("NavRow", "peopleQr.title")!;
+    assert.ok(qr, "signed-in Friends exposes QR even while offline or loading the list");
+    assert.equal(qr.props.icon, "qr-code-outline");
+    qr.props.onPress();
+    qr.props.onPress();
+    assert.deepEqual(f.routes, ["/people/qr"], "My code uses the default route once per focus");
+    f.setFocus(false);
+    f.render();
+    qr.props.onPress();
+    assert.equal(f.routes.length, 1, "blurred Friends cannot open QR");
+    f.setFocus(true);
+    f.render();
+    const restoredQr = f.find("NavRow", "peopleQr.title")!;
+    f.identity(null);
+    f.identity(me);
+    restoredQr.props.onPress();
+    assert.equal(f.routes.length, 1, "same-account sign-in still rejects a retained QR action");
+    f.render();
+    f.find("NavRow", "peopleQr.title")!.props.onPress();
+    assert.equal(f.routes.length, 2);
+    f.identity(null);
+    f.render();
+    assert.equal(f.find("NavRow", "peopleQr.title"), undefined, "signed-out Friends hides QR");
+    pending.resolve({ friends: [] });
+    await f.flush();
+    f.hooks.unmount();
+    assert.equal(f.hooks.lateWrites, 0);
+  }
+
   for (const list of [false, true]) {
     const f = fixture("none", list);
     f.render();

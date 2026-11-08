@@ -1000,6 +1000,7 @@ function RootLayoutContent() {
                       name="people/friends"
                       options={{ presentation: "fullScreenModal" }}
                     />
+                    <Stack.Screen name="people/qr" options={{ presentation: "fullScreenModal" }} />
                     <Stack.Screen name="profile" options={{ presentation: "modal" }} />
                     <Stack.Screen name="promote" options={{ presentation: "modal" }} />
                     <Stack.Screen name="search" options={{ presentation: "modal" }} />

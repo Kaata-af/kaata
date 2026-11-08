@@ -1,10 +1,19 @@
 import type { TextInputInstance } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   ActivityIndicator,
   AppState,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -26,7 +35,11 @@ import { joinName, type DeviceContact } from "../../lib/contacts-sync";
 import { getCurrentCurrencySymbol } from "../../lib/currency";
 import { CUSTOMER_NOTE_MAX_LENGTH, normalizeCustomerNote } from "../../lib/customer-note";
 import { createPerson, getActiveVaultArchivedState, listAllPeopleForSearch } from "../../lib/db";
-import { getActiveVaultIdSyncMaybe } from "../../lib/db-tx";
+import {
+  getActiveVaultIdSyncMaybe,
+  getSessionAccountIdSync,
+  onAccountIdentityChanged,
+} from "../../lib/db-tx";
 import { toAsciiDigits } from "../../lib/digits";
 import {
   bidiIsolate,
@@ -77,6 +90,23 @@ export default function PersonAddOrFindScreen() {
   // Subscribes to locale changes — flipping language in Settings live-updates
   // this screen if it happens to be focused.
   const isRTL = useIsRTL();
+  const identityRevision = useRef(0);
+  const subscribeIdentity = useCallback(
+    (notify: () => void) =>
+      onAccountIdentityChanged(() => {
+        identityRevision.current++;
+        notify();
+      }),
+    [],
+  );
+  const identitySnapshot = useCallback(
+    () => `${identityRevision.current}:${getSessionAccountIdSync() ?? ""}`,
+    [],
+  );
+  const identity = useSyncExternalStore(subscribeIdentity, identitySnapshot, identitySnapshot);
+  const account = getSessionAccountIdSync();
+  const focused = useRef(false);
+  const qrOpening = useRef(false);
   const activeVaultId = getActiveVaultIdSyncMaybe();
   const caps = useActiveVaultWriteCaps(activeVaultId);
   // Search works during role lookup; creation and phone-book access wait for
@@ -177,7 +207,17 @@ export default function PersonAddOrFindScreen() {
       sub.remove();
     };
   }, [reload]);
-  useFocusEffect(reload);
+  useFocusEffect(
+    useCallback(() => {
+      focused.current = true;
+      qrOpening.current = false;
+      const cleanup = reload();
+      return () => {
+        focused.current = false;
+        cleanup();
+      };
+    }, [reload]),
+  );
   // Any applied event may also accompany a change of active kaata. The helper
   // coalesces bursts and catches up events applied while the phone was locked.
   useLedgerRefresh(null, reload);
@@ -530,6 +570,37 @@ export default function PersonAddOrFindScreen() {
         onBack={() => router.back()}
         isRTL={isRTL}
         backLabel={t("common.cancel")}
+        trailing={
+          account ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("peopleQr.scanCode")}
+              accessibilityState={{ disabled: busy }}
+              disabled={busy}
+              onPress={() => {
+                if (
+                  savingRef.current ||
+                  !mounted.current ||
+                  !focused.current ||
+                  qrOpening.current ||
+                  identitySnapshot() !== identity ||
+                  getActiveVaultIdSyncMaybe() !== activeVaultId
+                )
+                  return;
+                qrOpening.current = true;
+                firstNameRef.current?.blur();
+                lastNameRef.current?.blur();
+                phoneRef.current?.blur();
+                findRef.current?.blur();
+                Keyboard.dismiss();
+                router.push({ pathname: "/people/qr", params: { mode: "scan" } });
+              }}
+              style={({ pressed }) => [styles.headerAction, (pressed || busy) && { opacity: 0.5 }]}
+            >
+              <Ionicons name="qr-code-outline" size={icon.header} color={colors.textEmphasis} />
+            </Pressable>
+          ) : null
+        }
       />
 
       <KeyboardAvoidingView
@@ -792,6 +863,12 @@ function RightAmount(props: { balance: number; hasEntries: boolean }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDefault },
+  headerAction: {
+    width: TOUCH_MIN,
+    height: TOUCH_MIN,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   scroll: { flex: 1 },
   form: {

@@ -90,7 +90,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Kaata uses the camera to scan pairing codes when you add another phone you own.",
+          "cameraPermission": "Kaata uses the camera to scan profile QR codes to connect with people and pairing codes when you add another phone you own.",
           "recordAudioAndroid": false
         }
       ],

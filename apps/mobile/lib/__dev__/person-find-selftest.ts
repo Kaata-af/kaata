@@ -146,6 +146,10 @@ const react = {
   useDeferredValue(value: any) {
     return react.useMemo(() => value, [value]);
   },
+  useSyncExternalStore(subscribe: (notify: () => void) => () => void, get: () => unknown) {
+    react.useEffect(() => subscribe(() => (dirty = true)), [subscribe]);
+    return get();
+  },
   useLayoutEffect(fn: () => void | (() => void), deps?: unknown[]) {
     react.useEffect(fn, deps);
   },
@@ -297,6 +301,7 @@ const native: Record<string, any> = {
   RefreshControl: "RefreshControl",
   KeyboardAvoidingView: "Keyboard",
   Keyboard: {
+    isVisible: () => searchInputFocused,
     dismiss: () => {
       keyboardDismissals++;
     },
@@ -551,6 +556,7 @@ const libMocks: Record<string, any> = {
       vaultId = null;
     },
     getAccountIdSync: () => cachedAccountId,
+    getSessionAccountIdSync: () => cachedAccountId,
     getInstallIdSync: () => "install",
     onAccountIdentityChanged: (fn: () => void) => {
       identityListeners.add(fn);
@@ -849,6 +855,47 @@ const personRows = () =>
   );
 
 async function main() {
+  for (const qrRole of ["owner", "viewer"] as const) {
+    fixture(addOrFind, qrRole);
+    await flush();
+    assert.equal(find("Header")!.props.trailing, null, "signed-out Add/Find hides the QR action");
+    cachedAccountId = "qr-account";
+    for (const notify of identityListeners) notify();
+    await flush();
+    const qr = find("Header")!.props.trailing;
+    assert.equal(qr.props.accessibilityLabel, "peopleQr.scanCode");
+    assert.equal(qr.props.accessibilityRole, "button");
+    const beforeDismiss = keyboardDismissals;
+    qr.props.onPress();
+    qr.props.onPress();
+    assert.deepEqual(routes, [{ pathname: "/people/qr", params: { mode: "scan" } }]);
+    assert.equal(keyboardDismissals, beforeDismiss + 1, "scanner navigation dismisses inputs");
+    assert.equal(writes.length, 0, "opening QR does not create a financial contact");
+    homeOwnerFocused = false;
+    dirty = true;
+    await flush();
+    qr.props.onPress();
+    assert.equal(routes.length, 1, "the background Add/Find screen cannot reopen the scanner");
+    homeOwnerFocused = true;
+    dirty = true;
+    await flush();
+    const restoredQr = find("Header")!.props.trailing;
+    const initialVault = vaultId;
+    vaultId = "another-vault";
+    restoredQr.props.onPress();
+    assert.equal(routes.length, 1, "a retained button checks its originating vault");
+    vaultId = initialVault;
+    cachedAccountId = null;
+    for (const notify of identityListeners) notify();
+    cachedAccountId = "qr-account";
+    for (const notify of identityListeners) notify();
+    restoredQr.props.onPress();
+    assert.equal(routes.length, 1, "sign-out and same-account return invalidates the old button");
+    await flush();
+    find("Header")!.props.trailing.props.onPress();
+    assert.equal(routes.length, 2, "a fresh focused button opens after an identity refresh");
+  }
+
   fixture(addOrFind, "viewer");
   let resolveInitialRole!: () => void;
   delayedRole = new Promise((resolve) => {

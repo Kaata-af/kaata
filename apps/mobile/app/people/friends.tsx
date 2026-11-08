@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { Button } from "../../components/Button";
 import { InitialAvatar } from "../../components/InitialAvatar";
 import { PeopleScreen } from "../../components/PeopleScreen";
-import { ScreenHeader } from "../../components/SettingsScreen";
+import { NavRow, ScreenHeader } from "../../components/SettingsScreen";
 import {
   applyForCurrentSession,
   captureCurrentSession,
@@ -61,6 +61,7 @@ export default function FriendsScreen() {
   const [failure, setFailure] = useState<string | null>(null);
   const [moreBusy, setMoreBusy] = useState(false);
   const loadingMore = useRef(false);
+  const qrOpening = useRef(false);
   const view = stored?.scope === scope ? stored : null;
   const current = () =>
     mounted.current &&
@@ -68,6 +69,9 @@ export default function FriendsScreen() {
     latestScope.current === scope &&
     identitySnapshot() === identity;
   const failed = failure === scope;
+  useEffect(() => {
+    if (focused) qrOpening.current = false;
+  }, [focused, identity]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -126,6 +130,18 @@ export default function FriendsScreen() {
         onBack={() => (router.canGoBack() ? router.back() : router.replace("/"))}
       />
       <ScrollView contentContainerStyle={styles.content}>
+        {account ? (
+          <NavRow
+            icon="qr-code-outline"
+            label={t("peopleQr.title")}
+            isRTL={rtl}
+            onPress={() => {
+              if (!current() || qrOpening.current) return;
+              qrOpening.current = true;
+              router.push("/people/qr");
+            }}
+          />
+        ) : null}
         {!account ? (
           <View style={styles.message}>
             <Text style={[styles.hint, textDir(rtl)]}>{t("peopleProfile.signIn")}</Text>
