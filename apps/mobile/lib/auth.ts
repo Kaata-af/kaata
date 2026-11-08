@@ -199,9 +199,10 @@ export class SignInCancelledByUserError extends Error {
  */
 export type SignInStage =
   | "play_services" // Google Play Services missing or too old (Android)
+  | "google_native" // Google's native chooser or configuration failed
   | "no_id_token" // Google returned no credential
   | "timeout" // our backend didn't answer in time
-  | "network" // couldn't reach our backend at all
+  | "network" // couldn't reach Google or Kaata
   | "server" // backend answered with an error
   // The Google/Apple token or the emailed code went stale while the user read
   // the "different account?" question: sign in again (refused before any wipe).
@@ -374,13 +375,12 @@ async function signInExchange(args: {
   const state = args.state ?? (await initialSwitchState(args.onDifferentAccount));
   for (;;) {
     const installId = await ensureInstallId();
-    const { res, retried } = await postAuthTracked(args.url, {
+    const { res, body, retried } = await postAuthTracked(args.url, {
       install_id: installId,
       ...(await args.payload()),
       ...(state.protect ? { current_account_id: state.protect } : {}),
       ...(state.allowSwitch ? { allow_switch: true } : {}),
     });
-    const body = await readBody(res);
     if (
       res.status === 409 &&
       body?.error_code === "different_account" &&
@@ -514,10 +514,8 @@ export function isGoogleSignInAvailable(): boolean {
   return !IS_EXPO_GO && (Platform.OS !== "ios" || GOOGLE_IOS_CLIENT_ID !== "");
 }
 
-// Apple on Android is a web flow that works only where the server has a
-// Services ID (APPLE_SERVICES_ID). Production has none, so the card always
-// failed with "Sign-in didn't work" (audit #2). Android offers it only once
-// the server's probe says it is configured; iOS uses the native sheet.
+// Apple on Android is a web flow that needs the server's Apple Services ID.
+// Android offers it after the server probe succeeds; iOS uses the native sheet.
 let appleWebConfigured: boolean | null = null;
 
 export function isAppleSignInAvailable(): boolean {
@@ -554,7 +552,22 @@ export async function refreshAppleSignInAvailability(): Promise<boolean> {
 // That is what Google's reviewer saw on build 49 after leaving Android's
 // add-account screen. A cancel is the user's answer; stop here, silently.
 async function signInForIdToken(lib: GoogleSigninModule): Promise<string | null> {
-  const result = await lib.GoogleSignin.signIn();
+  let result: Awaited<ReturnType<typeof lib.GoogleSignin.signIn>>;
+  try {
+    result = await lib.GoogleSignin.signIn();
+  } catch (err) {
+    if (isCancellation(err)) throw err;
+    const code = lib.isErrorWithCode(err) ? String(err.code) : "";
+    // Google Play Services CommonStatusCodes.NETWORK_ERROR.
+    if (Platform.OS === "android" && code === "7") {
+      throw new SignInFailedError("network", "Couldn't reach Google to sign in.", "google 7");
+    }
+    throw new SignInFailedError(
+      "google_native",
+      "Google sign-in failed before Kaata received a credential.",
+      code,
+    );
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if ((result as any)?.type === "cancelled") throw new SignInCancelledByUserError();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -686,35 +699,34 @@ const AUTH_ATTEMPTS = 2;
 async function postAuthTracked(
   url: string,
   payload: unknown,
-): Promise<{ res: Response; retried: boolean }> {
+): Promise<AuthReply & { retried: boolean }> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= AUTH_ATTEMPTS; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      return { res, retried: attempt > 1 };
+      const reply = await requestAuthReply(
+        url,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        AUTH_TIMEOUT_MS,
+      );
+      return { ...reply, retried: attempt > 1 };
     } catch (err) {
       lastErr = err;
       // Retry once on a timeout or a transport failure; both are the
       // signature of a weak link rather than a rejected credential.
       if (attempt < AUTH_ATTEMPTS) continue;
-      throw transportFailure(err);
-    } finally {
-      clearTimeout(timer);
+      throw err;
     }
   }
   // Unreachable (the loop either returns or throws), but keeps TS honest.
   throw lastErr instanceof Error ? lastErr : new SignInFailedError("unknown", "Sign-in failed.");
 }
 
-function transportFailure(err: unknown): SignInFailedError {
-  if (err instanceof Error && err.name === "AbortError") {
+function transportFailure(err: unknown, timedOut: boolean): SignInFailedError {
+  if (timedOut || (err instanceof Error && err.name === "AbortError")) {
     return new SignInFailedError(
       "timeout",
       "Sign-in timed out — check your connection and try again.",
@@ -727,14 +739,47 @@ function transportFailure(err: unknown): SignInFailedError {
   );
 }
 
+type AuthReply = { res: Response; body: Record<string, unknown> | null };
+
+async function requestAuthReply(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<AuthReply> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error("Authentication request timed out."));
+    }, timeoutMs);
+  });
+  try {
+    // Expo's fetch resolves when the headers arrive. Keep the deadline active
+    // while reading the body, too.
+    return await Promise.race([
+      timeout,
+      (async () => {
+        const res = await fetch(url, { ...init, signal: controller.signal });
+        return { res, body: await readBody(res) };
+      })(),
+    ]);
+  } catch (err) {
+    throw transportFailure(err, controller.signal.aborted);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // The JSON object a response carries, or null (empty, not JSON, not an object:
 // a captive portal or a proxy error page). Read ONCE: a body cannot be re-read.
 async function readBody(res: Response): Promise<Record<string, unknown> | null> {
   try {
     const body: unknown = await res.json();
     return typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof SyntaxError) return null;
+    throw err;
   }
 }
 
@@ -1329,8 +1374,10 @@ async function emailCodeStart(
 ): Promise<EmailCodeSent> {
   const address = email.trim();
   const baseUrl = await getBackendUrl();
-  const { res, retried } = await postAuthTracked(`${baseUrl}${path}`, { email: address, lang });
-  const body = await readBody(res);
+  const { res, body, retried } = await postAuthTracked(`${baseUrl}${path}`, {
+    email: address,
+    lang,
+  });
   if (!res.ok) {
     const refusal = apiRefusal(res.status, body, res.headers);
     if (retried && refusal?.reason === "too_many_requests" && refusal.extra.limit === "minute") {
@@ -1800,25 +1847,18 @@ async function accountRequest(
   const jwt = pinnedJwt ?? (await SecureStore.getItemAsync(SESSION_KEY));
   if (!jwt) throw new EmailAuthError("session_expired", 401);
   const baseUrl = await getBackendUrl();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ACCOUNT_REQUEST_TIMEOUT_MS);
-  let res: Response;
-  try {
-    res = await fetch(`${baseUrl}${path}`, {
+  const { res, body } = await requestAuthReply(
+    `${baseUrl}${path}`,
+    {
       method,
       headers: {
         Authorization: `Bearer ${jwt}`,
         ...(payload === undefined ? {} : { "Content-Type": "application/json" }),
       },
       ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    throw transportFailure(err);
-  } finally {
-    clearTimeout(timer);
-  }
-  const body = await readBody(res);
+    },
+    ACCOUNT_REQUEST_TIMEOUT_MS,
+  );
   if (res.status === 401) throw new EmailAuthError("session_expired", 401);
   if (!res.ok) {
     const refusal = apiRefusal(res.status, body, res.headers);
@@ -2422,15 +2462,7 @@ export async function updateAccountPhone(
   const jwt = expectedSession ? expectedSession.jwt : await SecureStore.getItemAsync(SESSION_KEY);
   if (!jwt) return;
   try {
-    const baseUrl = await getBackendUrl();
-    await fetch(`${baseUrl}/v1/account/phone`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${jwt}`,
-      },
-      body: JSON.stringify({ phone: phone ?? "" }),
-    });
+    await accountRequest("PUT", "/v1/account/phone", { phone: phone ?? "" }, jwt);
   } catch {
     // network failure — local value stands; re-pushed on the next save / sign-in
   }

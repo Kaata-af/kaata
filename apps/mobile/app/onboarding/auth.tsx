@@ -244,16 +244,19 @@ export function AuthScreen({
     }
     void readEmailFlowPending()
       .then((pending) => {
-        if (cancelled || !focusedRef.current || busyRef.current) return;
-        if (pending && pending.purpose !== "setup") {
-          if (emailRoute) {
+        if (cancelled) return;
+        const resumable = pending?.purpose === "setup" ? null : pending;
+        if (emailRoute) {
+          // The email route can mount before it receives focus. Its form still
+          // needs the result of this one-time read when it becomes visible.
+          if (resumable) {
             setEmailCanGoBack(true);
-            setResume(pending);
-          } else {
-            openEmailMode();
+            setResume(resumable);
           }
+          setResumeChecked(true);
+        } else if (resumable && focusedRef.current) {
+          openEmailMode();
         }
-        if (emailRoute) setResumeChecked(true);
       })
       .catch((err: unknown) => {
         if (cancelled) return;

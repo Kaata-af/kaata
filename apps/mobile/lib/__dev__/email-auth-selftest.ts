@@ -442,6 +442,34 @@ test("native builds: Android and configured iOS retain Google configuration and 
   }
 });
 
+test("Google chooser failures preserve the native code and cancellations stay silent", async () => {
+  freshPhone();
+  const google = authMocks["@react-native-google-signin/google-signin"];
+  let nativeError = Object.assign(new Error("Google configuration mismatch"), { code: "10" });
+  const nativeAuth = load<Auth>("../auth", {
+    ...authMocks,
+    "@react-native-google-signin/google-signin": {
+      ...google,
+      GoogleSignin: {
+        ...google.GoogleSignin,
+        signIn: async () => {
+          throw nativeError;
+        },
+      },
+    },
+  });
+  const failure = await rejection(nativeAuth.signInWithGoogle());
+  assert.ok(failure instanceof nativeAuth.SignInFailedError);
+  assert.equal(failure.code, "google_native 10");
+  nativeError = Object.assign(new Error("NETWORK_ERROR"), { code: "7" });
+  const networkFailure = await rejection(nativeAuth.signInWithGoogle());
+  assert.ok(networkFailure instanceof nativeAuth.SignInFailedError);
+  assert.equal(networkFailure.code, "network google 7");
+  nativeError = Object.assign(new Error("cancelled"), { code: "SIGN_IN_CANCELLED" });
+  assert.equal(nativeAuth.isCancellation(await rejection(nativeAuth.signInWithGoogle())), true);
+  assert.equal(calls.length, 0, "no Kaata auth request without a Google token");
+});
+
 function refusal(err: unknown, reason: string, status: number) {
   assert.ok(err instanceof auth.EmailAuthError, `expected EmailAuthError ${reason}, got ${err}`);
   assert.equal(err.reason, reason);
@@ -2555,6 +2583,47 @@ function componentTest(name: string, run: () => Promise<void>) {
   });
 }
 
+componentTest("email sign-up retries when the response body stalls after headers", async () => {
+  freshPhone();
+  script = [() => new Response(new ReadableStream()), reply(200, { resend_after_s: 75 })];
+  const sent = auth.emailSignUpStart("ahmad@example.com", "fa");
+  await until(() => calls.length === 1, "first request received headers");
+  assert.equal(timers[0]?.ms, 45_000);
+  assert.equal(timers[0]?.cleared, false, "the deadline still covers the body");
+  timers[0].fn();
+  assert.deepEqual(await sent, { resendAfterS: 75 });
+  assert.equal(calls.length, 2);
+  assert.ok(timers.every((timer) => timer.cleared));
+});
+
+componentTest(
+  "a stalled account phone upload does not keep a local ledger stuck at sign-in",
+  async () => {
+    freshPhone();
+    fixture.exec(`INSERT INTO users (id, display_name, phone_e164, is_local_self)
+    VALUES ('self', 'Ahmad', '+93700000000', 1), ('contact', 'Customer', NULL, 0)`);
+    script = [
+      reply(200, session("acct-new", "ahmad@example.com")),
+      () => new Response(new ReadableStream()),
+    ];
+    const signIn = auth.emailSignIn("ahmad@example.com", "correct password");
+    await until(() => calls.length === 2, "account phone upload");
+    assert.equal(calls[1].url, `${BASE}/v1/account/phone`);
+    assert.equal(calls[1].auth, "Bearer jwt.acct-new");
+    assert.equal(timers[1]?.ms, 30_000);
+    assert.equal(timers[1]?.cleared, false);
+    timers[1].fn();
+    await signIn;
+    assert.equal((await auth.captureCurrentSession()).accountId, "acct-new");
+    assert.deepEqual(await sqlite.getFirstAsync("SELECT count(*) AS count FROM users"), {
+      count: 2,
+    });
+    assert.deepEqual(await sqlite.getFirstAsync("SELECT phone_e164 FROM users WHERE id = 'self'"), {
+      phone_e164: "+93700000000",
+    });
+  },
+);
+
 const textOf = (node: Node) => ([] as unknown[]).concat(node.props.children ?? []).join("");
 const texts = (tree: Node[]) => tree.filter((n) => n.type === "Text").map(textOf);
 const control = (tree: Node[], label: string) =>
@@ -4003,6 +4072,7 @@ let screenRoutes: unknown[] = [];
 const screenMeta = new Map<string, string>();
 let screenWrites: [string, string][] = [];
 let platform = "android";
+let screenFocused = true;
 const screen = load<{
   AuthScreen: (props: {
     redirected?: boolean;
@@ -4038,8 +4108,12 @@ const screen = load<{
   "expo-constants": { __esModule: true, default: { executionEnvironment: "standalone" } },
   "expo-router": {
     Stack: { Screen: "StackScreen" },
-    useIsFocused: () => true,
-    useFocusEffect: (effect: () => void) => screenHooks.react.useEffect(effect, [effect]),
+    useIsFocused: () => screenFocused,
+    useFocusEffect: (effect: () => void) =>
+      screenHooks.react.useEffect(
+        () => (screenFocused ? effect() : undefined),
+        [effect, screenFocused],
+      ),
     useRouter: () => ({
       push: (r: unknown) => screenRoutes.push({ push: r }),
       replace: (r: unknown) => screenRoutes.push(r),
@@ -4171,6 +4245,22 @@ componentTest("screen: Continue with email under the two cards, on both platform
   const tree = await mountEmailScreen({ redirected: true });
   assert.equal(flowIn(tree)?.props.entry, "signin");
   assert.equal(tree.find((n) => n.type === "StackScreen")?.props.options.gestureEnabled, true);
+});
+
+componentTest("screen: email loads when the pending-code read finishes before focus", async () => {
+  const pending = { purpose: "signup", email: "ahmad@example.com", sentAt: 1, accountId: null };
+  screenFocused = false;
+  try {
+    const loading = mountScreen({ redirected: true, emailRoute: true }, pending);
+    assert.ok(loading.some((node) => node.type === "Spinner"));
+    await settle();
+    screenFocused = true;
+    const tree = renderScreen();
+    assert.deepEqual(flowIn(tree)?.props.resume, pending);
+    assert.ok(!tree.some((node) => node.type === "Spinner"));
+  } finally {
+    screenFocused = true;
+  }
 });
 
 componentTest("screen: Back, hardware or on-screen, walks the flow, then out of it", async () => {
