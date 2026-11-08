@@ -724,7 +724,10 @@ function validBytes(bytes: Uint8Array): void {
   )
     fail("invalid");
 }
-export async function createPersonalBackupSnapshot(includeReadableTables = false): Promise<{
+export async function createPersonalBackupSnapshot(
+  includeReadableTables = false,
+  { requireData = false } = {},
+): Promise<{
   file: File;
   readableTables: Awaited<ReturnType<typeof readDriveBackupTables>>;
   dispose: () => void;
@@ -767,6 +770,16 @@ export async function createPersonalBackupSnapshot(includeReadableTables = false
           fail("invalid");
         matchSession(await meta(copy!), session);
         await ownedVaults(copy!, accountId);
+        if (requireData) {
+          // A new installation may already have a default book. Do not publish
+          // that shell as the latest copy when a real backup exists elsewhere.
+          try {
+            await assertEmpty(copy!);
+            fail("empty");
+          } catch (error) {
+            if (!(error instanceof PersonalBackupError && error.code === "notEmpty")) throw error;
+          }
+        }
         await sanitize(copy!);
         await copy!.execAsync(
           `DROP TABLE IF EXISTS ${INFO};CREATE TABLE ${INFO}(value TEXT NOT NULL);`,
@@ -811,12 +824,15 @@ export async function createPersonalBackupSnapshot(includeReadableTables = false
   });
 }
 /** Validates and prepares files only. The running ledger is never replaced. */
-export async function stagePersonalBackupRestore(bytes: Uint8Array): Promise<void> {
+export async function stagePersonalBackupRestore(
+  bytes: Uint8Array,
+  expectedSession?: SessionSnapshot,
+): Promise<void> {
   validBytes(bytes);
   const ownedBytes = bytes.slice();
   return exclusive(async () => {
     if (file(RECEIPT).exists || file(PARKED).exists) fail("busy");
-    const session = await captureCurrentSession(),
+    const session = expectedSession ?? await captureCurrentSession(),
       live = await getDb();
     const target = await meta(live);
     const targetIdentity = identity(target);

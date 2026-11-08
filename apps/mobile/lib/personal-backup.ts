@@ -1,7 +1,5 @@
 import { reloadAppAsync } from "expo";
-import * as Crypto from "expo-crypto";
 import { Directory, File, FileMode, Paths } from "expo-file-system";
-import { saveFileToLocation } from "kaata-save-file";
 import { Platform } from "react-native";
 import {
   applyForUnchangedLocalSession,
@@ -9,39 +7,28 @@ import {
   SessionChangedError,
   type SessionSnapshot,
 } from "./auth";
-import { getAppMetaInTx, getDb, setAppMetaInTx } from "./db-tx";
-import { createDriveBackup, DRIVE_BACKUP_FILE_LIMIT, openDriveBackup } from "./drive-backup";
+import {
+  createDriveBackup,
+  DRIVE_BACKUP_FILE_LIMIT,
+  DriveBackupTooLargeError,
+  openDriveBackup,
+} from "./drive-backup";
 import {
   createPersonalBackupSnapshot,
   PersonalBackupError,
   stagePersonalBackupRestore,
 } from "./personal-backup-db";
 import {
-  BACKUP_RANDOM_LENGTH,
   MAX_BACKUP_DATABASE_BYTES,
   MAX_BACKUP_FILE_BYTES,
   LegacyBackupUnsupportedError,
   openBackup,
-  sealBackup,
   validBackupPassword,
 } from "./personal-backup-format";
 
 export { PersonalBackupError } from "./personal-backup-db";
 
-export type PersonalBackupDestination = "googleDrive" | "icloudDrive";
 export type PersonalBackupRestoreFormat = "zip" | "encrypted";
-type SavedCopy = { displayName: string };
-type Receipt = SavedCopy & { savedAt: number };
-
-const DESTINATIONS = ["googleDrive", "icloudDrive"] as const;
-const savedCopies = new WeakMap<
-  SavedCopy,
-  {
-    session: SessionSnapshot;
-    destination: PersonalBackupDestination;
-    savedAt: number;
-  }
->();
 let busy = false;
 
 function exportCache() {
@@ -49,6 +36,7 @@ function exportCache() {
 }
 
 export function clearInterruptedPersonalBackupExport(): void {
+  if (busy) return;
   try {
     const directory = exportCache();
     if (directory.exists) directory.delete();
@@ -57,11 +45,7 @@ export function clearInterruptedPersonalBackupExport(): void {
   }
 }
 
-function receiptKey(accountId: string | null, destination: PersonalBackupDestination) {
-  return `personal_backup_receipt:${accountId ?? "ninja"}:${destination}`;
-}
-
-async function current<T>(session: SessionSnapshot, work: () => Promise<T>): Promise<T> {
+export async function withPersonalBackupSession<T>(session: SessionSnapshot, work: () => Promise<T>): Promise<T> {
   try {
     return await applyForUnchangedLocalSession(session, work);
   } catch (error) {
@@ -132,17 +116,28 @@ async function readBounded(file: File, max: number): Promise<Uint8Array> {
   }
 }
 
-export function savePersonalBackup(
-  destination: PersonalBackupDestination,
-  password?: string,
-): Promise<SavedCopy | null> {
+async function withTemporaryArchive<T>(work: (file: File) => Promise<T>): Promise<T> {
+  const temporary = exportCache();
+  if (temporary.exists) temporary.delete();
+  temporary.create();
+  try {
+    return await work(new File(temporary, "Kaata-backup.zip"));
+  } finally {
+    try {
+      if (temporary.exists) temporary.delete();
+    } catch {
+      // Boot also clears the private cache after interrupted backup work.
+    }
+  }
+}
+
+export function withReadablePersonalBackup<T>(
+  session: SessionSnapshot,
+  useArchive: (file: File) => Promise<T>,
+): Promise<T> {
   return runExclusive(async () => {
-    const plaintext = destination === "googleDrive";
-    if (!plaintext && (destination !== "icloudDrive" || Platform.OS !== "ios"))
-      throw new PersonalBackupError("unsupported");
-    const secret = plaintext ? null : requirePassword(password);
-    const session = await captureCurrentSession();
-    const snapshot = await createPersonalBackupSnapshot(plaintext);
+    await withPersonalBackupSession(session, async () => {});
+    const snapshot = await createPersonalBackupSnapshot(true, { requireData: true });
     let database: Uint8Array | undefined;
     let archive: Uint8Array;
     try {
@@ -151,93 +146,68 @@ export function savePersonalBackup(
       } finally {
         snapshot.dispose();
       }
-      archive =
-        secret === null
-          ? createDriveBackup(database, snapshot.readableTables)
-          : await sealBackup(
-              database,
-              secret,
-              await Crypto.getRandomBytesAsync(BACKUP_RANDOM_LENGTH),
-            );
+      archive = createDriveBackup(database, snapshot.readableTables);
+    } catch (error) {
+      if (error instanceof DriveBackupTooLargeError) throw new PersonalBackupError("tooLarge");
+      throw error;
     } finally {
       database?.fill(0);
       for (const table of Object.values(snapshot.readableTables)) table.fill(0);
     }
-    const temporary = exportCache();
     try {
-      if (temporary.exists) temporary.delete();
-      temporary.create();
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const name = `Kaata-backup-${timestamp}.${plaintext ? "zip" : "kaatabackup"}`;
-      const file = new File(temporary, name);
-      file.create();
-      await file.write(archive);
-      archive.fill(0);
-      await current(session, async () => {});
-      const result = await saveFileToLocation(
-        file.uri,
-        name,
-        plaintext ? "application/zip" : "application/octet-stream",
-      );
-      if (!result) return null;
-      const saved = { displayName: result.displayName };
-      await current(session, async () => {
-        savedCopies.set(saved, { session, destination, savedAt: Date.now() });
+      return await withTemporaryArchive(async (file) => {
+        file.create();
+        await file.write(archive);
+        archive.fill(0);
+        await withPersonalBackupSession(session, async () => {});
+        return useArchive(file);
       });
-      return saved;
     } finally {
       archive.fill(0);
-      try {
-        if (temporary.exists) temporary.delete();
-      } catch {
-        // The OS can also clear its private cache after an interrupted save.
-      }
     }
   });
 }
 
-export async function readPersonalBackupReceipts(): Promise<
-  Partial<Record<PersonalBackupDestination, Receipt>>
-> {
-  const session = await captureCurrentSession();
-  return current(session, async () => {
-    const receipts: Partial<Record<PersonalBackupDestination, Receipt>> = {};
-    const db = await getDb();
-    for (const destination of DESTINATIONS) {
-      const raw = await getAppMetaInTx(db, receiptKey(session.accountId, destination));
-      if (!raw) continue;
-      try {
-        const receipt = JSON.parse(raw) as Partial<Receipt>;
-        if (
-          typeof receipt.displayName === "string" &&
-          typeof receipt.savedAt === "number" &&
-          Number.isSafeInteger(receipt.savedAt) &&
-          receipt.savedAt > 0
-        )
-          receipts[destination] = receipt as Receipt;
-      } catch {
-        // A damaged receipt does not imply a successful file save.
-      }
-    }
-    return receipts;
-  });
+async function restoreFile(
+  session: SessionSnapshot,
+  input: File,
+  password: string | null,
+): Promise<boolean> {
+  const bytes = await readBounded(
+    input,
+    password === null ? DRIVE_BACKUP_FILE_LIMIT : MAX_BACKUP_FILE_BYTES,
+  );
+  let database: Uint8Array;
+  try {
+    database = password === null ? openDriveBackup(bytes) : await openBackup(bytes, password);
+  } catch (error) {
+    if (error instanceof LegacyBackupUnsupportedError)
+      throw new PersonalBackupError("legacyUnsupported");
+    throw new PersonalBackupError("invalid");
+  } finally {
+    bytes.fill(0);
+  }
+  try {
+    await stagePersonalBackupRestore(database, session);
+  } finally {
+    database.fill(0);
+  }
+  await reloadAppAsync("Restore personal backup");
+  return true;
 }
 
-export async function recordPersonalBackup(
-  destination: PersonalBackupDestination,
-  result: SavedCopy,
-): Promise<void> {
-  const saved = savedCopies.get(result);
-  if (!saved || saved.destination !== destination) throw new PersonalBackupError("sessionChanged");
-  await current(saved.session, async () => {
-    if (savedCopies.get(result) !== saved) throw new PersonalBackupError("sessionChanged");
-    await setAppMetaInTx(
-      await getDb(),
-      receiptKey(saved.session.accountId, destination),
-      JSON.stringify({ displayName: result.displayName, savedAt: saved.savedAt } satisfies Receipt),
-    );
-    savedCopies.delete(result);
-  });
+export function restoreDownloadedPersonalBackup(
+  session: SessionSnapshot,
+  download: (file: File) => Promise<void>,
+): Promise<boolean> {
+  return runExclusive(() =>
+    withTemporaryArchive(async (file) => {
+      await withPersonalBackupSession(session, async () => {});
+      await download(file);
+      await withPersonalBackupSession(session, async () => {});
+      return restoreFile(session, file, null);
+    }),
+  );
 }
 
 export function restorePersonalBackup(
@@ -249,27 +219,7 @@ export function restorePersonalBackup(
     const session = await captureCurrentSession();
     const pick = await File.pickFileAsync({ multipleFiles: false });
     if (pick.canceled) return false;
-    const file = await readBounded(
-      pick.result,
-      secret === null ? DRIVE_BACKUP_FILE_LIMIT : MAX_BACKUP_FILE_BYTES,
-    );
-    let database: Uint8Array;
-    try {
-      database = secret === null ? openDriveBackup(file) : await openBackup(file, secret);
-    } catch (error) {
-      if (error instanceof LegacyBackupUnsupportedError)
-        throw new PersonalBackupError("legacyUnsupported");
-      throw new PersonalBackupError("invalid");
-    } finally {
-      file.fill(0);
-    }
-    try {
-      await current(session, async () => {});
-      await stagePersonalBackupRestore(database);
-    } finally {
-      database.fill(0);
-    }
-    await reloadAppAsync("Restore personal backup");
-    return true;
+    await withPersonalBackupSession(session, async () => {});
+    return restoreFile(session, pick.result, secret);
   });
 }

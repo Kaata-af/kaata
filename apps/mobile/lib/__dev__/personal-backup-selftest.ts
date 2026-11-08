@@ -5,11 +5,7 @@ async function main() {
   let account: string | null = "account-a";
   let revision = 0;
   let chooseFile = false;
-  let completeSave = false;
-  let switchWhileSaving = false;
-  let lastFileName = "";
   const events: string[] = [];
-  const receipts = new Map<string, string>();
   class PersonalBackupError extends Error {
     constructor(readonly code: string) {
       super(code);
@@ -24,8 +20,8 @@ async function main() {
     uri = "file:///mock/kaata-backup";
     create() {}
     async write(bytes: Uint8Array) {
-      assert.ok(bytes[0] === 81 || bytes[0] === 91);
-      events.push(bytes[0] === 81 ? "zip" : "encrypted");
+      assert.equal(bytes[0], 81);
+      events.push("zip");
     }
     open() {
       let read = false;
@@ -44,31 +40,13 @@ async function main() {
     create() {}
     delete() {}
   }
-  const db = {};
   const backup = compileUI("../personal-backup", {
     expo: { reloadAppAsync: async () => events.push("reload") },
-    "expo-crypto": {
-      randomUUID: () => "fixture",
-      getRandomBytesAsync: async (length: number) => new Uint8Array(length),
-    },
     "expo-file-system": {
       Directory: MockDirectory,
       File: MockFile,
       FileMode: { ReadOnly: "r" },
       Paths: { cache: {} },
-    },
-    "kaata-save-file": {
-      saveFileToLocation: async (_uri: string, name: string, mime: string) => {
-        lastFileName = name;
-        assert.equal(events.at(-1), mime === "application/zip" ? "zip" : "encrypted");
-        assert.equal(name.endsWith(mime === "application/zip" ? ".zip" : ".kaatabackup"), true);
-        events.push("picker");
-        if (switchWhileSaving) {
-          account = "account-b";
-          revision++;
-        }
-        return completeSave ? { displayName: name } : null;
-      },
     },
     "react-native": { Platform: { OS: "ios" } },
     "./auth": {
@@ -83,13 +61,9 @@ async function main() {
       },
       SessionChangedError,
     },
-    "./db-tx": {
-      getDb: async () => db,
-      getAppMetaInTx: async (_db: unknown, key: string) => receipts.get(key),
-      setAppMetaInTx: async (_db: unknown, key: string, value: string) => receipts.set(key, value),
-    },
     "./drive-backup": {
       DRIVE_BACKUP_FILE_LIMIT: 1024,
+      DriveBackupTooLargeError: class extends Error {},
       createDriveBackup: () => Uint8Array.of(81, 82, 83),
       openDriveBackup: () => Uint8Array.of(1, 2, 3),
     },
@@ -104,10 +78,8 @@ async function main() {
     },
     "./personal-backup-format": {
       LegacyBackupUnsupportedError,
-      BACKUP_RANDOM_LENGTH: 40,
       MAX_BACKUP_DATABASE_BYTES: 1024,
       MAX_BACKUP_FILE_BYTES: 1024,
-      sealBackup: async () => Uint8Array.of(91, 92, 93),
       openBackup: async (_bytes: Uint8Array, password: string) => {
         if (password === "incorrect backup password") throw new Error("Invalid tag");
         if (password === "old backup password") throw new LegacyBackupUnsupportedError();
@@ -117,28 +89,18 @@ async function main() {
     },
   });
   const password = "test backup password";
-  assert.equal(await backup.savePersonalBackup("googleDrive"), null);
-  assert.deepEqual(events, ["plain copy disposed", "zip", "picker"]);
-  assert.deepEqual(await backup.readPersonalBackupReceipts(), {});
-  completeSave = true;
-  const result = await backup.savePersonalBackup("googleDrive");
-  assert.deepEqual(await backup.readPersonalBackupReceipts(), {});
-  await assert.rejects(backup.recordPersonalBackup("googleDrive", { ...result }), {
-    code: "sessionChanged",
-  });
-  await assert.rejects(backup.recordPersonalBackup("icloudDrive", result), {
-    code: "sessionChanged",
-  });
-  await backup.recordPersonalBackup("googleDrive", result);
-  assert.equal((await backup.readPersonalBackupReceipts()).googleDrive.displayName, lastFileName);
-  await assert.rejects(backup.savePersonalBackup("icloudDrive"), { code: "password" });
-  const another = await backup.savePersonalBackup("icloudDrive", password);
-  switchWhileSaving = true;
-  await assert.rejects(backup.savePersonalBackup("googleDrive"), { code: "sessionChanged" });
-  await assert.rejects(backup.recordPersonalBackup("icloudDrive", another), {
-    code: "sessionChanged",
-  });
-  assert.deepEqual(await backup.readPersonalBackupReceipts(), {});
+  const session = { accountId: account, bindingVersion: revision };
+  await backup.withReadablePersonalBackup(session, async () => events.push("uploaded"));
+  assert.deepEqual(events, ["plain copy disposed", "zip", "uploaded"]);
+  await assert.rejects(backup.restoreDownloadedPersonalBackup(session, async () => {
+    account = "account-b";
+    revision++;
+  }), { code: "sessionChanged" });
+  assert.ok(!events.includes("staged"));
+  assert.equal(await backup.restoreDownloadedPersonalBackup(
+    { accountId: account, bindingVersion: revision }, async () => events.push("downloaded"),
+  ), true);
+  assert.deepEqual(events.splice(3), ["downloaded", "staged", "reload"]);
   assert.equal(await backup.restorePersonalBackup("zip"), false);
   chooseFile = true;
   await assert.rejects(backup.restorePersonalBackup("encrypted", "incorrect backup password"), {
@@ -153,7 +115,7 @@ async function main() {
   assert.equal(await backup.restorePersonalBackup("zip"), true);
   assert.deepEqual(events.slice(-2), ["staged", "reload"]);
   console.log(
-    "PASS personal backup files: ZIP and encrypted save/restore, provider receipts, scope and legacy errors",
+    "PASS personal backup files: password-free cloud ZIP, account binding, and legacy file restore",
   );
 }
 

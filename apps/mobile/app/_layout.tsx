@@ -628,6 +628,19 @@ function RootLayoutContent() {
   }, [bootNonce]);
 
   useEffect(() => {
+    if (!appReady) return;
+    let stopped = false;
+    let stop: (() => void) | undefined;
+    void import("../lib/personal-cloud-schedule").then((service) => {
+      if (!stopped) stop = service.startPersonalCloudBackupSchedule();
+    }).catch(() => {});
+    return () => {
+      stopped = true;
+      stop?.();
+    };
+  }, [appReady]);
+
+  useEffect(() => {
     if (dbReady !== true) return;
     let cancelled = false;
     let stop: (() => void) | undefined;

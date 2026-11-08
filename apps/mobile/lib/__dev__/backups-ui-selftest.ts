@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { PersonalCloudProviderId, PersonalCloudStatus } from "../personal-cloud-backup";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 class PersonalBackupError extends Error {
@@ -6,38 +7,43 @@ class PersonalBackupError extends Error {
     super(code);
   }
 }
+class PersonalCloudProviderError extends PersonalBackupError {}
+
+type BackupChoice = { name: string; createdAt: number };
 
 function fixture({ signedIn = true, platform = "android", directRestore = false } = {}) {
   const hooks = uiHooks();
   const identityListeners = new Set<() => void>();
   const stateListeners = new Set<() => void>();
+  const providerListeners = new Set<() => void>();
   const timers = new Map<number, () => void>();
   const backHandlers = new Set<() => boolean>();
-  const routes: any[] = [];
-  let nextTimer = 0,
-    focused = true,
-    account = signedIn ? "account-a" : "local:a";
+  const routes: string[] = [];
+  let nextTimer = 0;
+  let focused = true;
+  let account = signedIn ? "account-a" : "local:a";
   let session: string | null = signedIn ? "account-a" : null;
-  let offline = false,
-    dismissed = 0,
-    reads = 0,
-    syncs = 0;
-  let syncError: Error | null = null,
-    receiptError: Error | null = null;
-  let statusGate: Promise<any> | null = null,
-    saveGate: Promise<any> | null = null;
-  let saveResult: any = { displayName: "kaata-backup.zip", opaque: "original" };
-  let restoreResult = false,
-    restoreError: Error | null = null;
-  const saves: { destination: string; password?: string }[] = [],
-    restores: { format: string; password?: string }[] = [],
-    recorded: any[] = [];
+  let offline = false;
+  let reads = 0;
+  let syncs = 0;
+  let syncError: Error | null = null;
+  let statusGate: Promise<any> | null = null;
+  let providerGate: Promise<any> | null = null;
+  let enableResult: boolean | Promise<boolean> = true;
+  let findResult: BackupChoice | null | undefined | Promise<BackupChoice | null | undefined>;
+  let findError: Error | null = null;
+  let fileError: Error | null = null;
+  const fileRestores: { format: string; password?: string }[] = [];
+  const operations: [string, PersonalCloudProviderId][] = [];
+  const cloudRestores: BackupChoice[] = [];
   const status = {
     signedIn,
     vaults: signedIn ? [{ id: "vault-a", name: "Shop", lastPushAt: 1000, pending: true }] : [],
     localBackupAt: 500,
   };
-  const receipts: Record<string, any> = {};
+  const providers: Partial<Record<PersonalCloudProviderId, PersonalCloudStatus>> = {};
+  const supported = { googleDrive: true, icloudDrive: true };
+  const notify = () => providerListeners.forEach((listener) => listener());
   const AppState = {
     currentState: "active",
     addEventListener: (_: string, callback: () => void) => {
@@ -64,8 +70,8 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
       "expo-router": {
         Stack: { Screen: "StackScreen" },
         useRouter: () => ({
-          push: (route: any) => routes.push(route),
-          replace: (route: any) => routes.push(route),
+          push: (route: string) => routes.push(route),
+          replace: (route: string) => routes.push(route),
           canGoBack: () => true,
           back: () => routes.push("back"),
         }),
@@ -84,7 +90,7 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
             return { remove: () => backHandlers.delete(callback) };
           },
         },
-        Keyboard: { dismiss: () => dismissed++ },
+        Keyboard: { dismiss: () => {} },
         KeyboardAvoidingView: "KeyboardAvoidingView",
         Platform: { OS: platform },
         ScrollView: "ScrollView",
@@ -121,27 +127,58 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
           return () => identityListeners.delete(callback);
         },
       },
-      "../lib/direction": { useIsRTL: () => false, textDir: () => ({}) },
+      "../lib/direction": {
+        useIsRTL: () => false,
+        textDir: () => ({}),
+        ltrIsolate: (value: string) => value,
+      },
       "../lib/format": { formatTimestamp: (value: number) => "date:" + value },
       "../lib/i18n": {
         t: (key: string, values?: any) => key + (values ? JSON.stringify(values) : ""),
       },
       "../lib/personal-backup": {
         PersonalBackupError,
-        readPersonalBackupReceipts: async () => ({ ...receipts }),
-        savePersonalBackup: async (destination: string, password?: string) => {
-          saves.push({ destination, password });
-          return saveGate ?? saveResult;
-        },
-        recordPersonalBackup: async (destination: string, result: any) => {
-          recorded.push({ destination, result });
-          if (receiptError) throw receiptError;
-          receipts[destination] = { displayName: result.displayName, savedAt: 2000 };
-        },
         restorePersonalBackup: async (format: string, password?: string) => {
-          restores.push({ format, password });
-          if (restoreError) throw restoreError;
-          return restoreResult;
+          fileRestores.push({ format, password });
+          if (fileError) throw fileError;
+          return false;
+        },
+      },
+      "../lib/personal-cloud-backup": {
+        PersonalCloudProviderError,
+        isPersonalCloudBackupSupported: (id: PersonalCloudProviderId) => supported[id],
+        readPersonalCloudBackupStatuses: async () => providerGate ?? { ...providers },
+        subscribePersonalCloudBackup: (listener: () => void) => {
+          providerListeners.add(listener);
+          return () => providerListeners.delete(listener);
+        },
+        enablePersonalCloudBackup: async (id: PersonalCloudProviderId) => {
+          operations.push(["connect", id]);
+          const next = await enableResult;
+          if (next) {
+            providers[id] = { connection: { id: "cloud-account", label: "test@example.org" } };
+            notify();
+          }
+          return next;
+        },
+        disablePersonalCloudBackup: async (id: PersonalCloudProviderId) => {
+          operations.push(["disable", id]);
+          delete providers[id];
+          notify();
+        },
+        backUpToPersonalCloudNow: async (id: PersonalCloudProviderId) => {
+          operations.push(["backup", id]);
+          providers[id]!.savedAt = 2000;
+          notify();
+        },
+        findLatestPersonalCloudBackup: async (id: PersonalCloudProviderId) => {
+          operations.push(["find", id]);
+          if (findError) throw findError;
+          return findResult;
+        },
+        restoreLatestPersonalCloudBackup: async (choice: BackupChoice) => {
+          cloudRestores.push(choice);
+          return true;
         },
       },
       "../lib/tokens": { gutter: { settings: 20 }, typography: {} },
@@ -161,16 +198,16 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
       render();
     }
   };
-  const find = (label: string) => nodes(hooks.tree).find((node) => node.props.label === label);
+  const find = (label: string) =>
+    nodes(hooks.tree).find((node) => node.props.label?.startsWith(label));
   const text = () =>
     nodes(hooks.tree)
       .filter((node) => node.type === "Text")
       .map((node) => node.props.children)
       .join(" ");
   const dialog = () => nodes(hooks.tree).find((node) => node.type === "ConfirmDialog")!;
-  const fill = (password = "long-password-123", confirm = password) => {
-    find("backups.password")!.props.onChangeText(password);
-    find("backups.confirmPassword")?.props.onChangeText(confirm);
+  const press = (label: string) => {
+    find(label)!.props.onPress();
     render();
   };
   render();
@@ -181,45 +218,43 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
     find,
     text,
     dialog,
-    fill,
-    saves,
-    restores,
-    recorded,
+    press,
+    notify,
+    operations,
+    cloudRestores,
+    fileRestores,
     routes,
     status,
-    receipts,
+    providers,
+    supported,
     timers,
     backHandlers,
-    saveResult,
     get reads() {
       return reads;
     },
     get syncs() {
       return syncs;
     },
-    get dismissed() {
-      return dismissed;
-    },
     statusGate: (gate: Promise<any> | null) => {
       statusGate = gate;
     },
-    saveGate: (gate: Promise<any> | null) => {
-      saveGate = gate;
+    providerGate: (gate: Promise<any> | null) => {
+      providerGate = gate;
     },
-    saveValue: (value: any) => {
-      saveResult = value;
+    enableValue: (value: typeof enableResult) => {
+      enableResult = value;
+    },
+    findValue: (value: typeof findResult) => {
+      findResult = value;
     },
     syncError: (error: Error | null) => {
       syncError = error;
     },
-    receiptError: (error: Error | null) => {
-      receiptError = error;
+    findError: (error: Error | null) => {
+      findError = error;
     },
-    restoreError: (error: Error | null) => {
-      restoreError = error;
-    },
-    restoreValue: (value: boolean) => {
-      restoreResult = value;
+    fileError: (error: Error | null) => {
+      fileError = error;
     },
     setOffline: (value: boolean) => {
       offline = value;
@@ -251,7 +286,7 @@ async function main() {
     assert.ok(f.text().includes('backups.lastUpload{"when":"date:1000"}'));
     assert.ok(f.text().includes("backups.pending"));
     assert.ok(f.text().includes('backups.localSaved{"when":"date:500"}'));
-    assert.ok(f.find("backups.googleDrive")!.props.hint.includes("backups.googleFormat"));
+    assert.equal(f.find("backups.googleDrive")!.props.hint, "backups.automaticOff");
     assert.equal(f.find("backups.googleDrive")!.props.hintLines, 0);
     assert.equal(Boolean(f.find("backups.icloudDrive")), platform === "ios");
     f.find("backups.restoreCloud")!.props.onPress();
@@ -260,164 +295,120 @@ async function main() {
     f.hooks.unmount();
   }
 
-  const ninja = fixture({ signedIn: false });
+  const ninja = fixture({ signedIn: false, platform: "ios" });
   await ninja.flush();
   assert.ok(ninja.text().includes("backups.cloudSignedOut"));
   assert.equal(ninja.find("backups.syncNow"), undefined);
-  assert.ok(ninja.find("backups.googleDrive"));
-  assert.ok(ninja.find("backups.restorePersonal"));
-  ninja.find("backups.googleDrive")!.props.onPress();
-  ninja.render();
-  assert.ok(ninja.text().includes("backups.googlePrivacy"));
+  ninja.press("backups.googleDrive");
   assert.equal(ninja.find("backups.password"), undefined);
-  assert.equal(ninja.find("backups.confirmPassword"), undefined);
-  assert.deepEqual(ninja.saves, [], "opening the form never creates an unencrypted copy");
+  assert.ok(ninja.text().includes("backups.readableBackup"));
+  assert.deepEqual(ninja.operations, [], "opening a provider does not turn on backup");
 
-  const gate = deferred<any>();
-  ninja.saveGate(gate.promise);
-  const save = ninja.find("backups.saveZip")!.props.onPress;
-  save();
-  save();
+  const connectionGate = deferred<boolean>();
+  ninja.enableValue(connectionGate.promise);
+  const connect = ninja.find("backups.connect")!.props.onPress;
+  connect();
+  connect();
   ninja.render();
-  assert.deepEqual(
-    ninja.saves,
-    [{ destination: "googleDrive", password: undefined }],
-    "a double press creates one ZIP with no password",
-  );
-  assert.equal(
-    [...ninja.backHandlers][0](),
-    true,
-    "Back cannot leave while a file operation is running",
-  );
-  gate.resolve(ninja.saveResult);
+  assert.deepEqual(ninja.operations, [["connect", "googleDrive"]]);
+  assert.equal([...ninja.backHandlers][0](), true);
+  connectionGate.resolve(false);
   await ninja.flush();
-  assert.equal(ninja.dialog().props.visible, true);
-  assert.equal(ninja.recorded.length, 0, "returning from Files never implies a saved copy");
-  const confirm = ninja.dialog().props.onConfirm;
-  confirm();
-  confirm();
+  assert.equal(ninja.find("backups.googleDrive")!.props.hint, "backups.automaticOff");
+  ninja.enableValue(true);
+  ninja.press("backups.connect");
   await ninja.flush();
-  assert.equal(ninja.recorded.length, 1);
-  assert.equal(
-    ninja.recorded[0].result,
-    ninja.saveResult,
-    "the opaque owner-bound result is passed unchanged",
-  );
-  assert.equal(ninja.recorded[0].destination, "googleDrive");
+  assert.ok(ninja.find("backups.googleDrive")!.props.hint.includes("backups.automaticOn"));
+  assert.ok(ninja.find("backups.googleDrive")!.props.hint.includes("test@example.org"));
+  ninja.press("backups.backUpNow");
+  await ninja.flush();
+  assert.ok(ninja.find("backups.googleDrive")!.props.hint.includes("date:2000"));
+  ninja.press("backups.icloudDrive");
+  ninja.press("backups.connect");
+  await ninja.flush();
+  ninja.providers.icloudDrive!.savedAt = 3000;
+  ninja.providers.icloudDrive!.pending = true;
+  ninja.notify();
+  await ninja.flush();
+  assert.ok(ninja.find("backups.icloudDrive")!.props.hint.includes("backups.backupQueued"));
+  assert.ok(ninja.find("backups.icloudDrive")!.props.hint.includes("date:3000"));
+  assert.ok(!ninja.find("backups.icloudDrive")!.props.hint.includes("backups.lastBackup"));
+  ninja.press("backups.turnOff");
+  await ninja.flush();
+  assert.equal(ninja.find("backups.icloudDrive")!.props.hint, "backups.automaticOff");
   assert.ok(ninja.find("backups.googleDrive")!.props.hint.includes("date:2000"));
   ninja.hooks.unmount();
 
-  const icloud = fixture({ platform: "ios" });
-  await icloud.flush();
-  icloud.find("backups.icloudDrive")!.props.onPress();
-  icloud.render();
-  assert.ok(icloud.text().includes("backups.passwordHint"));
-  for (const invalid of ["short", "🔒".repeat(6), "x".repeat(257)]) {
-    icloud.fill(invalid);
-    icloud.find("backups.saveCopy")!.props.onPress();
-    icloud.render();
-    assert.ok(icloud.text().includes("backups.passwordMin"));
-  }
-  icloud.fill("long-password-123", "not-the-same-password");
-  icloud.find("backups.saveCopy")!.props.onPress();
-  icloud.render();
-  assert.ok(icloud.text().includes("backups.passwordMismatch"));
-  assert.deepEqual(icloud.saves, []);
-  const encrypted = { displayName: "kaata-backup.kaatabackup", opaque: "encrypted" };
-  const encryptedGate = deferred<typeof encrypted>();
-  icloud.saveGate(encryptedGate.promise);
-  icloud.fill();
-  icloud.find("backups.saveCopy")!.props.onPress();
-  icloud.render();
-  assert.deepEqual(icloud.saves, [{ destination: "icloudDrive", password: "long-password-123" }]);
-  assert.equal(icloud.find("backups.password")!.props.value, "", "password clears before Files");
-  encryptedGate.resolve(encrypted);
-  await icloud.flush();
-  icloud.dialog().props.onConfirm();
-  await icloud.flush();
-  assert.deepEqual(icloud.recorded, [{ destination: "icloudDrive", result: encrypted }]);
-  assert.ok(icloud.find("backups.icloudDrive")!.props.hint.includes("date:2000"));
-  icloud.hooks.unmount();
-
-  const cancelled = fixture();
-  await cancelled.flush();
-  cancelled.saveValue(null);
-  cancelled.find("backups.googleDrive")!.props.onPress();
-  cancelled.render();
-  cancelled.find("backups.saveZip")!.props.onPress();
-  await cancelled.flush();
-  assert.equal(cancelled.dialog().props.visible, false);
-  assert.deepEqual(cancelled.recorded, []);
-  cancelled.saveValue(cancelled.saveResult);
-  cancelled.find("backups.saveZip")!.props.onPress();
-  await cancelled.flush();
-  cancelled.dialog().props.onCancel();
-  cancelled.render();
-  assert.deepEqual(cancelled.recorded, [], "Not saved preserves the previous receipt");
-  cancelled.hooks.unmount();
-
-  const recordFailure = fixture();
-  await recordFailure.flush();
-  recordFailure.find("backups.googleDrive")!.props.onPress();
-  recordFailure.render();
-  recordFailure.find("backups.saveZip")!.props.onPress();
-  await recordFailure.flush();
-  recordFailure.receiptError(new PersonalBackupError("sessionChanged"));
-  recordFailure.dialog().props.onConfirm();
-  await recordFailure.flush();
-  assert.ok(
-    recordFailure.dialog().props.description.includes("backups.error.sessionChanged"),
-    "a receipt failure is visible above the dialog backdrop",
-  );
-  assert.ok(recordFailure.find("backups.googleDrive")!.props.hint.includes("backups.notSaved"));
-  recordFailure.hooks.unmount();
-
-  const restore = fixture({ signedIn: false, directRestore: true });
+  const restore = fixture({ signedIn: false, directRestore: true, platform: "ios" });
   await restore.flush();
-  assert.ok(restore.find("backups.restoreZip"), "restore=1 opens the format choice");
-  assert.ok(restore.find("backups.restoreEncrypted"));
-  assert.equal(restore.find("backups.chooseFile"), undefined);
-  restore.find("backups.restoreZip")!.props.onPress();
+  assert.equal(restore.find("backups.syncNow"), undefined);
+  assert.equal(restore.find("backups.connect"), undefined);
+  const remote = { name: "personal-copy.zip", createdAt: 1234 };
+  restore.findValue(remote);
+  restore.press("backups.googleDrive");
+  await restore.flush();
+  assert.equal(restore.dialog().props.visible, true);
+  assert.ok(restore.dialog().props.description.includes("personal-copy.zip"));
+  assert.ok(restore.dialog().props.description.includes("date:1234"));
+  assert.deepEqual(restore.cloudRestores, []);
+  const canceledConfirm = restore.dialog().props.onConfirm;
+  restore.dialog().props.onCancel();
+  canceledConfirm();
+  assert.deepEqual(restore.cloudRestores, [], "cancel clears the pending restore immediately");
+  restore.press("backups.googleDrive");
+  await restore.flush();
+  const confirm = restore.dialog().props.onConfirm;
+  confirm();
+  confirm();
+  await restore.flush();
+  assert.equal(restore.cloudRestores.length, 1);
+  assert.equal(restore.cloudRestores[0], remote, "the opaque restore choice stays intact");
+  assert.deepEqual(restore.operations, [
+    ["find", "googleDrive"],
+    ["find", "googleDrive"],
+  ]);
+  restore.findValue(null);
+  restore.press("backups.icloudDrive");
+  await restore.flush();
+  assert.ok(restore.text().includes("backups.noRemoteBackup"));
+  restore.findValue(undefined);
+  restore.press("backups.googleDrive");
+  await restore.flush();
+  assert.equal(restore.dialog().props.visible, false);
+  assert.ok(!restore.text().includes("backups.noRemoteBackup"));
+  restore.findError(new PersonalCloudProviderError("reconnect"));
+  restore.press("backups.icloudDrive");
+  await restore.flush();
+  assert.ok(restore.text().includes("backups.icloudUnavailable"));
+  restore.setOffline(true);
+  assert.equal(restore.find("backups.googleDrive")!.props.disabled, true);
+  restore.press("backups.restoreFile");
+  await restore.flush();
+  assert.deepEqual(restore.fileRestores, [{ format: "zip", password: undefined }]);
+  restore.press("backups.legacyRestoreFile");
+  restore.press("backups.chooseFile");
+  assert.ok(restore.text().includes("backups.passwordMin"));
+  assert.equal(restore.fileRestores.length, 1);
+  restore.find("backups.password")!.props.onChangeText("long-password-123");
   restore.render();
-  assert.equal(restore.find("backups.password"), undefined);
-  assert.equal(restore.find("backups.confirmPassword"), undefined);
-  assert.ok(restore.text().includes("backups.restoreRestriction"));
-  restore.find("backups.chooseFile")!.props.onPress();
+  restore.fileError(new PersonalBackupError("legacyUnsupported"));
+  restore.press("backups.chooseFile");
+  assert.equal(restore.find("backups.password")!.props.value, "");
   await restore.flush();
-  assert.deepEqual(restore.restores, [{ format: "zip", password: undefined }]);
-  assert.deepEqual(restore.recorded, [], "file-picker cancel never records a save or restore");
-  restore.restoreError(new PersonalBackupError("notEmpty"));
-  restore.find("backups.chooseFile")!.props.onPress();
-  await restore.flush();
-  assert.ok(restore.text().includes("backups.error.notEmpty"));
+  assert.deepEqual(restore.fileRestores.at(-1), {
+    format: "encrypted",
+    password: "long-password-123",
+  });
+  assert.ok(restore.text().includes("backups.error.legacyUnsupported"));
   restore.hooks.unmount();
-
-  const oldRestore = fixture({ directRestore: true, platform: "ios" });
-  await oldRestore.flush();
-  oldRestore.find("backups.restoreEncrypted")!.props.onPress();
-  oldRestore.render();
-  assert.equal(oldRestore.find("backups.confirmPassword"), undefined);
-  oldRestore.find("backups.chooseFile")!.props.onPress();
-  oldRestore.render();
-  assert.ok(oldRestore.text().includes("backups.passwordMin"));
-  assert.deepEqual(oldRestore.restores, []);
-  oldRestore.fill();
-  oldRestore.restoreError(new PersonalBackupError("legacyUnsupported"));
-  oldRestore.find("backups.chooseFile")!.props.onPress();
-  await oldRestore.flush();
-  assert.deepEqual(oldRestore.restores, [{ format: "encrypted", password: "long-password-123" }]);
-  assert.ok(oldRestore.text().includes("backups.error.legacyUnsupported"));
-  oldRestore.hooks.unmount();
 
   for (const stale of ["account", "aba", "focus", "unmount"] as const) {
     const f = fixture();
     await f.flush();
-    f.find("backups.googleDrive")!.props.onPress();
-    f.render();
-    const pending = deferred<any>();
-    f.saveGate(pending.promise);
-    f.find("backups.saveZip")!.props.onPress();
-    f.render();
+    f.press("backups.googleDrive");
+    const pending = deferred<BackupChoice>();
+    f.findValue(pending.promise);
+    f.press("backups.restoreLatest");
     if (stale === "account" || stale === "aba") {
       f.identity("account-b");
       if (stale === "aba") f.identity("account-a");
@@ -426,47 +417,42 @@ async function main() {
       f.focus(false);
       f.focus(true);
     } else f.hooks.unmount();
-    pending.resolve(f.saveResult);
+    pending.resolve(remote);
     if (stale === "unmount") await settleUI();
     else await f.flush();
-    assert.equal(f.dialog().props.visible, false, stale + " cannot show an old save confirmation");
-    assert.deepEqual(f.recorded, []);
+    assert.equal(f.dialog().props.visible, false, stale + " cannot show an old restore");
+    assert.deepEqual(f.cloudRestores, []);
     assert.equal(f.hooks.lateWrites, 0);
     if (stale !== "unmount") f.hooks.unmount();
   }
 
-  const stalePress = fixture();
-  await stalePress.flush();
-  const oldPress = stalePress.find("backups.restoreCloud")!.props.onPress;
-  stalePress.identity("account-b");
-  oldPress();
-  assert.deepEqual(
-    stalePress.routes,
-    [],
-    "identity changes block retained actions before a rerender",
-  );
-  stalePress.hooks.unmount();
-
   const staleRead = fixture();
   await staleRead.flush();
+  const retained = staleRead.find("backups.restoreCloud")!.props.onPress;
   const lateStatus = deferred<any>();
+  const lateProviders = deferred<any>();
   staleRead.statusGate(lateStatus.promise);
-  [...staleRead.timers.values()][0]();
+  staleRead.providerGate(lateProviders.promise);
+  staleRead.notify();
   staleRead.statusGate(null);
-  staleRead.status.vaults[0].name = "New account Kaata";
+  staleRead.providerGate(null);
   staleRead.identity("account-b");
+  retained();
+  assert.deepEqual(staleRead.routes, [], "old account actions are blocked before rerender");
+  staleRead.status.vaults[0].name = "New account Kaata";
   await staleRead.flush();
   lateStatus.resolve({
     signedIn: true,
     vaults: [{ id: "old", name: "Old private Kaata", lastPushAt: 9999, pending: false }],
     localBackupAt: 9999,
   });
+  lateProviders.resolve({
+    googleDrive: { connection: { id: "old", label: "old@example.org" }, savedAt: 9999 },
+  });
   await staleRead.flush();
   assert.ok(staleRead.text().includes("New account Kaata"));
-  assert.ok(
-    !staleRead.text().includes("Old private Kaata"),
-    "an old-account status response cannot replace the new view",
-  );
+  assert.ok(!staleRead.text().includes("Old private Kaata"));
+  assert.equal(staleRead.find("backups.googleDrive")!.props.hint, "backups.automaticOff");
   staleRead.hooks.unmount();
 
   const lifecycle = fixture();
@@ -475,33 +461,25 @@ async function main() {
   assert.equal(lifecycle.timers.size, 1);
   lifecycle.appState("background");
   assert.equal(lifecycle.timers.size, 0);
-  lifecycle.find("backups.googleDrive")!.props.onPress();
-  lifecycle.render();
-  assert.equal(
-    lifecycle.find("backups.saveZip"),
-    undefined,
-    "background callbacks cannot open a save form",
-  );
+  lifecycle.press("backups.googleDrive");
+  assert.equal(lifecycle.find("backups.connect"), undefined);
   lifecycle.appState("active");
   await lifecycle.flush();
   assert.ok(lifecycle.reads > reads, "returning to Settings refreshes backup status");
   lifecycle.setOffline(true);
-  lifecycle.find("backups.syncNow")!.props.onPress();
+  lifecycle.press("backups.syncNow");
   assert.equal(lifecycle.syncs, 0);
   lifecycle.setOffline(false);
   lifecycle.syncError(new Error("incomplete"));
-  lifecycle.find("backups.syncNow")!.props.onPress();
+  lifecycle.press("backups.syncNow");
   await lifecycle.flush();
   assert.ok(lifecycle.text().includes("backups.syncFailed"));
-  assert.ok(
-    lifecycle.text().includes('backups.lastUpload{"when":"date:1000"}'),
-    "a failed sync does not invent a fresh timestamp",
-  );
+  assert.ok(lifecycle.text().includes('backups.lastUpload{"when":"date:1000"}'));
   lifecycle.hooks.unmount();
   assert.equal(lifecycle.timers.size, 0);
 
   console.log(
-    "PASS Backups UI: ZIP consent, encrypted iCloud, format-specific restore, scoped receipts and lifecycle",
+    "PASS Backups UI: opt-in destinations, provider status, read-only recovery, files and session isolation",
   );
 }
 

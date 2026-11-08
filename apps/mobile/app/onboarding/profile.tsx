@@ -45,10 +45,9 @@ import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-s
 
 // Onboarding identity step — name + phone. The name IS prefilled from the
 // Google profile name stashed at sign-in (onboarding_pending_name) so a
-// returning user isn't forced to retype it; they can edit before saving. (A
-// user who had backed-up data never reaches this screen — restore rehydrates
-// their saved self-profile and routing skips onboarding.) The email subtitle
-// is the other Google-derived UI element.
+// returning user isn't forced to retype it; they can edit before saving.
+// Restoring a backup rehydrates the saved self-profile and skips onboarding.
+// The email subtitle is the other Google-derived UI element.
 //
 // This step does NOT create the local-self user. It stashes the entered
 // identity in app_meta and advances to the kaata step (onboarding/kaata.tsx),
@@ -93,6 +92,7 @@ export default function OnboardingProfileScreen() {
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
   const savingRef = useRef(false);
+  const openingRestore = useRef(false);
   // The account's name is ours to set (an email account: no Google or Apple
   // identity names it), so the name typed here is the ACCOUNT's too: it
   // follows the server's rule and every Continue sends it. Decided from the
@@ -119,8 +119,7 @@ export default function OnboardingProfileScreen() {
       // step) so tapping Back from the kaata step restores their input — vital
       // for offline users, who have no Google name to fall back on. Otherwise
       // fall back to the Google identity stashed at sign-in so a returning user
-      // isn't asked to retype it. (A user who actually had backed-up data has
-      // this screen skipped entirely — restore rehydrates their saved profile.)
+      // isn't asked to retype it.
       // The name is one string, so split on the first space into first / rest.
       const pendingName =
         (await getAppMeta("onboarding_self_name"))?.trim() ||
@@ -160,12 +159,14 @@ export default function OnboardingProfileScreen() {
   // is requested before the screen-presentation animation finishes. The
   // 280ms delay outlasts every Stack transition we use today.
   useEffect(() => {
-    const t = setTimeout(() => nameRef.current?.focus(), 280);
+    const t = setTimeout(() => {
+      if (!openingRestore.current) nameRef.current?.focus();
+    }, 280);
     return () => clearTimeout(t);
   }, []);
 
   async function finalize(): Promise<void> {
-    if (savingRef.current) return;
+    if (savingRef.current || openingRestore.current) return;
     const trimmedName = name.trim();
     const trimmedLast = lastName.trim();
     const trimmedPhone = phone.trim();
@@ -250,8 +251,15 @@ export default function OnboardingProfileScreen() {
     await finalize();
   }
 
+  function onPersonalRestore() {
+    if (savingRef.current || openingRestore.current) return;
+    openingRestore.current = true;
+    Keyboard.dismiss();
+    router.push({ pathname: "/backups", params: { restore: "1" } });
+  }
+
   const onBack = useCallback(async () => {
-    if (savingRef.current) return;
+    if (savingRef.current || openingRestore.current) return;
     savingRef.current = true;
     setBusy(true);
     setSubmitError(null);
@@ -273,6 +281,11 @@ export default function OnboardingProfileScreen() {
     }
   }, [router]);
 
+  useFocusEffect(
+    useCallback(() => {
+      openingRestore.current = false;
+    }, []),
+  );
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -313,6 +326,13 @@ export default function OnboardingProfileScreen() {
               </Text>
             ) : null}
           </OnboardingIntro>
+
+          <OnboardingAction
+            label={t("backups.restorePersonal")}
+            variant="ghost"
+            disabled={busy}
+            onPress={onPersonalRestore}
+          />
 
           <FormField
             ref={nameRef}

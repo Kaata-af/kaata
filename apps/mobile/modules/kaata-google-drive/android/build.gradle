@@ -1,0 +1,16 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'af.kaata.googledrive'
+version = '0.0.1'
+
+android {
+  namespace 'expo.modules.kaatagoogledrive'
+}
+
+dependencies {
+  implementation 'androidx.activity:activity:1.8.2'
+  implementation 'com.google.android.gms:play-services-auth:21.4.0'
+}

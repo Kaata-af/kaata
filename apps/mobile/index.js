@@ -36,6 +36,7 @@ import "./lib/mesh/_ed25519-setup";
 // task — which may run in a headless context that re-enters this bundle — has
 // crypto ready. The task itself does nothing unless the Phase 0 kill-switch is on.
 import "./lib/mesh/bg-task";
+import "./lib/personal-cloud-schedule";
 // #46: per-sync notifications. Subscribes to ledger-applied at load so it's active
 // in both the foreground (when backgrounded) and the headless context.
 import "./lib/mesh/bg-notify";

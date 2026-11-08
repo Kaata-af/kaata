@@ -11,9 +11,33 @@
       "supportsTablet": true,
       "bundleIdentifier": "af.kaata.app",
       "usesAppleSignIn": true,
+      "entitlements": {
+        "com.apple.developer.icloud-container-identifiers": ["iCloud.af.kaata.app"],
+        "com.apple.developer.ubiquity-container-identifiers": ["iCloud.af.kaata.app"],
+        "com.apple.developer.icloud-services": ["CloudDocuments"]
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "ExpoLocalization_forcesRTL": false
+        "ExpoLocalization_forcesRTL": false,
+        "NSUbiquitousContainers": {
+          "iCloud.af.kaata.app": {
+            "NSUbiquitousContainerIsDocumentScopePublic": true,
+            "NSUbiquitousContainerName": "Kaata",
+            "NSUbiquitousContainerSupportedFolderLevels": "Any"
+          }
+        }
+      },
+      "privacyManifests": {
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": ["DDA9.1"]
+          }
+        ]
       },
       "buildNumber": "55"
     },

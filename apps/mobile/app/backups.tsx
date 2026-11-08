@@ -21,71 +21,114 @@ import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/S
 import { readBackupStatus, syncBackupNow } from "../lib/backup-status";
 import { colors } from "../lib/colors";
 import { getAccountIdSync, getSessionAccountIdSync, onAccountIdentityChanged } from "../lib/db-tx";
-import { textDir, useIsRTL } from "../lib/direction";
+import { ltrIsolate, textDir, useIsRTL } from "../lib/direction";
 import { formatTimestamp } from "../lib/format";
 import { t } from "../lib/i18n";
 import {
   PersonalBackupError,
-  readPersonalBackupReceipts,
-  recordPersonalBackup,
   restorePersonalBackup,
-  savePersonalBackup,
-  type PersonalBackupDestination,
+  type PersonalBackupRestoreFormat,
 } from "../lib/personal-backup";
+import {
+  backUpToPersonalCloudNow,
+  disablePersonalCloudBackup,
+  enablePersonalCloudBackup,
+  findLatestPersonalCloudBackup,
+  isPersonalCloudBackupSupported,
+  PersonalCloudProviderError,
+  readPersonalCloudBackupStatuses,
+  restoreLatestPersonalCloudBackup,
+  subscribePersonalCloudBackup,
+  type PersonalCloudProviderId,
+  type PersonalCloudStatus,
+} from "../lib/personal-cloud-backup";
 import { gutter, typography } from "../lib/tokens";
 
 type BackupView = {
   scope: string;
-  status: Awaited<ReturnType<typeof readBackupStatus>>;
-  receipts: Awaited<ReturnType<typeof readPersonalBackupReceipts>>;
+  kaata: Awaited<ReturnType<typeof readBackupStatus>> | null;
+  personal: Awaited<ReturnType<typeof readPersonalCloudBackupStatuses>> | null;
 };
-type Form = {
+type Mode = PersonalCloudProviderId | "legacy";
+type Busy = "sync" | "connect" | "disable" | "backup" | "find" | "restoreCloud" | "restoreFile";
+type Notice = {
   scope: string;
-  mode: "restore" | "restoreZip" | "restoreEncrypted" | PersonalBackupDestination;
+  message: string;
+  error: boolean;
+  destination?: PersonalCloudProviderId | "kaata";
 };
-type SavedCopy = {
+type RestoreCandidate = {
   scope: string;
-  destination: PersonalBackupDestination;
-  result: NonNullable<Awaited<ReturnType<typeof savePersonalBackup>>>;
+  destination: PersonalCloudProviderId;
+  backup: NonNullable<Awaited<ReturnType<typeof findLatestPersonalCloudBackup>>>;
 };
 
-function destinationLabel(destination: PersonalBackupDestination) {
+function destinationLabel(destination: PersonalCloudProviderId) {
   return t(destination === "googleDrive" ? "backups.googleDrive" : "backups.icloudDrive");
 }
 
-function backupError(error: unknown) {
-  if (error instanceof PersonalBackupError) {
-    switch (error.code) {
-      case "ownership":
-        return t("backups.error.ownership");
-      case "differentAccount":
-        return t("backups.error.differentAccount");
-      case "notEmpty":
-        return t("backups.error.notEmpty");
-      case "invalid":
-        return t("backups.error.invalid");
-      case "empty":
-        return t("backups.error.empty");
-      case "unsupported":
-        return t("backups.error.unsupported");
-      case "legacyUnsupported":
-        return t("backups.error.legacyUnsupported");
-      case "tooLarge":
-        return t("backups.error.tooLarge");
-      case "password":
-        return t("backups.error.password");
-      case "sessionChanged":
-        return t("backups.error.sessionChanged");
-    }
+function backupError(code: string | undefined, destination?: PersonalCloudProviderId): string {
+  switch (code) {
+    case "ownership":
+    case "foreignVault":
+    case "ownershipUnavailable":
+      return t("backups.error.ownership");
+    case "differentAccount":
+      return t("backups.error.differentAccount");
+    case "notEmpty":
+      return t("backups.error.notEmpty");
+    case "invalid":
+      return t("backups.error.invalid");
+    case "empty":
+      return t(destination ? "backups.autoBackupEmpty" : "backups.error.empty");
+    case "unsupported":
+      return t("backups.error.unsupported");
+    case "legacyUnsupported":
+      return t("backups.error.legacyUnsupported");
+    case "tooLarge":
+      return t("backups.error.tooLarge");
+    case "password":
+      return t("backups.error.password");
+    case "sessionChanged":
+      return t("backups.error.sessionChanged");
+    case "busy":
+      return t("backups.error.busy");
+    case "offline":
+      return t("backups.providerOffline");
+    case "reconnect":
+      return t(
+        destination === "icloudDrive" ? "backups.icloudUnavailable" : "backups.reconnectHint",
+      );
+    default:
+      return t(destination ? "backups.providerError" : "backups.error.generic");
   }
-  return t("backups.error.generic");
+}
+
+function providerHint(destination: PersonalCloudProviderId, status?: PersonalCloudStatus) {
+  if (!status) return t("backups.automaticOff");
+  return [
+    t(status.error === "reconnect" ? "backups.automaticPaused" : "backups.automaticOn"),
+    status.connection.label ? ltrIsolate(status.connection.label) : null,
+    status.savedAt
+      ? t(status.pending ? "backups.backupQueued" : "backups.lastBackup", {
+          when: formatTimestamp(status.savedAt),
+        })
+      : status.running || status.error
+        ? null
+        : t("backups.noBackupYet"),
+    status.running ? t("backups.backingUp") : null,
+    status.error ? backupError(status.error, destination) : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /** Backup destinations live together inside Settings, including for Ninja users. */
 export default function BackupsScreen() {
   const router = useRouter();
   const rtl = useIsRTL();
-  const params = useLocalSearchParams<{ restore?: string }>();
+  const { restore } = useLocalSearchParams<{ restore?: string }>();
+  const restoreOnly = restore === "1";
   const focused = useIsFocused();
   const focusedRef = useRef(focused);
   const focusEpoch = useRef(0);
@@ -113,25 +156,19 @@ export default function BackupsScreen() {
   const mounted = useRef(true);
   const readVersion = useRef(0);
   const opening = useRef(false);
-  const operation = useRef<object | null>(null);
-  const [busy, setBusy] = useState<"sync" | "save" | "restore" | "receipt" | null>(null);
+  const operation = useRef(false);
+  const [busy, setBusy] = useState<Busy | null>(null);
   const [stored, setStored] = useState<BackupView | null>(null);
-  const [readFailure, setReadFailure] = useState<string | null>(null);
-  const [error, setError] = useState<{ scope: string; message: string } | null>(null);
-  const [form, setForm] = useState<Form | null>(() =>
-    params.restore === "1" ? { scope, mode: "restore" } : null,
-  );
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [form, setForm] = useState<{ scope: string; mode: Mode } | null>(null);
   const [password, setPassword] = useState("");
-  const [confirmation, setConfirmation] = useState("");
-  const [savedCopy, setSavedCopy] = useState<SavedCopy | null>(null);
-  const [restored, setRestored] = useState<string | null>(null);
+  const [candidate, setCandidate] = useState<RestoreCandidate | null>(null);
+  const pendingRestore = useRef<RestoreCandidate | null>(null);
   const view = stored?.scope === scope ? stored : null;
-  const currentForm = form?.scope === scope ? form : null;
-  const mode = currentForm?.mode;
-  const needsPassword = mode === "icloudDrive" || mode === "restoreEncrypted";
-  const currentCopy = savedCopy?.scope === scope ? savedCopy : null;
-  const currentError = error?.scope === scope ? error.message : null;
-  const failed = readFailure === scope;
+  const mode = form?.scope === scope ? form.mode : null;
+  const currentCandidate = candidate?.scope === scope ? candidate : null;
+  const currentNotice = notice?.scope === scope ? notice : null;
+  const readFailed = view !== null && (!view.personal || !view.kaata);
   const signedIn = Boolean(getSessionAccountIdSync());
   const current = useCallback(
     () =>
@@ -144,20 +181,19 @@ export default function BackupsScreen() {
   const canAct = () => current() && AppState.currentState === "active" && !operation.current;
 
   const refresh = useCallback(async () => {
-    if (!current()) return;
+    if (restoreOnly || !current()) return;
     const version = ++readVersion.current;
-    try {
-      const [status, receipts] = await Promise.all([
-        readBackupStatus(),
-        readPersonalBackupReceipts(),
-      ]);
-      if (!current() || readVersion.current !== version) return;
-      setStored({ scope, status, receipts });
-      setReadFailure(null);
-    } catch {
-      if (current() && readVersion.current === version) setReadFailure(scope);
-    }
-  }, [scope, current]);
+    const [kaata, personal] = await Promise.allSettled([
+      readBackupStatus(),
+      readPersonalCloudBackupStatuses(),
+    ]);
+    if (!current() || readVersion.current !== version) return;
+    setStored({
+      scope,
+      kaata: kaata.status === "fulfilled" ? kaata.value : null,
+      personal: personal.status === "fulfilled" ? personal.value : null,
+    });
+  }, [scope, current, restoreOnly]);
 
   useEffect(() => {
     mounted.current = true;
@@ -169,161 +205,174 @@ export default function BackupsScreen() {
   useEffect(() => {
     opening.current = false;
     setPassword("");
-    setConfirmation("");
-    if (!focused) return;
+    pendingRestore.current = null;
+    setCandidate(null);
+    if (!focused || restoreOnly) return;
     let timer: ReturnType<typeof setInterval> | null = null;
+    const refreshIfActive = () => {
+      if (AppState.currentState === "active" && !operation.current) void refresh();
+    };
     const resume = () => {
       if (timer !== null) clearInterval(timer);
       timer = null;
       if (AppState.currentState !== "active") return;
-      void refresh();
-      timer = setInterval(() => {
-        if (!operation.current) void refresh();
-      }, 30_000);
+      refreshIfActive();
+      timer = setInterval(refreshIfActive, 30_000);
     };
     resume();
-    const sub = AppState.addEventListener("change", resume);
+    const subscription = AppState.addEventListener("change", resume);
+    const unsubscribe = subscribePersonalCloudBackup(refreshIfActive);
     return () => {
       readVersion.current++;
       if (timer !== null) clearInterval(timer);
-      sub.remove();
+      subscription.remove();
+      unsubscribe();
     };
-  }, [focused, refresh]);
+  }, [focused, refresh, restoreOnly]);
   useEffect(() => {
     if (!focused) return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       if (operation.current) return true;
-      if (currentCopy) {
-        setSavedCopy(null);
+      if (currentCandidate) {
+        cancelCandidate();
         return true;
       }
-      if (currentForm) {
-        closeForm();
+      if (mode) {
+        choose(null);
         return true;
       }
       return false;
     });
-    return () => sub.remove();
-  }, [focused, scope, currentForm, currentCopy]);
+    return () => subscription.remove();
+  }, [focused, scope, mode, currentCandidate]);
 
-  function closeForm() {
-    if (!canAct()) return;
+  function choose(next: Mode | null) {
+    if (!canAct() || opening.current || pendingRestore.current) return;
     Keyboard.dismiss();
-    setForm(null);
     setPassword("");
-    setConfirmation("");
-    setError(null);
+    setNotice(null);
+    setForm(next && next !== mode ? { scope, mode: next } : null);
   }
-  function choose(mode: Form["mode"]) {
-    if (!canAct() || opening.current || currentCopy) return;
-    setPassword("");
-    setConfirmation("");
-    setError(null);
-    setRestored(null);
-    setForm({ scope, mode });
+  function cancelCandidate() {
+    if (!canAct()) return;
+    pendingRestore.current = null;
+    setCandidate(null);
   }
   function navigate(path: "/restore" | "/sign-in") {
-    if (!canAct() || opening.current || currentCopy) return;
+    if (!canAct() || opening.current || pendingRestore.current) return;
     if (path === "/restore" && (!signedIn || offline)) return;
     opening.current = true;
     Keyboard.dismiss();
     router.push(path);
   }
-  function start(kind: NonNullable<typeof busy>) {
-    const token = {};
-    operation.current = token;
+  function showNotice(message: string, error = false, destination?: Notice["destination"]) {
+    if (current()) setNotice({ scope, message, error, destination });
+  }
+  async function run(kind: Busy, work: () => Promise<void>, destination?: PersonalCloudProviderId) {
+    if (!canAct() || opening.current) return;
+    operation.current = true;
     setBusy(kind);
-    setError(null);
-    return token;
-  }
-  function finish(token: object) {
-    if (operation.current === token) {
-      operation.current = null;
-      if (mounted.current) setBusy(null);
-    }
-  }
-  async function sync() {
-    if (!canAct() || !signedIn || offline || currentForm || currentCopy) return;
-    const token = start("sync");
+    setNotice(null);
     try {
-      await syncBackupNow();
-    } catch {
-      if (current()) setError({ scope, message: t("backups.syncFailed") });
+      await work();
+    } catch (failure) {
+      const code =
+        failure instanceof PersonalBackupError || failure instanceof PersonalCloudProviderError
+          ? failure.code
+          : undefined;
+      showNotice(
+        kind === "sync" ? t("backups.syncFailed") : backupError(code, destination),
+        true,
+        kind === "sync" ? "kaata" : destination,
+      );
     } finally {
-      finish(token);
-      if (current()) await refresh();
+      operation.current = false;
+      if (mounted.current) {
+        setBusy(null);
+        if (current()) void refresh();
+      }
     }
   }
-  async function submit() {
-    if (!canAct() || !mode || mode === "restore" || currentCopy) return;
-    if (needsPassword) {
-      const passwordLength = Array.from(password).length;
-      if (passwordLength < 12 || passwordLength > 256) {
-        setError({ scope, message: t("backups.passwordMin") });
+  function find(destination: PersonalCloudProviderId) {
+    if (offline || pendingRestore.current || !isPersonalCloudBackupSupported(destination)) return;
+    return run(
+      "find",
+      async () => {
+        const backup = await findLatestPersonalCloudBackup(destination);
+        if (!current() || backup === undefined) return;
+        if (backup === null) {
+          showNotice(
+            t("backups.noRemoteBackup", { destination: destinationLabel(destination) }),
+            false,
+            destination,
+          );
+          return;
+        }
+        const next = { scope, destination, backup };
+        pendingRestore.current = next;
+        setCandidate(next);
+      },
+      destination,
+    );
+  }
+  function confirmRestore() {
+    if (!currentCandidate || pendingRestore.current !== currentCandidate) return;
+    const { backup, destination } = currentCandidate;
+    return run(
+      "restoreCloud",
+      async () => {
+        pendingRestore.current = null;
+        setCandidate(null);
+        if (await restoreLatestPersonalCloudBackup(backup)) {
+          showNotice(t("backups.restoring"), false, destination);
+        }
+      },
+      destination,
+    );
+  }
+  function restoreFile(format: PersonalBackupRestoreFormat) {
+    if (!canAct() || pendingRestore.current) return;
+    const secret = format === "encrypted" ? password : undefined;
+    if (secret !== undefined) {
+      const length = Array.from(secret).length;
+      if (length < 12 || length > 256) {
+        showNotice(t("backups.passwordMin"), true);
         return;
       }
     }
-    if (mode === "icloudDrive" && password !== confirmation) {
-      setError({ scope, message: t("backups.passwordMismatch") });
-      return;
-    }
-    const secret = needsPassword ? password : undefined;
-    const restoring = mode === "restoreZip" || mode === "restoreEncrypted";
-    const token = start(restoring ? "restore" : "save");
-    Keyboard.dismiss();
-    setPassword("");
-    setConfirmation("");
-    try {
-      if (restoring) {
-        const imported = await restorePersonalBackup(
-          mode === "restoreZip" ? "zip" : "encrypted",
-          secret,
-        );
-        if (current() && imported) {
-          setForm(null);
-          setRestored(scope);
-        }
-      } else {
-        const result = await savePersonalBackup(mode, secret);
-        if (current() && result) {
-          setForm(null);
-          setSavedCopy({ scope, destination: mode, result });
-        }
+    return run("restoreFile", async () => {
+      Keyboard.dismiss();
+      setPassword("");
+      if (format === "zip") setForm(null);
+      if (await restorePersonalBackup(format, secret)) {
+        if (current()) setForm(null);
+        showNotice(t("backups.restoring"));
       }
-    } catch (failure) {
-      if (current()) setError({ scope, message: backupError(failure) });
-    } finally {
-      finish(token);
-    }
-  }
-  async function confirmSaved() {
-    if (!canAct() || !currentCopy) return;
-    const token = start("receipt");
-    try {
-      await recordPersonalBackup(currentCopy.destination, currentCopy.result);
-      if (current()) {
-        setSavedCopy(null);
-        await refresh();
-      }
-    } catch (failure) {
-      if (current()) setError({ scope, message: backupError(failure) });
-    } finally {
-      finish(token);
-    }
+    });
   }
 
-  const locked = Boolean(busy || currentForm || currentCopy);
+  const locked = Boolean(busy || currentCandidate);
+  const destinations: PersonalCloudProviderId[] =
+    Platform.OS === "ios" ? ["googleDrive", "icloudDrive"] : ["googleDrive"];
+  const statusMessage = currentNotice ? (
+    <Text
+      style={[currentNotice.error ? styles.error : styles.hint, styles.inset, textDir(rtl)]}
+      accessibilityLiveRegion="polite"
+    >
+      {currentNotice.message}
+    </Text>
+  ) : null;
   return (
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-      <Stack.Screen options={{ gestureEnabled: !busy }} />
+      <Stack.Screen options={{ gestureEnabled: !locked && !mode }} />
       <ScreenHeader
-        title={t("backups.title")}
+        title={t(restoreOnly ? "backups.restorePersonal" : "backups.title")}
         isRTL={rtl}
         backDisabled={Boolean(busy)}
         onBack={() => {
           if (!canAct()) return;
-          if (currentForm) closeForm();
-          else if (currentCopy) setSavedCopy(null);
+          if (currentCandidate) cancelCandidate();
+          else if (mode) choose(null);
           else if (router.canGoBack()) router.back();
           else router.replace("/");
         }}
@@ -333,260 +382,297 @@ export default function BackupsScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <SectionHeader label={t("backups.cloud")} isRTL={rtl} />
+          <SectionHeader label={t("backups.personal")} isRTL={rtl} />
           <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
-            {t(signedIn ? "backups.cloudHint" : "backups.cloudSignedOut")}
+            {t(
+              restoreOnly
+                ? "backups.personalRestoreHint"
+                : Platform.OS === "ios"
+                  ? "backups.personalHint"
+                  : "backups.personalHintAndroid",
+            )}
           </Text>
-          {!view && !failed ? (
+          {offline ? (
+            <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
+              {t("backups.providerOffline")}
+            </Text>
+          ) : null}
+          {!view && !restoreOnly ? (
             <ActivityIndicator color={colors.textSubtle} style={styles.inset} />
           ) : null}
-          {failed ? (
+          {readFailed ? (
             <View style={styles.block}>
               <Text style={[styles.error, textDir(rtl)]}>{t("backups.readFailed")}</Text>
               <Button
                 label={t("common.retry")}
                 variant="muted"
-                disabled={Boolean(busy)}
+                disabled={locked}
                 onPress={() => {
                   if (canAct()) void refresh();
                 }}
               />
             </View>
           ) : null}
-          {signedIn && view?.status.signedIn ? (
-            <>
-              {view.status.vaults.map((vault) => (
-                <View key={vault.id} style={styles.statusRow}>
-                  <Text style={[styles.label, textDir(rtl)]}>{vault.name}</Text>
-                  <Text style={[styles.hint, textDir(rtl)]}>
-                    {vault.lastPushAt
-                      ? t("backups.lastUpload", { when: formatTimestamp(vault.lastPushAt) })
-                      : t("backups.neverUploaded")}
-                  </Text>
-                  {vault.pending ? (
-                    <Text style={[styles.hint, textDir(rtl)]}>{t("backups.pending")}</Text>
-                  ) : null}
-                </View>
-              ))}
-              {!view.status.vaults.length ? (
-                <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
-                  {t("backups.noKaatas")}
-                </Text>
-              ) : null}
-            </>
-          ) : null}
-          {signedIn ? (
-            <View style={styles.block}>
-              {offline ? (
-                <Text style={[styles.hint, textDir(rtl)]}>{t("backups.offline")}</Text>
-              ) : null}
-              <Button
-                label={t("backups.syncNow")}
-                loading={busy === "sync"}
-                disabled={locked || offline}
-                onPress={() => void sync()}
-                wrapLabel
-              />
-              <Button
-                label={t("backups.restoreCloud")}
-                variant="secondary"
-                disabled={locked || offline}
-                onPress={() => navigate("/restore")}
-                wrapLabel
-              />
-            </View>
-          ) : (
-            <View style={styles.block}>
-              <Button
-                label={t("menu.account.signIn.choose")}
-                variant="secondary"
-                disabled={locked}
-                onPress={() => navigate("/sign-in")}
-              />
-            </View>
-          )}
-          <SectionGap />
-          <SectionHeader label={t("backups.personal")} isRTL={rtl} />
-          <Text style={[styles.hint, styles.inset, textDir(rtl)]}>{t("backups.personalHint")}</Text>
-          {(
-            [
-              "googleDrive",
-              ...(Platform.OS === "ios" ? ["icloudDrive"] : []),
-            ] as PersonalBackupDestination[]
-          ).map((destination) => {
-            const receipt = view?.receipts[destination];
-            const hint = [
-              t(destination === "googleDrive" ? "backups.googleFormat" : "backups.icloudFormat"),
-              receipt
-                ? `${t("backups.lastSaved", { when: formatTimestamp(receipt.savedAt) })}\n${receipt.displayName}`
-                : t(view ? "backups.notSaved" : "backups.statusUnknown"),
-            ].join("\n");
+          {destinations.map((destination) => {
+            const available = isPersonalCloudBackupSupported(destination);
+            const selected = mode === destination;
+            const status = view?.personal?.[destination];
+            const label = destinationLabel(destination);
+            const hint = !available
+              ? t("backups.providerUnavailable")
+              : restoreOnly
+                ? undefined
+                : view?.personal
+                  ? providerHint(destination, status)
+                  : t("backups.statusUnknown");
+            const reconnect = status?.error === "reconnect";
             return (
-              <NavRow
-                key={destination}
-                icon={destination === "googleDrive" ? "logo-google" : "logo-apple"}
-                label={destinationLabel(destination)}
-                hint={hint}
-                hintLines={0}
-                accessibilityHint={hint}
-                onPress={() => choose(destination)}
-                disabled={locked}
-                isRTL={rtl}
-              />
+              <View key={destination}>
+                <NavRow
+                  icon={destination === "googleDrive" ? "logo-google" : "logo-apple"}
+                  label={label}
+                  hint={hint}
+                  hintLines={0}
+                  accessibilityHint={hint}
+                  trailing={
+                    restoreOnly || !available
+                      ? undefined
+                      : t(selected ? "common.close" : "backups.manage")
+                  }
+                  onPress={() => (restoreOnly ? void find(destination) : choose(destination))}
+                  disabled={locked || !available || (restoreOnly && offline)}
+                  isRTL={rtl}
+                />
+                {selected ? (
+                  <View style={styles.block}>
+                    {!status || reconnect ? (
+                      <>
+                        {!status ? (
+                          <Text style={[styles.hint, textDir(rtl)]}>
+                            {t("backups.readableBackup")}
+                          </Text>
+                        ) : null}
+                        <Button
+                          label={t(reconnect ? "backups.reconnect" : "backups.connect", {
+                            destination: label,
+                          })}
+                          disabled={locked || offline || !view?.personal}
+                          loading={busy === "connect"}
+                          onPress={() => {
+                            if (offline || !view?.personal) return;
+                            void run(
+                              "connect",
+                              async () => {
+                                await enablePersonalCloudBackup(destination);
+                              },
+                              destination,
+                            );
+                          }}
+                          wrapLabel
+                        />
+                      </>
+                    ) : (
+                      <Button
+                        label={t("backups.backUpNow")}
+                        disabled={locked || offline || status.running}
+                        loading={busy === "backup" || status.running}
+                        onPress={() => {
+                          if (offline || status.running) return;
+                          void run(
+                            "backup",
+                            () => backUpToPersonalCloudNow(destination),
+                            destination,
+                          );
+                        }}
+                        wrapLabel
+                      />
+                    )}
+                    <Button
+                      label={t("backups.restoreLatest")}
+                      variant="secondary"
+                      disabled={locked || offline}
+                      loading={busy === "find" || busy === "restoreCloud"}
+                      onPress={() => void find(destination)}
+                      wrapLabel
+                    />
+                    {status ? (
+                      <Button
+                        label={t("backups.turnOff")}
+                        variant="muted"
+                        disabled={locked}
+                        loading={busy === "disable"}
+                        onPress={() =>
+                          void run(
+                            "disable",
+                            () => disablePersonalCloudBackup(destination),
+                            destination,
+                          )
+                        }
+                        wrapLabel
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+                {currentNotice?.destination === destination ? statusMessage : null}
+              </View>
             );
           })}
           <NavRow
             icon="folder-open-outline"
-            label={t("backups.restorePersonal")}
-            onPress={() => choose("restore")}
+            label={t("backups.restoreFile")}
+            hint={t("backups.restoreFileHint")}
+            onPress={() => void restoreFile("zip")}
+            disabled={locked}
+            isRTL={rtl}
+          />
+          <NavRow
+            icon="lock-closed-outline"
+            label={t("backups.legacyRestoreFile")}
+            onPress={() => choose("legacy")}
             disabled={locked}
             isRTL={rtl}
             isLast
           />
-          <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
-            {t("backups.restoreRestriction")}
-          </Text>
-          {mode ? (
+          {mode === "legacy" ? (
             <View style={styles.block}>
-              <Text style={[styles.label, textDir(rtl)]}>
-                {mode === "googleDrive" || mode === "icloudDrive"
-                  ? t("backups.saveTo", { destination: destinationLabel(mode) })
-                  : t("backups.restorePersonal")}
-              </Text>
-              {mode === "restore" ? (
-                <>
-                  <Text style={[styles.hint, textDir(rtl)]}>
-                    {t("backups.restoreChooseFormat")}
-                  </Text>
-                  <Button
-                    label={t("backups.restoreZip")}
-                    variant="secondary"
-                    onPress={() => choose("restoreZip")}
-                    wrapLabel
-                  />
-                  <Button
-                    label={t("backups.restoreEncrypted")}
-                    variant="secondary"
-                    onPress={() => choose("restoreEncrypted")}
-                    wrapLabel
-                  />
-                </>
-              ) : (
-                <>
-                  {mode === "googleDrive" ? (
-                    <Text style={[styles.warning, textDir(rtl)]}>{t("backups.googlePrivacy")}</Text>
-                  ) : null}
-                  <Text style={[styles.hint, textDir(rtl)]}>
-                    {t(
-                      (
-                        {
-                          googleDrive: "backups.googleInstructions",
-                          icloudDrive: "backups.icloudInstructions",
-                          restoreZip: "backups.restoreZipInstructions",
-                          restoreEncrypted: "backups.restoreInstructions",
-                        } as const
-                      )[mode],
-                    )}
-                  </Text>
-                  {mode === "icloudDrive" ? (
-                    <Text style={[styles.hint, textDir(rtl)]}>{t("backups.passwordHint")}</Text>
-                  ) : null}
-                  {needsPassword ? (
-                    <PasswordField
-                      label={t("backups.password")}
-                      accessibilityLabel={t("backups.password")}
-                      value={password}
-                      onChangeText={(value) => {
-                        if (!canAct()) return;
-                        setPassword(value);
-                        setError(null);
-                      }}
-                      editable={!busy}
-                      textContentType="none"
-                      autoComplete="off"
-                    />
-                  ) : null}
-                  {mode === "icloudDrive" ? (
-                    <PasswordField
-                      label={t("backups.confirmPassword")}
-                      accessibilityLabel={t("backups.confirmPassword")}
-                      value={confirmation}
-                      onChangeText={(value) => {
-                        if (!canAct()) return;
-                        setConfirmation(value);
-                        setError(null);
-                      }}
-                      editable={!busy}
-                      textContentType="none"
-                      autoComplete="off"
-                    />
-                  ) : null}
-                  <Button
-                    label={t(
-                      mode === "googleDrive"
-                        ? "backups.saveZip"
-                        : mode === "icloudDrive"
-                          ? "backups.saveCopy"
-                          : "backups.chooseFile",
-                    )}
-                    onPress={() => void submit()}
-                    loading={busy === "save" || busy === "restore"}
-                    disabled={Boolean(busy)}
-                    wrapLabel
-                  />
-                </>
-              )}
+              <Text style={[styles.hint, textDir(rtl)]}>{t("backups.restoreInstructions")}</Text>
+              <PasswordField
+                label={t("backups.password")}
+                accessibilityLabel={t("backups.password")}
+                value={password}
+                onChangeText={(value) => {
+                  if (!canAct()) return;
+                  setPassword(value);
+                  setNotice(null);
+                }}
+                editable={!busy}
+                textContentType="none"
+                autoComplete="off"
+              />
+              <Button
+                label={t("backups.chooseFile")}
+                onPress={() => void restoreFile("encrypted")}
+                loading={busy === "restoreFile"}
+                disabled={locked}
+                wrapLabel
+              />
               <Button
                 label={t("common.cancel")}
                 variant="secondary"
-                onPress={closeForm}
-                disabled={Boolean(busy)}
+                onPress={() => choose(null)}
+                disabled={locked}
               />
             </View>
           ) : null}
-          {currentError ? (
-            <Text
-              style={[styles.error, styles.inset, textDir(rtl)]}
-              accessibilityLiveRegion="polite"
-            >
-              {currentError}
-            </Text>
-          ) : null}
-          {restored === scope ? (
-            <Text style={[styles.hint, styles.inset, textDir(rtl)]}>{t("backups.restoring")}</Text>
-          ) : null}
-          <SectionGap />
-          <SectionHeader label={t("backups.onDevice")} isRTL={rtl} />
           <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
-            {view?.status.localBackupAt
-              ? t("backups.localSaved", { when: formatTimestamp(view.status.localBackupAt) })
-              : t(view ? "backups.localNone" : "backups.statusUnknown")}
+            {t("backups.restoreRestriction")}
           </Text>
-          <Text style={[styles.hint, styles.inset, textDir(rtl)]}>{t("backups.localHint")}</Text>
+          {(restoreOnly && (busy === "find" || busy === "restoreCloud")) ||
+          (busy === "restoreFile" && mode !== "legacy") ? (
+            <ActivityIndicator color={colors.textSubtle} style={styles.inset} />
+          ) : null}
+          {currentNotice?.destination === undefined ? statusMessage : null}
+          {!restoreOnly ? (
+            <>
+              <SectionGap />
+              <SectionHeader label={t("backups.cloud")} isRTL={rtl} />
+              <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
+                {t(signedIn ? "backups.cloudHint" : "backups.cloudSignedOut")}
+              </Text>
+              {signedIn && view?.kaata?.signedIn ? (
+                <>
+                  {view.kaata.vaults.map((vault) => (
+                    <View key={vault.id} style={styles.statusRow}>
+                      <Text style={[styles.label, textDir(rtl)]}>{vault.name}</Text>
+                      <Text style={[styles.hint, textDir(rtl)]}>
+                        {vault.lastPushAt
+                          ? t("backups.lastUpload", { when: formatTimestamp(vault.lastPushAt) })
+                          : t("backups.neverUploaded")}
+                      </Text>
+                      {vault.pending ? (
+                        <Text style={[styles.hint, textDir(rtl)]}>{t("backups.pending")}</Text>
+                      ) : null}
+                    </View>
+                  ))}
+                  {!view.kaata.vaults.length ? (
+                    <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
+                      {t("backups.noKaatas")}
+                    </Text>
+                  ) : null}
+                </>
+              ) : null}
+              {signedIn ? (
+                <View style={styles.block}>
+                  {offline ? (
+                    <Text style={[styles.hint, textDir(rtl)]}>{t("backups.offline")}</Text>
+                  ) : null}
+                  <Button
+                    label={t("backups.syncNow")}
+                    loading={busy === "sync"}
+                    disabled={locked || offline}
+                    onPress={() => {
+                      if (signedIn && !offline) void run("sync", syncBackupNow);
+                    }}
+                    wrapLabel
+                  />
+                  <Button
+                    label={t("backups.restoreCloud")}
+                    variant="secondary"
+                    disabled={locked || offline}
+                    onPress={() => navigate("/restore")}
+                    wrapLabel
+                  />
+                </View>
+              ) : (
+                <View style={styles.block}>
+                  <Button
+                    label={t("menu.account.signIn.choose")}
+                    variant="secondary"
+                    disabled={locked}
+                    onPress={() => navigate("/sign-in")}
+                  />
+                </View>
+              )}
+              {currentNotice?.destination === "kaata" ? statusMessage : null}
+              <SectionGap />
+              <SectionHeader label={t("backups.onDevice")} isRTL={rtl} />
+              <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
+                {view?.kaata?.localBackupAt
+                  ? t("backups.localSaved", { when: formatTimestamp(view.kaata.localBackupAt) })
+                  : t(view?.kaata ? "backups.localNone" : "backups.statusUnknown")}
+              </Text>
+              <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
+                {t("backups.localHint")}
+              </Text>
+            </>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
       <ConfirmDialog
-        visible={Boolean(currentCopy) && !busy}
-        title={t("backups.confirmSavedTitle")}
-        description={
-          currentCopy
-            ? [
-                t("backups.confirmSavedBody", {
-                  destination: destinationLabel(currentCopy.destination),
-                  file: currentCopy.result.displayName,
-                }),
-                currentError,
-              ]
-                .filter(Boolean)
-                .join("\n\n")
+        visible={Boolean(currentCandidate) && !busy}
+        title={
+          currentCandidate
+            ? t("backups.restoreLatestTitle", {
+                destination: destinationLabel(currentCandidate.destination),
+              })
             : ""
         }
-        confirmLabel={t("backups.confirmSaved")}
-        cancelLabel={t("backups.notSavedYet")}
-        onConfirm={() => void confirmSaved()}
-        onCancel={() => {
-          if (canAct()) setSavedCopy(null);
-        }}
+        description={
+          currentCandidate
+            ? [
+                t("backups.restoreLatestBody", {
+                  destination: destinationLabel(currentCandidate.destination),
+                }),
+                t("backups.lastBackup", {
+                  when: formatTimestamp(currentCandidate.backup.createdAt),
+                }),
+                ltrIsolate(currentCandidate.backup.name),
+              ].join("\n\n")
+            : ""
+        }
+        confirmLabel={t("backups.restoreLatest")}
+        onConfirm={() => void confirmRestore()}
+        onCancel={cancelCandidate}
       />
     </SafeAreaView>
   );
@@ -607,6 +693,5 @@ const styles = StyleSheet.create({
   },
   label: { ...typography.label, color: colors.textEmphasis },
   hint: { ...typography.body, color: colors.textSubtle },
-  warning: { ...typography.label, color: colors.textEmphasis },
   error: { ...typography.body, color: colors.danger },
 });

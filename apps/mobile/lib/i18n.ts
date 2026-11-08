@@ -17,7 +17,7 @@ const en = {
   "backups.cloudHint":
     "Your signed-in Kaatas sync automatically. Each date below shows the last confirmed sync from this phone.",
   "backups.cloudSignedOut":
-    "Ninja mode keeps your data on this phone. Sign in to use Kaata Cloud, or save a personal copy below.",
+    "In Ninja mode, your data stays on this phone unless you turn on a personal backup below. Sign in to use Kaata Cloud.",
   "backups.lastUpload": "Last confirmed sync: {when}",
   "backups.neverUploaded": "No confirmed sync from this phone yet",
   "backups.pending": "Some changes are still waiting to upload.",
@@ -28,42 +28,47 @@ const en = {
   "backups.restoreCloud": "Restore from Kaata Cloud",
   "backups.offline": "Connect to the internet to sync or restore from Kaata Cloud.",
   "backups.readFailed": "Could not read backup status. Try again.",
-  "backups.personal": "Personal copies",
+  "backups.personal": "Personal backups",
   "backups.personalHint":
-    "Choose the provider in the Files save window. Your confirmation records the save on this phone. The provider handles the cloud upload.",
+    "Connect Google Drive, iCloud Drive, or both to back up your records automatically.",
+  "backups.personalHintAndroid": "Connect Google Drive to back up your records automatically.",
+  "backups.personalRestoreHint": "Choose where to restore your personal backup from.",
   "backups.googleDrive": "Google Drive",
   "backups.icloudDrive": "iCloud Drive",
-  "backups.googleFormat": "Saves an unencrypted ZIP",
-  "backups.icloudFormat": "Saves a password-protected copy",
-  "backups.lastSaved": "Last saved here: {when}",
-  "backups.notSaved": "No saved copy confirmed on this phone",
+  "backups.automaticOn": "Automatic backup on",
+  "backups.automaticPaused": "Automatic backup paused",
+  "backups.automaticOff": "Automatic backup off",
+  "backups.manage": "Manage",
+  "backups.lastBackup": "Last backup: {when}",
+  "backups.backupQueued": "Waiting for iCloud to upload the backup from {when}",
+  "backups.noBackupYet": "Waiting for the first backup",
+  "backups.autoBackupEmpty": "Automatic backups will start once there's data to back up.",
+  "backups.backingUp": "Backing up…",
+  "backups.connect": "Connect {destination}",
+  "backups.reconnect": "Reconnect {destination}",
+  "backups.reconnectHint": "Reconnect to resume automatic backups.",
+  "backups.backUpNow": "Back up now",
+  "backups.turnOff": "Turn off automatic backup",
+  "backups.restoreLatest": "Restore latest backup",
+  "backups.restoreLatestTitle": "Restore from {destination}?",
+  "backups.restoreLatestBody":
+    "Kaata will look for your latest personal backup in {destination} and restart after restoring it. This requires an empty installation.",
+  "backups.restoreFile": "Restore from a file",
+  "backups.restoreFileHint": "Choose a Kaata ZIP backup",
+  "backups.legacyRestoreFile": "Older encrypted backup",
+  "backups.readableBackup": "Backups are readable ZIP files. Keep the backup folder private.",
+  "backups.providerOffline":
+    "Connect to the internet to back up or restore from personal cloud storage.",
+  "backups.providerUnavailable": "This backup destination is unavailable.",
+  "backups.icloudUnavailable":
+    "Sign in to iCloud and turn on iCloud Drive in your iPhone settings.",
+  "backups.providerError":
+    "Could not complete the backup action. Check your connection and try again.",
+  "backups.noRemoteBackup": "No backup was found in {destination} for this Kaata account or mode.",
   "backups.statusUnknown": "Backup status unavailable",
-  "backups.saveTo": "Save a copy to {destination}",
-  "backups.googleInstructions":
-    "In the Files save window, choose Google Drive and the account and folder you want. On iPhone, use Browse → Google Drive. If Drive is missing, enable it in Files or open the Drive app first.",
-  "backups.googlePrivacy":
-    "This unencrypted ZIP contains spreadsheets and a restorable copy of your records. Anyone with access to the file can read its contents. Choose a private folder and keep sharing turned off.",
-  "backups.icloudInstructions":
-    "In Files, choose Browse → iCloud Drive and your folder. Choose iCloud Drive rather than On My iPhone.",
   "backups.password": "Backup password",
-  "backups.confirmPassword": "Confirm backup password",
-  "backups.passwordHint":
-    "Use at least 12 characters and keep this password somewhere safe. This is separate from your Kaata password. Kaata does not save it and cannot recover a copy without it.",
   "backups.passwordMin": "Use a backup password with 12–256 characters.",
-  "backups.passwordMismatch": "The backup passwords do not match.",
-  "backups.saveCopy": "Create encrypted copy",
-  "backups.saveZip": "Create unencrypted ZIP",
-  "backups.confirmSavedTitle": "Did you save the copy?",
-  "backups.confirmSavedBody":
-    "Confirm only after saving {file} to {destination}. This records your confirmation on this phone; it does not verify the cloud upload.",
-  "backups.confirmSaved": "I saved it",
-  "backups.notSavedYet": "Not saved",
   "backups.restorePersonal": "Restore a personal backup",
-  "backups.restoreChooseFormat": "Choose the format of your backup file.",
-  "backups.restoreZip": "ZIP backup (.zip)",
-  "backups.restoreEncrypted": "Password-protected backup (.kaatabackup)",
-  "backups.restoreZipInstructions":
-    "Choose the Kaata .zip backup in Files. Kaata restarts after restoring.",
   "backups.restoreInstructions":
     "Enter the password used for the backup, then choose its .kaatabackup file in Files. Kaata restarts after restoring.",
   "backups.restoreRestriction":
@@ -90,6 +95,7 @@ const en = {
   "backups.error.tooLarge": "This backup is too large to save or restore on this phone.",
   "backups.error.password": "The backup password is incorrect, or the file is damaged.",
   "backups.error.sessionChanged": "Your account changed. Open Backups again before continuing.",
+  "backups.error.busy": "Another backup operation is running. Try again in a moment.",
   "backups.error.generic":
     "Could not complete the backup action. Check your file location and try again.",
   "tab.recordingMode.unknown":
@@ -2820,7 +2826,7 @@ const fa: Partial<Record<Key, string>> = {
   "backups.cloudHint":
     "کاته‌های حساب شما خودکار همگام می‌شوند. هر تاریخ زیر، آخرین همگام‌سازی تأییدشده از این گوشی را نشان می‌دهد.",
   "backups.cloudSignedOut":
-    "در حالت نینجا، اطلاعات در همین گوشی می‌ماند. برای فضای ابری کاته وارد حساب شوید، یا در پایین یک کاپی شخصی ذخیره کنید.",
+    "در حالت نینجا، اطلاعات در همین گوشی می‌ماند، مگر این‌که پشتیبان‌گیری شخصی را در پایین روشن کنید. برای استفاده از فضای ابری کاته وارد حساب شوید.",
   "backups.lastUpload": "آخرین همگام‌سازی تأییدشده: {when}",
   "backups.neverUploaded": "هنوز همگام‌سازی از این گوشی تأیید نشده است",
   "backups.pending": "بعضی تغییرات هنوز منتظر ارسال است.",
@@ -2831,42 +2837,46 @@ const fa: Partial<Record<Key, string>> = {
   "backups.restoreCloud": "بازیابی از فضای ابری کاته",
   "backups.offline": "برای همگام‌سازی یا بازیابی از فضای ابری کاته به اینترنت وصل شوید.",
   "backups.readFailed": "وضعیت نسخه‌های پشتیبان خوانده نشد. دوباره تلاش کنید.",
-  "backups.personal": "کاپی‌های شخصی",
+  "backups.personal": "نسخه‌های پشتیبان شخصی",
   "backups.personalHint":
-    "سرویس را در پنجرۀ ذخیرۀ فایل‌ها انتخاب کنید. تأیید شما ذخیره‌شدن را در همین گوشی ثبت می‌کند. سرویس انتخاب‌شده فایل را به فضای ابری می‌فرستد.",
+    "برای پشتیبان‌گیری خودکار از سوابق‌تان، Google Drive، iCloud Drive یا هر دو را وصل کنید.",
+  "backups.personalHintAndroid": "برای پشتیبان‌گیری خودکار از سوابق‌تان، Google Drive را وصل کنید.",
+  "backups.personalRestoreHint": "محل بازیابی نسخۀ پشتیبان شخصی‌تان را انتخاب کنید.",
   "backups.googleDrive": "Google Drive",
   "backups.icloudDrive": "iCloud Drive",
-  "backups.googleFormat": "ذخیره به شکل ZIP بدون رمزگذاری",
-  "backups.icloudFormat": "ذخیرۀ کاپی محافظت‌شده با رمز",
-  "backups.lastSaved": "آخرین ذخیره در این محل: {when}",
-  "backups.notSaved": "هنوز ذخیرۀ کاپی در این گوشی تأیید نشده است",
+  "backups.automaticOn": "پشتیبان‌گیری خودکار روشن است",
+  "backups.automaticPaused": "پشتیبان‌گیری خودکار موقتاً متوقف است",
+  "backups.automaticOff": "پشتیبان‌گیری خودکار خاموش است",
+  "backups.manage": "مدیریت",
+  "backups.lastBackup": "آخرین پشتیبان‌گیری: {when}",
+  "backups.backupQueued": "در انتظار ارسال نسخۀ پشتیبان {when} به iCloud",
+  "backups.noBackupYet": "در انتظار نخستین پشتیبان‌گیری",
+  "backups.autoBackupEmpty": "پشتیبان‌گیری خودکار پس از ثبت اطلاعات آغاز می‌شود.",
+  "backups.backingUp": "در حال پشتیبان‌گیری…",
+  "backups.connect": "اتصال به {destination}",
+  "backups.reconnect": "اتصال دوباره به {destination}",
+  "backups.reconnectHint": "برای ادامۀ پشتیبان‌گیری خودکار، دوباره وصل شوید.",
+  "backups.backUpNow": "همین حالا پشتیبان بگیرید",
+  "backups.turnOff": "خاموش کردن پشتیبان‌گیری خودکار",
+  "backups.restoreLatest": "بازیابی آخرین نسخۀ پشتیبان",
+  "backups.restoreLatestTitle": "از {destination} بازیابی شود؟",
+  "backups.restoreLatestBody":
+    "کاته آخرین نسخۀ پشتیبان شخصی را در {destination} پیدا می‌کند و پس از بازیابی دوباره باز می‌شود. برای بازیابی، نصب برنامه باید خالی باشد.",
+  "backups.restoreFile": "بازیابی از فایل",
+  "backups.restoreFileHint": "یک نسخۀ پشتیبان ZIP کاته را انتخاب کنید",
+  "backups.legacyRestoreFile": "نسخۀ پشتیبان رمزگذاری‌شدۀ قدیمی",
+  "backups.readableBackup":
+    "نسخه‌های پشتیبان فایل‌های ZIP قابل خواندن هستند. پوشۀ پشتیبان را خصوصی نگه دارید.",
+  "backups.providerOffline": "برای پشتیبان‌گیری یا بازیابی از فضای ابری شخصی، به اینترنت وصل شوید.",
+  "backups.providerUnavailable": "این محل پشتیبان‌گیری در دسترس نیست.",
+  "backups.icloudUnavailable": "در تنظیمات آیفون وارد iCloud شوید و iCloud Drive را روشن کنید.",
+  "backups.providerError":
+    "کار پشتیبان‌گیری تکمیل نشد. اتصال‌تان را بررسی کنید و دوباره تلاش کنید.",
+  "backups.noRemoteBackup": "برای این حساب یا حالت کاته، نسخۀ پشتیبانی در {destination} پیدا نشد.",
   "backups.statusUnknown": "وضعیت نسخۀ پشتیبان در دسترس نیست",
-  "backups.saveTo": "ذخیرۀ کاپی در {destination}",
-  "backups.googleInstructions":
-    "در پنجرۀ ذخیرۀ فایل‌ها، Google Drive و حساب و پوشۀ دلخواه را انتخاب کنید. در آیفون از Browse و سپس Google Drive بروید. اگر Drive دیده نمی‌شود، آن را در Files فعال کنید یا نخست برنامۀ Drive را باز کنید.",
-  "backups.googlePrivacy":
-    "این ZIP بدون رمزگذاری شامل جدول‌ها و نسخۀ قابل بازیابی سوابق شماست. هر کسی که به فایل دسترسی دارد، می‌تواند محتوای آن را بخواند. یک پوشۀ خصوصی انتخاب کنید و اشتراک‌گذاری را خاموش نگه دارید.",
-  "backups.icloudInstructions":
-    "در Files، از Browse به iCloud Drive بروید و پوشۀ دلخواه را انتخاب کنید. iCloud Drive را به‌جای On My iPhone انتخاب کنید.",
   "backups.password": "رمز نسخۀ پشتیبان",
-  "backups.confirmPassword": "تأیید رمز نسخۀ پشتیبان",
-  "backups.passwordHint":
-    "حداقل ۱۲ نویسه استفاده کنید و رمز را در جای امن نگه دارید. این رمز جدا از رمز حساب کاته است. کاته آن را ذخیره نمی‌کند و بدون آن کاپی بازیابی نمی‌شود.",
   "backups.passwordMin": "رمز نسخۀ پشتیبان باید ۱۲ تا ۲۵۶ نویسه داشته باشد.",
-  "backups.passwordMismatch": "رمزهای نسخۀ پشتیبان یکسان نیست.",
-  "backups.saveCopy": "ساخت کاپی رمزگذاری‌شده",
-  "backups.saveZip": "ساخت ZIP بدون رمزگذاری",
-  "backups.confirmSavedTitle": "کاپی را ذخیره کردید؟",
-  "backups.confirmSavedBody":
-    "فقط پس از ذخیرۀ {file} در {destination} تأیید کنید. این کار تأیید شما را در همین گوشی ثبت می‌کند؛ ارسال به فضای ابری را تأیید نمی‌کند.",
-  "backups.confirmSaved": "ذخیره کردم",
-  "backups.notSavedYet": "ذخیره نکردم",
   "backups.restorePersonal": "بازیابی نسخۀ پشتیبان شخصی",
-  "backups.restoreChooseFormat": "نوع فایل نسخۀ پشتیبان خود را انتخاب کنید.",
-  "backups.restoreZip": "نسخۀ پشتیبان ZIP (.zip)",
-  "backups.restoreEncrypted": "نسخۀ پشتیبان محافظت‌شده با رمز (.kaatabackup)",
-  "backups.restoreZipInstructions":
-    "فایل پشتیبان .zip کاته را در Files انتخاب کنید. کاته پس از بازیابی دوباره باز می‌شود.",
   "backups.restoreInstructions":
     "رمز نسخۀ پشتیبان را وارد کنید، سپس فایل .kaatabackup آن را در Files انتخاب کنید. کاته پس از بازیابی دوباره باز می‌شود.",
   "backups.restoreRestriction":
@@ -2894,6 +2904,7 @@ const fa: Partial<Record<Key, string>> = {
   "backups.error.password": "رمز نسخۀ پشتیبان نادرست است، یا فایل آسیب دیده است.",
   "backups.error.sessionChanged":
     "حساب شما تغییر کرد. پیش از ادامه، صفحۀ نسخه‌های پشتیبان را دوباره باز کنید.",
+  "backups.error.busy": "یک کار پشتیبان‌گیری دیگر در جریان است. کمی بعد دوباره تلاش کنید.",
   "backups.error.generic":
     "عملیات پشتیبان‌گیری تکمیل نشد. محل فایل را بررسی کرده دوباره تلاش کنید.",
   "tab.recordingMode.unknown":
@@ -5341,7 +5352,7 @@ const ps: Record<Key, string> = {
   "backups.cloudHint":
     "ستاسو د حساب کاتې په اوتومات ډول همغږې کېږي. هره لاندې نېټه له دې موبایل څخه وروستۍ تایید شوې همغږي ښيي.",
   "backups.cloudSignedOut":
-    "په نینجا حالت کې معلومات په همدې موبایل کې پاتې کېږي. د کاته کلاوډ لپاره حساب ته ننوځئ، یا لاندې شخصي کاپي وساتئ.",
+    "په نینجا حالت کې معلومات په همدې موبایل کې پاتې کېږي، مګر که لاندې شخصي شاتړ چالان کړئ. د کاته کلاوډ لپاره حساب ته ننوځئ.",
   "backups.lastUpload": "وروستۍ تایید شوې همغږي: {when}",
   "backups.neverUploaded": "له دې موبایل څخه لا کومه همغږي نه ده تایید شوې",
   "backups.pending": "ځینې بدلونونه لا لېږلو ته منتظر دي.",
@@ -5352,42 +5363,44 @@ const ps: Record<Key, string> = {
   "backups.restoreCloud": "د کاته له کلاوډ څخه بېرته راوستل",
   "backups.offline": "د کاته له کلاوډ سره د همغږۍ یا بېرته راوستلو لپاره انټرنېټ سره وصل شئ.",
   "backups.readFailed": "د شاتړ حالت ونه لوستل شو. بیا هڅه وکړئ.",
-  "backups.personal": "شخصي کاپۍ",
+  "backups.personal": "شخصي شاتړونه",
   "backups.personalHint":
-    "د فایل ساتلو په کړکۍ کې خدمت غوره کړئ. ستاسو تایید په همدې موبایل کې د فایل ساتل ثبتوي. ټاکل شوی خدمت فایل کلاوډ ته لېږي.",
+    "د خپلو ثبتونو د اوتومات شاتړ لپاره Google Drive، iCloud Drive یا دواړه ونښلوئ.",
+  "backups.personalHintAndroid": "د خپلو ثبتونو د اوتومات شاتړ لپاره Google Drive ونښلوئ.",
+  "backups.personalRestoreHint": "وټاکئ چې خپل شخصي شاتړ له کوم ځایه بېرته راوړئ.",
   "backups.googleDrive": "Google Drive",
   "backups.icloudDrive": "iCloud Drive",
-  "backups.googleFormat": "بې‌رمزه ZIP ساتي",
-  "backups.icloudFormat": "په پټنوم خوندي کاپي ساتي",
-  "backups.lastSaved": "دلته وروستی ساتل: {when}",
-  "backups.notSaved": "په دې موبایل کې لا د کاپۍ ساتل نه دي تایید شوي",
+  "backups.automaticOn": "اوتومات شاتړ چالان دی",
+  "backups.automaticPaused": "اوتومات شاتړ اوس درېدلی دی",
+  "backups.automaticOff": "اوتومات شاتړ بند دی",
+  "backups.manage": "سمبالول",
+  "backups.lastBackup": "وروستی شاتړ: {when}",
+  "backups.backupQueued": "د {when} شاتړ iCloud ته لېږلو ته منتظر دی",
+  "backups.noBackupYet": "لومړي شاتړ ته منتظر دی",
+  "backups.autoBackupEmpty": "اوتومات شاتړ به د معلوماتو له ثبتېدو وروسته پیل شي.",
+  "backups.backingUp": "شاتړ روان دی…",
+  "backups.connect": "له {destination} سره نښلول",
+  "backups.reconnect": "له {destination} سره بیا نښلول",
+  "backups.reconnectHint": "د اوتومات شاتړ د دوام لپاره بیا ونښلوئ.",
+  "backups.backUpNow": "اوس شاتړ واخلئ",
+  "backups.turnOff": "اوتومات شاتړ بندول",
+  "backups.restoreLatest": "وروستی شاتړ بېرته راوستل",
+  "backups.restoreLatestTitle": "له {destination} څخه شاتړ بېرته راوړئ؟",
+  "backups.restoreLatestBody":
+    "کاته به په {destination} کې ستاسو وروستی شخصي شاتړ ولټوي او له بېرته راوستلو وروسته به بیا چالان شي. دا کار تش نصب ته اړتیا لري.",
+  "backups.restoreFile": "له فایل څخه شاتړ بېرته راوستل",
+  "backups.restoreFileHint": "د کاته یو ZIP شاتړ غوره کړئ",
+  "backups.legacyRestoreFile": "پخوانی رمز شوی شاتړ",
+  "backups.readableBackup": "شاتړونه د لوستلو وړ ZIP فایلونه دي. د شاتړ فولډر شخصي وساتئ.",
+  "backups.providerOffline": "له شخصي کلاوډ څخه د شاتړ یا بېرته راوستلو لپاره انټرنېټ سره وصل شئ.",
+  "backups.providerUnavailable": "د شاتړ دا ځای اوس نشته.",
+  "backups.icloudUnavailable": "د آیفون په امستنو کې iCloud ته ننوځئ او iCloud Drive چالان کړئ.",
+  "backups.providerError": "د شاتړ کار بشپړ نه شو. انټرنېټ وګورئ او بیا هڅه وکړئ.",
+  "backups.noRemoteBackup": "په {destination} کې د دې کاته حساب یا حالت لپاره شاتړ پیدا نه شو.",
   "backups.statusUnknown": "د شاتړ حالت نه دی معلوم",
-  "backups.saveTo": "په {destination} کې کاپي ساتل",
-  "backups.googleInstructions":
-    "د فایل ساتلو په کړکۍ کې Google Drive، بیا خپل حساب او فولډر غوره کړئ. په آیفون کې Browse او بیا Google Drive وټاکئ. که Drive نه ښکاري، په Files کې یې فعال کړئ یا لومړی د Drive اپ خلاص کړئ.",
-  "backups.googlePrivacy":
-    "په دې بې‌رمزه ZIP کې جدولونه او ستاسو د ثبتونو د بېرته راوستلو کاپي شته. هر څوک چې فایل ته لاسرسی لري، منځپانګه یې لوستلی شي. شخصي فولډر غوره کړئ او شریکول بند وساتئ.",
-  "backups.icloudInstructions":
-    "په Files کې Browse، بیا iCloud Drive او خپل فولډر غوره کړئ. د On My iPhone پر ځای iCloud Drive غوره کړئ.",
   "backups.password": "د شاتړ پټنوم",
-  "backups.confirmPassword": "د شاتړ پټنوم تایید",
-  "backups.passwordHint":
-    "لږ تر لږه ۱۲ توري وکاروئ او پټنوم په خوندي ځای کې وساتئ. دا ستاسو د کاته له پټنوم څخه جلا دی. کاته یې نه ساتي او له دې پرته کاپي بېرته نه شي راوړل کېدای.",
   "backups.passwordMin": "د شاتړ پټنوم باید له ۱۲ تر ۲۵۶ تورو ولري.",
-  "backups.passwordMismatch": "د شاتړ پټنومونه یو شان نه دي.",
-  "backups.saveCopy": "رمز شوې کاپي جوړول",
-  "backups.saveZip": "بې‌رمزه ZIP جوړول",
-  "backups.confirmSavedTitle": "کاپي مو وساتله؟",
-  "backups.confirmSavedBody":
-    "یوازې په {destination} کې د {file} له ساتلو وروسته تایید کړئ. دا ستاسو تایید په همدې موبایل کې ثبتوي؛ کلاوډ ته لېږل نه تاییدوي.",
-  "backups.confirmSaved": "ومې ساتله",
-  "backups.notSavedYet": "نه ده ساتل شوې",
   "backups.restorePersonal": "شخصي شاتړ بېرته راوستل",
-  "backups.restoreChooseFormat": "د خپل شاتړ د فایل بڼه غوره کړئ.",
-  "backups.restoreZip": "ZIP شاتړ (.zip)",
-  "backups.restoreEncrypted": "په پټنوم خوندي شاتړ (.kaatabackup)",
-  "backups.restoreZipInstructions":
-    "د کاته .zip شاتړ په Files کې غوره کړئ. کاته له بېرته راوستلو وروسته بیا چالانېږي.",
   "backups.restoreInstructions":
     "د شاتړ پټنوم ولیکئ، بیا یې د .kaatabackup فایل په Files کې غوره کړئ. کاته له بېرته راوستلو وروسته بیا چالانېږي.",
   "backups.restoreRestriction":
@@ -5413,6 +5426,7 @@ const ps: Record<Key, string> = {
   "backups.error.tooLarge": "دا شاتړ په دې موبایل کې د ساتلو یا بېرته راوستلو لپاره ډېر لوی دی.",
   "backups.error.password": "د شاتړ پټنوم ناسم دی، یا فایل خراب شوی دی.",
   "backups.error.sessionChanged": "ستاسو حساب بدل شو. له دوام مخکې د شاتړونو پاڼه بیا خلاصه کړئ.",
+  "backups.error.busy": "د شاتړ بل کار روان دی. لږ وروسته بیا هڅه وکړئ.",
   "backups.error.generic": "د شاتړ کار بشپړ نه شو. د فایل ځای وګورئ او بیا هڅه وکړئ.",
   "tab.recordingMode.unknown":
     "له بدلونونو مخکې د دې حساب د ثبت امستنې تازه کړئ. شته ثبتونه لا هم لیدل کېږي.",

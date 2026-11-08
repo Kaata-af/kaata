@@ -3232,7 +3232,10 @@ const profileModule = load<{ default: () => unknown }>("../../app/onboarding/pro
   react: profileHooks.react,
   "@expo/vector-icons": { Ionicons: "Icon" },
   "expo-router": {
-    useRouter: () => ({ replace: (r: unknown) => profileRoutes.push(r) }),
+    useRouter: () => ({
+      replace: (r: unknown) => profileRoutes.push(r),
+      push: (r: unknown) => profileRoutes.push(r),
+    }),
     useFocusEffect: (effect: () => void) => profileHooks.react.useEffect(effect, [effect]),
   },
   "react-native": {
@@ -3427,6 +3430,15 @@ componentTest(
     await settle();
     assert.deepEqual(profileRoutes, ["/onboarding/auth"]);
     assert.equal(profileMeta.get("pending_tab_token"), "keep-invitation");
+
+    await mount();
+    const restore = render().find((node) => node.props.label === "backups.restorePersonal")!;
+    restore.props.onPress();
+    restore.props.onPress();
+    await next().props.onPress();
+    await back().props.onPress();
+    assert.deepEqual(profileRoutes, [{ pathname: "/backups", params: { restore: "1" } }]);
+    assert.equal(profileMeta.has("onboarding_step"), false);
     profileSessionKind = "email";
   },
 );

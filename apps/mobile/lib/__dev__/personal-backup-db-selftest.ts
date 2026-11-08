@@ -349,6 +349,10 @@ async function main() {
   ok(source.rows("SELECT note FROM entries").length === 1, "source ledger untouched");
   const target = fixture("ninja-target");
   target.seed(false);
+  await errorCode(
+    () => target.module.createPersonalBackupSnapshot(true, { requireData: true }),
+    "empty",
+  );
   target.metadata("install_id", TARGET);
   target.metadata("installed_at_unix_ms", "5678");
   await target.module.stagePersonalBackupRestore(bytes);
