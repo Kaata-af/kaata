@@ -32,16 +32,28 @@ const tab: WireTab = {
   balance: { a: "25", b: "-25" },
   pending_for_you: 0,
 };
-function fixture(platform: string, rtl: boolean, legacy = false) {
+function fixture(
+  platform: string,
+  rtl: boolean,
+  {
+    legacy = false,
+    direct = false,
+    intent,
+  }: { legacy?: boolean; direct?: boolean; intent?: string } = {},
+) {
   const hooks = uiHooks();
   const routes: any[] = [],
     joins: any[] = [],
     currencySelections: any[] = [],
     formatted: number[] = [];
-  let token = legacy ? "legacy-token" : "g_group-token";
+  let token = legacy
+    ? "legacy-token"
+    : direct
+      ? "r_331d2677-0cda-4c58-8363-bc55421e823c"
+      : "g_group-token";
   let invitation: SharedInvitation = legacy
     ? { kind: "tab", tab, entries: [] }
-    : { kind: "group", group, tabs: [] };
+    : { kind: "group", group: direct ? { ...group, recording_mode: "review" } : group, tabs: [] };
   let joinGate: ReturnType<typeof deferred<void>> | null = null;
   let joinError: Error | null = null;
   const router = {
@@ -103,7 +115,7 @@ function fixture(platform: string, rtl: boolean, legacy = false) {
     },
     "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
     "@expo/vector-icons": { Ionicons: "Icon" },
-    "expo-router": { useRouter: () => router, useLocalSearchParams: () => ({ token }) },
+    "expo-router": { useRouter: () => router, useLocalSearchParams: () => ({ token, intent }) },
     "../../components/Button": { Button: "Button" },
     "../../components/ConfirmDialog": { ConfirmDialog: "ConfirmDialog" },
     "../../components/ScreenLoading": { ScreenLoading: "ScreenLoading" },
@@ -287,7 +299,34 @@ async function main() {
       );
       f.hooks.unmount();
     }
-  const legacy = fixture("ios", false, true);
+  for (const [direct, intent, opensPicker] of [
+    [true, "accept", true],
+    [true, undefined, false],
+    [false, "accept", false],
+  ] as const) {
+    const f = fixture("android", false, { direct, intent });
+    await f.flush();
+    const screen = nodes(f.hooks.tree);
+    assert.equal(
+      screen.some((node) => node.props.children === "tab.join.pickContact:Sender"),
+      opensPicker,
+      "Only Accept on a recipient-bound invitation skips to contact selection",
+    );
+    assert.ok(screen.some((node) => node.props.children === "tab.group.currencies:AFN · USD"));
+    if (direct) {
+      assert.ok(screen.some((node) => node.props.children === "tab.recordingMode.reviewHint"));
+    }
+    assert.deepEqual(f.joins, [], "Opening the invitation does not join or create a contact");
+    assert.deepEqual(f.currencySelections, []);
+    if (opensPicker) {
+      f.joinButton().props.onPress();
+      await f.flush();
+      assert.equal(f.joins.length, 1, "Confirming the selected contact joins exactly once");
+      assert.deepEqual(f.joins[0][3], { vaultId: "vault", personId: "person" });
+    }
+    f.hooks.unmount();
+  }
+  const legacy = fixture("ios", false, { legacy: true });
   await legacy.flush();
   assert.ok(legacy.formatted.includes(25), "Legacy invitations retain their own existing preview");
   legacy.joinButton().props.onPress();

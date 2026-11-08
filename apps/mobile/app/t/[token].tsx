@@ -209,8 +209,9 @@ function targetFor(s: JoinSuggestion, vaultId: string): JoinTarget {
 export default function TabJoinScreen() {
   const router = useRouter();
   const isRTL = useIsRTL();
-  const { token: tokenParam } = useLocalSearchParams<{ token: string }>();
+  const { token: tokenParam, intent } = useLocalSearchParams<{ token: string; intent?: string }>();
   const token = typeof tokenParam === "string" ? tokenParam : null;
+  const acceptShortcut = intent === "accept" && token?.startsWith("r_");
   const currentToken = useRef(token);
   currentToken.current = token;
   const loadedToken = useRef<string | null>(null);
@@ -309,6 +310,20 @@ export default function TabJoinScreen() {
     return run;
   }, []);
 
+  const openPick = useCallback(
+    async (currency: string) => {
+      const version = invitationVersion.current;
+      setPickError(null);
+      setVaultId(null);
+      setStage("pick");
+      const f = await (factsInFlight.current ?? factsRef.current ?? loadFacts());
+      if (invitationVersion.current === version) {
+        setVaultId(preselectVault(planCurrency(f, currency))?.id ?? null);
+      }
+    },
+    [loadFacts],
+  );
+
   // ---- preview -----------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
@@ -392,10 +407,13 @@ export default function TabJoinScreen() {
         setEntries(preview.entries);
         setGroupInvitation(invitation.kind === "group" ? invitation : null);
         loadedToken.current = token;
-        setStage("preview");
-        // Resolve the kaata plan while the preview is on screen, so Join
-        // answers at once — and so the one-tap card can appear at all.
+        // Start the Kaata read now so both entry paths share it.
         void loadFacts();
+        if (acceptShortcut && invitation.kind === "group" && invitation.group.you === "b") {
+          void openPick(preview.tab.currency);
+        } else {
+          setStage("preview");
+        }
       } catch (err) {
         if (cancelled) return;
         // Raw err stays in the console; the user sees localized copy only.
@@ -429,7 +447,7 @@ export default function TabJoinScreen() {
       invitationVersion.current++;
       if (loadedToken.current === token) loadedToken.current = null;
     };
-  }, [token, router, attempt, loadFacts]);
+  }, [token, acceptShortcut, router, attempt, loadFacts, openPick]);
 
   // ---- derived -----------------------------------------------------------
   const otherLabel = tab ? tab.parties[otherRole(tab.you)].label.trim() : "";
@@ -479,17 +497,6 @@ export default function TabJoinScreen() {
   const previewVault = plan ? preselectVault(plan) : null;
   // Whose contacts to have ready: the picked kaata, or the preview's would-be one.
   const targetVaultId = stage === "pick" ? vaultId : (previewVault?.id ?? null);
-
-  // ---- pick --------------------------------------------------------------
-  const openPick = useCallback(async () => {
-    if (!tab) return;
-    setPickError(null);
-    setStage("pick");
-    // Usually already read while the preview was on screen; awaited here for
-    // a fast tap so a single matching kaata is never shown as a "choice".
-    const f = factsRef.current ?? (await loadFacts());
-    setVaultId(preselectVault(planCurrency(f, tab.currency))?.id ?? null);
-  }, [tab, loadFacts]);
 
   // Contacts load whenever the target kaata changes (including the preselect).
   useEffect(() => {
@@ -1155,7 +1162,9 @@ export default function TabJoinScreen() {
           keyboardDismissMode="on-drag"
           contentContainerStyle={styles.scrollContent}
         >
-          {stage === "preview" && tab ? (
+          {tab &&
+          (stage === "preview" ||
+            (stage === "pick" && acceptShortcut && groupInvitation?.group.you === "b")) ? (
             <View>
               {/* Who is inviting, in their own words — parties.label is how a
                   party names ITSELF, which is what the other side reads. */}
@@ -1235,6 +1244,11 @@ export default function TabJoinScreen() {
                 )}
               </Text>
               <View style={{ height: 24 }} />
+            </View>
+          ) : null}
+
+          {stage === "preview" && tab ? (
+            <>
               {previewVault && joinable && plan ? (
                 // One tap: the kaata is unambiguous and the invitation's
                 // number resolved to someone. Everything else stays one tap
@@ -1266,7 +1280,7 @@ export default function TabJoinScreen() {
                   <Pressable
                     onPress={() => {
                       setDeclinedSuggestion(true);
-                      void openPick();
+                      void openPick(tab.currency);
                     }}
                     accessibilityRole="button"
                     style={({ pressed }) => [styles.chooseElse, pressed && { opacity: 0.6 }]}
@@ -1275,9 +1289,9 @@ export default function TabJoinScreen() {
                   </Pressable>
                 </>
               ) : (
-                <Button label={t("tab.join.join")} onPress={() => void openPick()} />
+                <Button label={t("tab.join.join")} onPress={() => void openPick(tab.currency)} />
               )}
-            </View>
+            </>
           ) : null}
 
           {stage === "pick" && tab ? (

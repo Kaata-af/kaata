@@ -25,6 +25,7 @@ export function usePeopleRequests() {
   const sequence = useRef(0);
   const active = useRef(false);
   const busy = useRef(false);
+  const isCurrent = () => !!account && active.current && currentScope() === scope;
   const reload = useCallback(async () => {
     if (!account || currentScope() !== scope || !active.current || busy.current) return;
     const run = ++sequence.current;
@@ -66,9 +67,9 @@ export function usePeopleRequests() {
     }, [reload]),
   );
   const decline = async (id: string) => {
-    if (!account || !active.current || currentScope() !== scope) return;
+    if (!isCurrent()) return;
     await declinePeopleRequest(id);
-    if (active.current && currentScope() === scope) {
+    if (isCurrent()) {
       sequence.current++;
       busy.current = false;
       setSnapshot((previous) =>
@@ -81,6 +82,7 @@ export function usePeopleRequests() {
   return {
     rows: account && snapshot?.scope === scope ? snapshot.rows : [],
     failed: account && failure?.scope === scope ? failure.failed : false,
+    isCurrent,
     reload,
     decline,
   };

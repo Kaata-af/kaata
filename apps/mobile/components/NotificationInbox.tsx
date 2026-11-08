@@ -32,8 +32,16 @@ import { useVaultMemberRequests } from "../lib/use-vault-member-requests";
 import type { VaultMemberRequest } from "../lib/vault-member-requests";
 import { useFriendRequests } from "../lib/use-friend-requests";
 import type { FriendRequest } from "../lib/friends-api";
+import { Button } from "./Button";
 
 type Inbox = ReturnType<typeof useInbox>;
+
+function openPeopleRequest(item: PeopleRequest, intent?: "accept") {
+  router.push({
+    pathname: "/t/[token]",
+    params: { token: item.token, ...(intent ? { intent } : {}) },
+  });
+}
 
 function NoticeRow({ item, onPress }: { item: InboxItem; onPress: () => void }) {
   const rtl = useIsRTL();
@@ -92,7 +100,7 @@ function InboxContent({
   /** Any reminder at all: the row is then the way into the full list. */
   hasReminders?: boolean;
   requests: ReturnType<typeof usePeopleRequests>;
-  openRequest: (item: PeopleRequest) => void;
+  openRequest: (item: PeopleRequest, intent?: "accept") => void;
   memberRequests: ReturnType<typeof useVaultMemberRequests>;
   openMemberRequest: (item: VaultMemberRequest) => void;
   friendRequests: ReturnType<typeof useFriendRequests>;
@@ -289,56 +297,73 @@ function InboxContent({
             {t("peopleSearch.requestsTitle")}
           </Text>
         ) : null}
-        {(compact ? requests.rows.slice(0, 3) : requests.rows).map((item) => (
-          <View
-            key={item.id}
-            style={[styles.notice, { alignItems: rtl ? "flex-end" : "flex-start" }]}
-          >
-            <Text style={[styles.body, textDir(rtl)]}>
-              {t("peopleSearch.requestBody", {
-                name: item.from.name || item.from.username || "Kaata",
-              })}
-            </Text>
-            {item.from.username ? (
-              <Text style={[styles.time, textDir(rtl)]}>
-                {ltrIsolate(`@${item.from.username}`)}
-              </Text>
-            ) : null}
-            <View style={[rowDir(rtl), { gap: 16 }]}>
+        {(compact ? requests.rows.slice(0, 3) : requests.rows).map((item) => {
+          const key = `shared-${item.id}`;
+          const body = t("peopleSearch.requestBody", {
+            name: item.from.name || item.from.username || "Kaata",
+          });
+          const open = (intent?: "accept") => {
+            if (!decliningRef.current) openRequest(item, intent);
+          };
+          return (
+            <View key={key} style={styles.notice}>
+              {/* The card's tap target sits behind the separate action buttons. */}
               <Pressable
                 accessibilityRole="button"
-                style={styles.control}
+                accessibilityLabel={body}
+                accessibilityHint={t("peopleSearch.review")}
                 disabled={declining !== null}
-                onPress={() => openRequest(item)}
+                style={({ pressed }) => [
+                  StyleSheet.absoluteFill,
+                  pressed && { backgroundColor: colors.bgSubtle },
+                ]}
+                onPress={() => open()}
+              />
+              <View
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={styles.requestText}
               >
-                <Text style={styles.controlText}>{t("peopleSearch.review")}</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                style={styles.control}
-                disabled={declining !== null}
-                onPress={() => {
-                  if (decliningRef.current) return;
-                  decliningRef.current = true;
-                  setDeclining(item.id);
-                  void requests
-                    .decline(item.id)
-                    .catch(() => toast.push(t("inbox.failed"), "error"))
-                    .finally(() => {
-                      decliningRef.current = false;
-                      setDeclining(null);
-                    });
-                }}
-              >
-                {declining === item.id ? (
-                  <ActivityIndicator color={colors.textSubtle} />
-                ) : (
-                  <Text style={styles.controlText}>{t("peopleSearch.decline")}</Text>
-                )}
-              </Pressable>
+                <Text style={[styles.body, textDir(rtl)]}>{body}</Text>
+                {item.from.username ? (
+                  <Text style={[styles.time, textDir(rtl)]}>
+                    {ltrIsolate(`@${item.from.username}`)}
+                  </Text>
+                ) : null}
+              </View>
+              <View pointerEvents="box-none" style={[styles.requestActions, rowDir(rtl)]}>
+                <Button
+                  label={t("tab.accept")}
+                  wrapLabel
+                  disabled={declining !== null}
+                  onPress={() => open("accept")}
+                />
+                <Button
+                  label={t("tab.reject")}
+                  variant="secondary"
+                  wrapLabel
+                  disabled={declining !== null}
+                  loading={declining === key}
+                  onPress={() => {
+                    if (decliningRef.current || !requests.isCurrent()) return;
+                    decliningRef.current = true;
+                    setDeclining(key);
+                    void requests
+                      .decline(item.id)
+                      .catch(() => {
+                        if (requests.isCurrent()) toast.push(t("inbox.failed"), "error");
+                      })
+                      .finally(() => {
+                        decliningRef.current = false;
+                        setDeclining(null);
+                      });
+                  }}
+                />
+              </View>
             </View>
-          </View>
-        ))}
+          );
+        })}
         {page.items.length === 0 &&
         requests.rows.length === 0 &&
         memberRequests.rows.length === 0 &&
@@ -659,8 +684,10 @@ export function NotificationBell({
                   router.push({ pathname: "/invite/[token]", params: { token: item.token } }),
                 )
               }
-              openRequest={(item) =>
-                close(() => router.push({ pathname: "/t/[token]", params: { token: item.token } }))
+              openRequest={(item, intent) =>
+                close(() => {
+                  if (requests.isCurrent()) openPeopleRequest(item, intent);
+                })
               }
               compact
               open={open}
@@ -730,7 +757,9 @@ export function FullNotificationInbox() {
       openMemberRequest={(item) =>
         router.push({ pathname: "/invite/[token]", params: { token: item.token } })
       }
-      openRequest={(item) => router.push({ pathname: "/t/[token]", params: { token: item.token } })}
+      openRequest={(item, intent) => {
+        if (requests.isCurrent()) openPeopleRequest(item, intent);
+      }}
     />
   );
 }
@@ -823,6 +852,8 @@ const styles = StyleSheet.create({
     borderTopColor: colors.borderSubtle,
   },
   noticeIcon: { paddingTop: 2 },
+  requestText: { alignSelf: "stretch" },
+  requestActions: { alignSelf: "stretch", flexWrap: "wrap", gap: 8 },
   text: { flex: 1, minWidth: 0 },
   body: { ...typography.bodySm, color: colors.textDefault },
   time: { ...typography.caption, color: colors.textSubtle, marginTop: 5 },

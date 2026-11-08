@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { compileUI, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
-function fixture() {
+function fixture(full = false) {
   const hooks = uiHooks();
   let openingCount = 0;
   const visibility: boolean[] = [];
@@ -38,11 +38,17 @@ function fixture() {
     },
   };
   let dueCount = 0;
+  let requestScope = true;
+  const declined: string[] = [];
   const requests = {
     rows: [] as any[],
     failed: false,
     reload: async () => {},
-    decline: async () => {},
+    decline: async (id: string) => {
+      declined.push(id);
+      requests.rows = requests.rows.filter((row) => row.id !== id);
+    },
+    isCurrent: () => requestScope,
   };
   const memberRequests = {
     rows: [] as any[],
@@ -65,6 +71,7 @@ function fixture() {
       "../lib/use-vault-member-requests": { useVaultMemberRequests: () => memberRequests },
       "../lib/use-friend-requests": { useFriendRequests: () => friendRequests },
       "./ProtectedModal": { ProtectedModal: "Modal" },
+      "./Button": { Button: "Button" },
       "./SheetBackdrop": {
         SheetBackdrop: "SheetBackdrop",
         useSheetMotionPreference: () => reducedMotion,
@@ -104,7 +111,12 @@ function fixture() {
       },
       "@expo/vector-icons": { Ionicons: "Icon" },
       "../lib/colors": { colors: require("../colors").colors },
-      "../lib/direction": { useIsRTL: () => false, rowDir: () => ({}), textDir: () => ({}) },
+      "../lib/direction": {
+        ltrIsolate: (text: string) => text,
+        useIsRTL: () => false,
+        rowDir: () => ({}),
+        textDir: () => ({}),
+      },
       "../lib/fonts": { fonts: {}, monoLineHeight: (_: number, line: number) => line },
       "../lib/format": { formatRelative: () => "now" },
       "../lib/i18n": { t: (key: string) => key },
@@ -132,9 +144,15 @@ function fixture() {
     },
   );
   function render() {
-    hooks.render(() =>
-      component.NotificationBell({ onOpen: () => openingCount++, onVisibilityChange }),
-    );
+    hooks.render(() => {
+      const root = full
+        ? component.FullNotificationInbox()
+        : component.NotificationBell({ onOpen: () => openingCount++, onVisibilityChange });
+      const content = nodes(root).find((node) => typeof node.props.openRequest === "function")!;
+      content.props.children = content.type(content.props);
+      return root;
+    });
+    if (full) return;
     const anchor = nodes(hooks.tree).find((node) => node.props.collapsable === false)!;
     anchor.props.ref.current = {
       measureInWindow: (fn: (...coords: number[]) => void) => measures.push(fn),
@@ -164,6 +182,10 @@ function fixture() {
     opens,
     reads,
     requests,
+    declined,
+    invalidateRequests: () => {
+      requestScope = false;
+    },
     memberRequests,
     friendRequests,
     invalidateFriends: () => {
@@ -394,7 +416,12 @@ async function main() {
   assert.equal(nav.timers.size, 0, "unmount cancels pending navigation");
   assert.equal(nav.hooks.lateWrites, 0);
   const invitation = fixture();
-  invitation.requests.rows = [{ id: "request", token: "r_recipient-bound" }];
+  const sharedRequest = {
+    id: "request",
+    token: "r_recipient-bound",
+    from: { account_id: "sender", name: "Sender", username: "sender" },
+  };
+  invitation.requests.rows = [sharedRequest];
   invitation.render();
   const invitationBadge = nodes(invitation.bell()).find(
     (node) => node.type === "Text" && node.props.allowFontScaling === false,
@@ -406,10 +433,11 @@ async function main() {
   );
   invitation.open();
   invitation.measure();
-  const invitationContent = nodes(invitation.hooks.tree).find(
-    (node) => typeof node.props.openRequest === "function",
+  const review = nodes(invitation.hooks.tree).find(
+    (node) => node.props.accessibilityLabel === "peopleSearch.requestBody",
   )!;
-  invitationContent.props.openRequest(invitation.requests.rows[0]);
+  assert.equal(review.props.accessibilityHint, "peopleSearch.review");
+  review.props.onPress();
   assert.deepEqual(invitation.routes, [], "review waits for the existing inbox to dismiss");
   invitation.flushTimers();
   assert.deepEqual(
@@ -423,6 +451,47 @@ async function main() {
     "an unaccepted request is never opened as an authorized tally",
   );
   invitation.hooks.unmount();
+  for (const full of [false, true]) {
+    const inbox = fixture(full);
+    inbox.requests.rows = [sharedRequest];
+    inbox.render();
+    if (!full) {
+      inbox.open();
+      inbox.measure();
+    }
+    const action = (key: string) =>
+      nodes(inbox.hooks.tree).find((node) => node.type === "Button" && node.props.label === key)!;
+    const reject = action("tab.reject").props.onPress;
+    reject();
+    reject();
+    await settleUI();
+    inbox.render();
+    assert.deepEqual(inbox.declined, [sharedRequest.id], "Reject is dispatched once");
+    assert.deepEqual(inbox.routes, [], "Reject stays in the inbox");
+    assert.equal(action("tab.reject"), undefined, "The rejected invitation disappears");
+    inbox.requests.rows = [sharedRequest];
+    inbox.render();
+    action("tab.accept").props.onPress();
+    if (!full) {
+      assert.deepEqual(inbox.routes, [], "Accept waits for the popup to dismiss");
+      inbox.flushTimers();
+    }
+    assert.deepEqual(inbox.routes, [
+      { pathname: "/t/[token]", params: { token: sharedRequest.token, intent: "accept" } },
+    ]);
+    inbox.hooks.unmount();
+  }
+  const stale = fixture();
+  stale.requests.rows = [sharedRequest];
+  stale.open();
+  stale.measure();
+  nodes(stale.hooks.tree)
+    .find((node) => node.type === "Button" && node.props.label === "tab.accept")!
+    .props.onPress();
+  stale.invalidateRequests();
+  stale.flushTimers();
+  assert.deepEqual(stale.routes, [], "Accept cannot open an old account's invitation");
+  stale.hooks.unmount();
   const membership = fixture();
   membership.memberRequests.rows = [{ id: "member-invite", token: "v_account-bound" }];
   membership.render();
