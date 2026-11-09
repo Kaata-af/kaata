@@ -39,7 +39,7 @@
           }
         ]
       },
-      "buildNumber": "56"
+      "buildNumber": "57"
     },
     "android": {
       "package": "af.kaata.app",
@@ -64,7 +64,7 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES"
       ],
-      "versionCode": 90
+      "versionCode": 91
     },
     "web": {
       "favicon": "./assets/favicon.png"
