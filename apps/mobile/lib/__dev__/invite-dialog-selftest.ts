@@ -286,6 +286,9 @@ async function main() {
   for (const [status, code, key] of [
     [404, "person_unavailable", "peopleSearch.unavailable"],
     [409, "contact_archived", "peopleSearch.archived"],
+    [429, "people_request_cooldown", "peopleSearch.requestCooldown"],
+    [409, "people_request_pending", "peopleSearch.requestPending"],
+    [409, "people_request_ended", "peopleSearch.requestEnded"],
     [0, "network", "peopleSearch.sendFailed"],
   ] as const) {
     reset(null);

@@ -102,6 +102,33 @@ func TestMemberReadmissionConsentHasNoAccess(t *testing.T) {
 	}
 }
 
+func TestMemberReadmissionReplacesOnlyUnconsentedInvite(t *testing.T) {
+	f, install, _ := readmissionFixture(t)
+	original := readmissionCreate(t, f)
+	input := CreateAccountInviteInput{
+		VaultID: f.vault, InviterAccID: f.owner, TargetAccountID: f.joiner, Role: "clerk", ReadmitRemoved: true,
+	}
+	revised, err := f.svc.CreateAccountInvite(t.Context(), input)
+	if err != nil || !revised.MemberReadmission || revised.InviteID == original.InviteID {
+		t.Fatalf("revised invitation %+v %v", revised, err)
+	}
+	accept := AcceptInviteInput{Token: original.InviteToken, AccountID: f.joiner, InstallID: install, MemberReadmission: true}
+	if _, err := f.svc.AcceptInvite(t.Context(), accept); !errors.Is(err, ErrInviteNotFound) {
+		t.Fatalf("old invitation was still usable: %v", err)
+	}
+	accept.Token = revised.InviteToken
+	if out, err := f.svc.AcceptInvite(t.Context(), accept); err != nil || !out.ReadmissionPending || out.Role != "clerk" {
+		t.Fatalf("consent to revised invitation %+v %v", out, err)
+	}
+	input.Role = "viewer"
+	if _, err := f.svc.CreateAccountInvite(t.Context(), input); !errors.Is(err, ErrInviteRoleConflict) {
+		t.Fatalf("consented invite was replaced: %v", err)
+	}
+	if out, err := f.svc.MemberReadmissionStatus(t.Context(), f.joiner, install, revised.InviteID); err != nil || !out.ReadmissionPending || out.Role != "clerk" {
+		t.Fatalf("recipient consent did not survive: %+v %v", out, err)
+	}
+}
+
 func TestMemberReadmissionAuthorityAndLegacyFailClosed(t *testing.T) {
 	f, install, _ := readmissionFixture(t)
 	accountInviteExec(t, f, `UPDATE vault_members SET role='manager' WHERE vault_id=$1::uuid AND account_id=$2::uuid AND revoked_at IS NULL`, f.vault, f.editor)

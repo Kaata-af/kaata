@@ -19,7 +19,7 @@ var (
 )
 
 const friendRequestTTL = 14 * 24 * time.Hour
-const friendRequestCooldown = 24 * time.Hour
+const friendDeclineCooldown = 5 * time.Minute
 const maxPendingFriendRequests = 50
 const friendPageSize = 50
 
@@ -242,7 +242,7 @@ func (s *Service) SendFriendRequest(ctx context.Context, viewer, target string) 
 	if !states[target].discoverable {
 		return FriendshipState{}, ErrPersonUnavailable
 	}
-	if exists && f.status != "pending" && time.Since(f.updated) < friendRequestCooldown {
+	if exists && f.status == "declined" && f.requestedBy == viewer && time.Since(f.updated) < friendDeclineCooldown {
 		return FriendshipState{}, ErrFriendRequestLimited
 	}
 	var outgoing, incoming int

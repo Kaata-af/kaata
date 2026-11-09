@@ -79,8 +79,12 @@ func mapServiceError(err error) (int, string, string) {
 		return http.StatusConflict, "removal_conflict", err.Error()
 	case errors.Is(err, ErrRemovalWrongParty):
 		return http.StatusForbidden, "removal_wrong_party", err.Error()
-	case errors.Is(err, ErrPeopleRequestLimited):
-		return http.StatusTooManyRequests, "people_request_limited", err.Error()
+	case errors.Is(err, ErrPeopleRequestEnded):
+		return http.StatusConflict, "people_request_ended", err.Error()
+	case errors.Is(err, ErrPeopleRequestPending):
+		return http.StatusConflict, "people_request_pending", err.Error()
+	case errors.Is(err, ErrPeopleRequestCooldown):
+		return http.StatusTooManyRequests, "people_request_cooldown", err.Error()
 	case errors.Is(err, ErrPeopleRequestInboxFull):
 		return http.StatusTooManyRequests, "people_request_inbox_full", err.Error()
 	case errors.Is(err, ErrGroupChanged):

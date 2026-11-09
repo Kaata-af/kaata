@@ -14,8 +14,13 @@ import (
 	"github.com/matee/kaata-backend/internal/httpx"
 )
 
-var ErrPeopleRequestLimited = errors.New("a request was already sent to this person recently")
+var ErrPeopleRequestEnded = errors.New("this invitation ended; clear it before sending another")
+var ErrPeopleRequestCooldown = errors.New("wait a few minutes after the invitation was declined")
+var ErrPeopleRequestPending = errors.New("you already sent this person a pending invitation from this Kaata")
 var ErrPeopleRequestInboxFull = errors.New("this person has too many pending requests; try again later")
+
+const pendingPeopleRequestSQL = `r.declined_at IS NULL AND r.expires_at>NOW()
+ AND g.closed_at IS NULL AND g.b_joined_at IS NULL AND NOT g.b_account_bound_once`
 
 type PeopleRequest struct {
 	ID          string                  `json:"id"`
@@ -151,7 +156,7 @@ func (s *Service) SendPeopleRequest(ctx context.Context, account, groupID, recip
 			return out, ErrGroupChanged
 		}
 		if !valid {
-			return out, ErrPeopleRequestLimited
+			return out, ErrPeopleRequestEnded
 		}
 		out.GroupID, out.Token, out.CreatedAtMS = groupID, "r_"+out.ID, created.UnixMilli()
 		return out, tx.Commit(ctx)
@@ -171,22 +176,32 @@ func (s *Service) SendPeopleRequest(ctx context.Context, account, groupID, recip
 	if !eligible {
 		return out, ErrNotFound
 	}
-	// A sender cannot evade the per-person cooldown by making new groups.
+	// Serialize the inbox capacity and duplicate checks across new groups.
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "people-recipient:"+recipient); err != nil {
 		return out, err
 	}
-	var recent bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM people_requests WHERE sender_account_id=$1::uuid AND recipient_account_id=$2::uuid AND created_at>NOW()-INTERVAL '1 day')`, account, recipient).Scan(&recent)
+	var pendingForPair, coolingDown bool
+	// Older clients could decline an invite that had already closed or expired.
+	err = tx.QueryRow(ctx, `SELECT
+ EXISTS(SELECT 1 FROM people_requests r JOIN tab_groups g ON g.id=r.group_id
+  WHERE r.sender_account_id=$1::uuid AND r.recipient_account_id=$2::uuid
+  AND g.a_vault_id IS NOT DISTINCT FROM $3::uuid AND `+pendingPeopleRequestSQL+`),
+ EXISTS(SELECT 1 FROM people_requests r JOIN tab_groups g ON g.id=r.group_id
+  WHERE r.sender_account_id=$1::uuid AND r.recipient_account_id=$2::uuid
+  AND r.declined_at>NOW()-INTERVAL '5 minutes' AND r.declined_at<r.expires_at
+  AND (g.closed_at IS NULL OR r.declined_at<g.closed_at))`, account, recipient, g.AVault).Scan(&pendingForPair, &coolingDown)
 	if err != nil {
 		return out, err
 	}
-	if recent {
-		return out, ErrPeopleRequestLimited
+	if pendingForPair {
+		return out, ErrPeopleRequestPending
+	}
+	if coolingDown {
+		return out, ErrPeopleRequestCooldown
 	}
 	var pending int
 	err = tx.QueryRow(ctx, `SELECT COUNT(*) FROM people_requests r JOIN tab_groups g ON g.id=r.group_id
- WHERE r.recipient_account_id=$1::uuid AND r.declined_at IS NULL AND r.expires_at>NOW()
- AND g.closed_at IS NULL AND g.b_joined_at IS NULL AND NOT g.b_account_bound_once`, recipient).Scan(&pending)
+ WHERE r.recipient_account_id=$1::uuid AND `+pendingPeopleRequestSQL, recipient).Scan(&pending)
 	if err != nil {
 		return out, err
 	}
@@ -206,8 +221,7 @@ func (s *Service) ListPeopleRequests(ctx context.Context, account string) ([]Peo
 	rows, err := s.pool.Query(ctx, `SELECT r.id::text,r.group_id::text,r.created_at,a.id::text,
  COALESCE(NULLIF(a.display_name,''),a.name,''),CASE WHEN a.discovery_enabled THEN COALESCE(a.username,'') ELSE '' END,COALESCE(a.picture_url,'')
  FROM people_requests r JOIN tab_groups g ON g.id=r.group_id JOIN accounts a ON a.id=r.sender_account_id
- WHERE r.recipient_account_id=$1::uuid AND r.declined_at IS NULL AND r.expires_at>NOW()
- AND g.closed_at IS NULL AND g.b_joined_at IS NULL AND NOT g.b_account_bound_once
+ WHERE r.recipient_account_id=$1::uuid AND `+pendingPeopleRequestSQL+`
  AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL ORDER BY r.created_at DESC,r.id DESC LIMIT 50`, account)
 	if err != nil {
 		return out, err
@@ -249,9 +263,14 @@ func (s *Service) DeclinePeopleRequest(ctx context.Context, account, id string) 
 	if g.BJoined != nil || g.BClaimed {
 		return ErrGroupChanged
 	}
-	_, err = tx.Exec(ctx, `UPDATE people_requests SET declined_at=COALESCE(declined_at,NOW()) WHERE id=$1::uuid`, id)
-	if err != nil {
-		return err
+	if g.Closed == nil {
+		// A late inbox tap can dismiss an already ended request without
+		// penalizing the sender. Retries keep the original decision time.
+		_, err = tx.Exec(ctx, `UPDATE people_requests SET declined_at=NOW()
+ WHERE id=$1::uuid AND declined_at IS NULL AND expires_at>NOW()`, id)
+		if err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

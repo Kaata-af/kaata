@@ -3,6 +3,7 @@ package tabs
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -237,8 +238,147 @@ func TestPeopleRequestDeclineExpiryAndPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.SendPeopleRequest(t.Context(), f.acctA, created.Group.ID, f.acctB); !errors.Is(err, ErrPeopleRequestLimited) {
+	if _, err := f.svc.SendPeopleRequest(t.Context(), f.acctA, created.Group.ID, f.acctB); !errors.Is(err, ErrPeopleRequestCooldown) {
 		t.Fatalf("cooldown: %v", err)
+	}
+}
+
+func TestPeopleRequestFreshInviteAfterPreviousEnds(t *testing.T) {
+	for _, outcome := range []string{"joined", "cancelled", "expired", "declined"} {
+		t.Run(outcome, func(t *testing.T) {
+			ctx := t.Context()
+			f := newTabFixture(t)
+			publishRequestRecipient(t, f)
+			in := groupInput(t, f, "notify")
+			in.RelationshipID = uuid.NewString()
+			in.Currencies = []GroupCurrencyInput{{Currency: "AFN"}}
+			original, err := f.svc.CreateGroup(ctx, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := f.svc.SendPeopleRequest(ctx, f.acctA, original.Group.ID, f.acctB)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch outcome {
+			case "joined":
+				join := joinGroupInput(f, in)
+				join.Token = request.Token
+				join.Currencies = []GroupCurrencyInput{{Currency: "AFN"}}
+				if _, err := f.svc.JoinGroup(ctx, original.Group.ID, join); err != nil {
+					t.Fatal(err)
+				}
+			case "expired":
+				if _, err := f.pool.Exec(ctx, `UPDATE people_requests SET expires_at=NOW()-INTERVAL '1 second' WHERE id=$1::uuid`, request.ID); err != nil {
+					t.Fatal(err)
+				}
+				fallthrough
+			case "declined":
+				if err := f.svc.DeclinePeopleRequest(ctx, f.acctB, request.ID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.svc.SendPeopleRequest(ctx, f.acctA, original.Group.ID, f.acctB); !errors.Is(err, ErrPeopleRequestEnded) {
+					t.Fatalf("retry on ended group: %v", err)
+				}
+			}
+			closed, err := f.svc.CloseGroup(ctx, original.Group.ID, f.acctA, "a", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if outcome == "cancelled" {
+				// A late tap on the old invitation must not block a new one.
+				if err := f.svc.DeclinePeopleRequest(ctx, f.acctB, request.ID); err != nil {
+					t.Fatal(err)
+				}
+				var recorded bool
+				if err := f.pool.QueryRow(ctx, `SELECT declined_at IS NOT NULL FROM people_requests WHERE id=$1::uuid`, request.ID).Scan(&recorded); err != nil || recorded {
+					t.Fatalf("late decline on closed request: %t, %v", recorded, err)
+				}
+				// Earlier clients could already have recorded this stale tap.
+				if _, err := f.pool.Exec(ctx, `UPDATE people_requests r SET declined_at=g.closed_at+INTERVAL '1 microsecond'
+ FROM tab_groups g WHERE g.id=r.group_id AND r.id=$1::uuid`, request.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			in.RequestID = uuid.NewString()
+			in.InviteToken, err = newPartyToken()
+			if err != nil {
+				t.Fatal(err)
+			}
+			prior := closed.Tabs[0].Tab
+			in.Currencies = []GroupCurrencyInput{{
+				Currency:                 "AFN",
+				ExpectedPreviousTabID:    &prior.ID,
+				ExpectedPreviousRev:      &prior.Rev,
+				ExpectedHistoryRevisions: map[string]int64{prior.ID: prior.Rev},
+			}}
+			next, err := f.svc.CreateGroup(ctx, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if outcome == "declined" {
+				if _, err := f.svc.SendPeopleRequest(ctx, f.acctA, next.Group.ID, f.acctB); !errors.Is(err, ErrPeopleRequestCooldown) {
+					t.Fatalf("closing a declined invitation bypassed the cooldown: %v", err)
+				}
+				if _, err := f.pool.Exec(ctx, `UPDATE people_requests SET declined_at=NOW()-INTERVAL '6 minutes' WHERE id=$1::uuid`, request.ID); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.svc.DeclinePeopleRequest(ctx, f.acctB, request.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			fresh, err := f.svc.SendPeopleRequest(ctx, f.acctA, next.Group.ID, f.acctB)
+			if err != nil || fresh.ID == request.ID || fresh.Token == request.Token {
+				t.Fatalf("fresh invitation: %+v %v", fresh, err)
+			}
+			inbox, err := f.svc.ListPeopleRequests(ctx, f.acctB)
+			if err != nil || len(inbox) != 1 || inbox[0].ID != fresh.ID {
+				t.Fatalf("recipient inbox after re-inviting: %+v %v", inbox, err)
+			}
+		})
+	}
+}
+
+func TestPeopleRequestDoesNotDuplicatePendingInvitesWithinKaata(t *testing.T) {
+	f := newTabFixture(t)
+	publishRequestRecipient(t, f)
+	in := groupInput(t, f, "notify")
+	in.Currencies = []GroupCurrencyInput{{Currency: "AFN"}}
+	create := func(vaultID string) string {
+		t.Helper()
+		in.VaultID, in.RequestID, in.RelationshipID = vaultID, uuid.NewString(), uuid.NewString()
+		var err error
+		in.InviteToken, err = newPartyToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		group, err := f.svc.CreateGroup(t.Context(), in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return group.Group.ID
+	}
+	first, second := create(f.vaultA), create(f.vaultA)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, group := range []string{first, second} {
+		go func() {
+			<-start
+			_, err := f.svc.SendPeopleRequest(t.Context(), f.acctA, group, f.acctB)
+			results <- err
+		}()
+	}
+	close(start)
+	winner, loser := <-results, <-results
+	if winner != nil {
+		winner, loser = loser, winner
+	}
+	if winner != nil || !errors.Is(loser, ErrPeopleRequestPending) {
+		t.Fatalf("pending collision: %v, %v", winner, loser)
+	}
+	otherVault := seedVault(t, f.pool, f.acctA, "Another book")
+	if _, err := f.svc.SendPeopleRequest(t.Context(), f.acctA, create(otherVault), f.acctB); err != nil {
+		t.Fatalf("independent Kaata invite: %v", err)
 	}
 }
 
@@ -299,11 +439,14 @@ func TestPeopleRequestInboxCapacity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		sender := seedAccount(t, f.pool, fmt.Sprintf("sender-%d@example.test", i), "Sender")
+		seedMember(t, f.pool, f.vaultA, sender, "editor")
+		in.AccountID = sender
 		group, err := f.svc.CreateGroup(t.Context(), in)
 		if err != nil {
 			t.Fatal(err)
 		}
-		request, err := f.svc.SendPeopleRequest(t.Context(), f.acctA, group.Group.ID, f.acctB)
+		_, err = f.svc.SendPeopleRequest(t.Context(), sender, group.Group.ID, f.acctB)
 		if i == 50 {
 			if !errors.Is(err, ErrPeopleRequestInboxFull) {
 				t.Fatalf("capacity: %v", err)
@@ -311,9 +454,6 @@ func TestPeopleRequestInboxCapacity(t *testing.T) {
 			break
 		}
 		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := f.pool.Exec(t.Context(), `UPDATE people_requests SET created_at=NOW()-INTERVAL '2 days' WHERE id=$1::uuid`, request.ID); err != nil {
 			t.Fatal(err)
 		}
 	}

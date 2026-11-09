@@ -325,6 +325,7 @@ async function main() {
     f.profileReads[0].reply.resolve({
       person: { ...john, name: "Authoritative John" },
       can_receive_requests: true,
+      activity: { kaata_invitation_role: "clerk" },
     });
     await f.settle();
     assert.equal(f.writes.length, 0, "Profile lookup only stages the person");
@@ -334,6 +335,7 @@ async function main() {
     const sending = confirmation.props.onConfirm();
     await f.settle();
     assert.equal(f.writes.length, 1);
+    assert.equal(f.writes[0].input.role, "clerk", "an existing invite keeps its role by default");
     assert.equal(f.links.length, 0);
     f.writes[0].reply.resolve({ expires_at: Date.now() + 86400_000 });
     await sending;

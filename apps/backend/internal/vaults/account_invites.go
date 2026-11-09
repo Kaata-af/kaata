@@ -162,38 +162,46 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 		readmissionFrom, readmissionOwner = &sourceID, &ownerID
 		readmissionOwnerChange = &ownerChange
 	}
-	// A request whose original inviter lost authority must not trap a new
-	// authorized inviter behind an unusable pending row. This and expiration
-	// retain evidence while freeing the pending unique key; rollback preserves
-	// the old row if creating a replacement is not permitted.
+	// Retire unusable requests, including an ordinary invite left pending
+	// when someone joined another way and was later removed. The owner can
+	// replace it with a readmission, which requires separate consent.
 	if _, err := tx.Exec(ctx, `UPDATE vault_members vm SET revoked_at=NOW(),revoked_reason='invite_no_longer_valid',updated_at=NOW()
  WHERE vm.vault_id=$1::uuid AND vm.invite_account_id=$2::uuid AND vm.accepted_at IS NULL AND vm.revoked_at IS NULL
-	AND (vm.invite_expires_at<=NOW() OR (vm.readmission_from_id IS NOT NULL AND NOT (`+memberreadmission.PendingSQL+`)) OR NOT EXISTS(SELECT 1 FROM vault_members authority JOIN accounts a ON a.id=authority.account_id
+	AND (vm.invite_expires_at<=NOW() OR (vm.readmission_from_id IS NULL AND $3::bigint IS NOT NULL)
+ OR (vm.readmission_from_id IS NOT NULL AND NOT (`+memberreadmission.PendingSQL+`)) OR NOT EXISTS(SELECT 1 FROM vault_members authority JOIN accounts a ON a.id=authority.account_id
  WHERE authority.vault_id=vm.vault_id AND authority.account_id=vm.invited_by AND authority.accepted_at IS NOT NULL
  AND authority.revoked_at IS NULL AND authority.role IN ('owner','manager') AND `+inviteManagerCapabilitySQL+`
- AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL))`, in.VaultID, in.TargetAccountID); err != nil {
+ AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL))`, in.VaultID, in.TargetAccountID, readmissionFrom); err != nil {
 		return AccountInviteResult{}, err
 	}
-	var id, role string
+	var id, role, pendingInviter string
 	var pendingSource *int64
+	var consented bool
 	var expiry time.Time
-	err = tx.QueryRow(ctx, `SELECT invite_request_id::text,role,invite_expires_at,readmission_from_id FROM vault_members
+	err = tx.QueryRow(ctx, `SELECT invite_request_id::text,role,invite_expires_at,readmission_from_id,
+ COALESCE(invited_by::text,''),readmission_consented_at IS NOT NULL FROM vault_members
  WHERE vault_id=$1::uuid AND invite_account_id=$2::uuid AND accepted_at IS NULL AND revoked_at IS NULL
-	AND invite_expires_at>NOW() FOR UPDATE`, in.VaultID, in.TargetAccountID).Scan(&id, &role, &expiry, &pendingSource)
+	AND invite_expires_at>NOW() FOR UPDATE`, in.VaultID, in.TargetAccountID).Scan(&id, &role, &expiry, &pendingSource, &pendingInviter, &consented)
 	if err == nil {
-		if role != in.Role {
-			return AccountInviteResult{}, ErrInviteRoleConflict
-		}
 		if (pendingSource == nil) != (readmissionFrom == nil) || (pendingSource != nil && *pendingSource != *readmissionFrom) {
 			return AccountInviteResult{}, ErrMemberReadmissionRequired
 		}
-		// A lost create reply retries the same invitation without resetting its
-		// expiry or changing the grant, even if discovery was turned off later.
-		result := accountInviteResult(id, expiry)
-		result.MemberReadmission = pendingSource != nil
-		return result, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+		if role == in.Role {
+			// A lost create reply retries the same invitation, even after opt-out.
+			result := accountInviteResult(id, expiry)
+			result.MemberReadmission = pendingSource != nil
+			return result, nil
+		}
+		if consented || (pendingInviter != in.InviterAccID && inviterRole != "owner") {
+			return AccountInviteResult{}, ErrInviteRoleConflict
+		}
+		// A confirmed role change needs fresh consent. Retire the old selector
+		// in this transaction so a failed replacement leaves the old grant live.
+		if _, err := tx.Exec(ctx, `UPDATE vault_members SET revoked_at=NOW(),revoked_by=$2::uuid,
+ revoked_reason='invite_replaced',updated_at=NOW() WHERE invite_request_id=$1::uuid`, id, in.InviterAccID); err != nil {
+			return AccountInviteResult{}, err
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return AccountInviteResult{}, err
 	}
 	if !states[in.TargetAccountID].discoverable {

@@ -1660,6 +1660,12 @@ const en = {
   "peopleSearch.send": "Send invitation",
   "peopleSearch.sent": "Invitation sent in Kaata",
   "peopleSearch.sendFailed": "Could not send the invitation. Try again.",
+  "peopleSearch.requestCooldown":
+    "This person recently declined your invitation. Try again in a few minutes.",
+  "peopleSearch.requestPending":
+    "An invitation from this Kaata is already pending. Wait for their reply or cancel the earlier invitation.",
+  "peopleSearch.requestEnded":
+    "This invitation has ended. Cancel it in the contact’s sharing options, then send a new one.",
   "peopleSearch.unavailable": "This person is no longer available for new invitations.",
   "peopleSearch.archived": "This contact is archived. Restore it before connecting.",
   "peopleSearch.requestBody": "{name} invited you to share a tally.",
@@ -1728,12 +1734,14 @@ const en = {
   "peopleProfile.inviteMemberHint": "Choose their role in {kaata}.",
   "peopleProfile.memberPending": "Kaata invitation pending",
   "peopleProfile.memberPendingHint": "Waiting for them to accept the {role} role in {kaata}.",
+  "peopleProfile.memberManageHint":
+    "The {role} invitation for {kaata} is pending. Tap to review or update it.",
   "peopleProfile.noKaata": "Choose a Kaata to share a tally or invite a member.",
   "peopleProfile.actionUnavailable": "Your role in this Kaata does not allow this action.",
   "peopleProfile.actionsFailed": "Couldn't load sharing options. Try again.",
   "peopleProfile.currentKaata": "Current Kaata: {kaata}",
   "peopleProfile.backToProfile": "Back to profile",
-  "peopleProfile.cooldown": "A recent request or friendship ended. Try again later.",
+  "peopleProfile.cooldown": "Please wait a few minutes before sending another friend request.",
   "peopleProfile.requestLimit": "There are too many pending friend requests. Try again later.",
   "peopleProfile.friendRequired": "Become friends first to send new requests to this profile.",
   "peopleSearch.saveAs": "Save contact as",
@@ -4326,6 +4334,12 @@ const fa: Partial<Record<Key, string>> = {
   "peopleSearch.send": "فرستادن دعوت",
   "peopleSearch.sent": "دعوت در کاتا فرستاده شد",
   "peopleSearch.sendFailed": "دعوت فرستاده نشد. دوباره کوشش کنید.",
+  "peopleSearch.requestCooldown":
+    "این شخص به‌تازگی دعوت شما را رد کرده است. چند دقیقه بعد دوباره کوشش کنید.",
+  "peopleSearch.requestPending":
+    "یک دعوت از این کاتا در انتظار پاسخ است. منتظر پاسخ بمانید یا دعوت قبلی را لغو کنید.",
+  "peopleSearch.requestEnded":
+    "این دعوت پایان یافته است. آن را در گزینه‌های اشتراک مخاطب لغو کنید، سپس دعوت تازه‌ای بفرستید.",
   "peopleSearch.unavailable": "این شخص دیگر دعوت جدید دریافت نمی‌کند.",
   "peopleSearch.archived": "این مخاطب بایگانی شده است. پیش از وصل‌شدن، او را بازگردانید.",
   "peopleSearch.requestBody": "{name} شما را به یک حساب مشترک دعوت کرده است.",
@@ -4395,12 +4409,14 @@ const fa: Partial<Record<Key, string>> = {
   "peopleProfile.inviteMemberHint": "نقش این شخص را در {kaata} انتخاب کنید.",
   "peopleProfile.memberPending": "دعوت عضویت کاتا در انتظار است",
   "peopleProfile.memberPendingHint": "منتظر پذیرش نقش {role} در {kaata} هستید.",
+  "peopleProfile.memberManageHint":
+    "دعوت برای نقش {role} در {kaata} در انتظار پاسخ است. برای بررسی یا تغییر آن بزنید.",
   "peopleProfile.noKaata": "برای اشتراک حساب یا دعوت عضو، یک کاتا را انتخاب کنید.",
   "peopleProfile.actionUnavailable": "نقش شما در این کاتا اجازهٔ این کار را نمی‌دهد.",
   "peopleProfile.actionsFailed": "گزینه‌های اشتراک بارگیری نشدند. دوباره کوشش کنید.",
   "peopleProfile.currentKaata": "کاتای فعلی: {kaata}",
   "peopleProfile.backToProfile": "بازگشت به نمایه",
-  "peopleProfile.cooldown": "یک درخواست یا دوستی به‌تازگی پایان یافته است. بعداً دوباره کوشش کنید.",
+  "peopleProfile.cooldown": "لطفاً پیش از فرستادن درخواست دوستی دیگر، چند دقیقه صبر کنید.",
   "peopleProfile.requestLimit": "درخواست‌های دوستی در انتظار زیاد است. بعداً دوباره کوشش کنید.",
   "peopleProfile.friendRequired": "برای فرستادن درخواست جدید به این نمایه، نخست دوست شوید.",
   "peopleSearch.saveAs": "ذخیرهٔ مخاطب به نام",
@@ -5997,6 +6013,11 @@ const ps: Record<Key, string> = {
   "peopleSearch.send": "بلنه ولېږئ",
   "peopleSearch.sent": "په کاټا کې بلنه ولېږل شوه",
   "peopleSearch.sendFailed": "بلنه ونه لېږل شوه. بیا هڅه وکړئ.",
+  "peopleSearch.requestCooldown": "دې کس تازه ستاسو بلنه رد کړې ده. څو دقیقې وروسته بیا هڅه وکړئ.",
+  "peopleSearch.requestPending":
+    "له دې کاټې یوه بلنه د ځواب په تمه ده. ځواب ته یې انتظار وکړئ یا مخکنۍ بلنه لغوه کړئ.",
+  "peopleSearch.requestEnded":
+    "دا بلنه پای ته رسېدلې ده. د اړیکې د شریکولو په غوراویو کې یې لغوه کړئ، بیا نوې بلنه ولېږئ.",
   "peopleSearch.unavailable": "دا کس نورې نوې بلنې نه شي ترلاسه کولای.",
   "peopleSearch.archived": "دا اړیکه آرشیف شوې ده. له وصلېدو مخکې یې بېرته راولئ.",
   "peopleSearch.requestBody": "{name} تاسو ګډ حساب ته بللي یاست.",
@@ -6064,12 +6085,14 @@ const ps: Record<Key, string> = {
   "peopleProfile.inviteMemberHint": "په {kaata} کې د دې کس رول غوره کړئ.",
   "peopleProfile.memberPending": "د کاټې بلنه د منلو په تمه ده",
   "peopleProfile.memberPendingHint": "په {kaata} کې د {role} رول منلو ته یې انتظار دی.",
+  "peopleProfile.memberManageHint":
+    "په {kaata} کې د {role} بلنه د ځواب په تمه ده. د کتلو یا بدلولو لپاره کېکاږئ.",
   "peopleProfile.noKaata": "د حساب شریکولو یا غړي بللو لپاره یوه کاټه غوره کړئ.",
   "peopleProfile.actionUnavailable": "په دې کاټه کې ستاسو رول د دې کار اجازه نه لري.",
   "peopleProfile.actionsFailed": "د شریکولو لارې را نه وړل شوې. بیا هڅه وکړئ.",
   "peopleProfile.currentKaata": "اوسنۍ کاټه: {kaata}",
   "peopleProfile.backToProfile": "پېژندپاڼې ته بېرته لاړ شئ",
-  "peopleProfile.cooldown": "یوه غوښتنه یا ملګرتیا تازه پای ته رسېدلې ده. وروسته بیا هڅه وکړئ.",
+  "peopleProfile.cooldown": "د ملګرتیا بله غوښتنه تر لېږلو مخکې څو دقیقې صبر وکړئ.",
   "peopleProfile.requestLimit": "د ملګرتیا ډېرې غوښتنې په تمه دي. وروسته بیا هڅه وکړئ.",
   "peopleProfile.friendRequired": "دې پېژندپاڼې ته د نوې غوښتنې لېږلو لپاره لومړی ملګري شئ.",
   "peopleSearch.saveAs": "اړیکه په دې نوم خوندي کړئ",

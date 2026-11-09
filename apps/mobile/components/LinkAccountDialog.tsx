@@ -332,6 +332,20 @@ export function LinkAccountDialog(props: {
         // Let this native Modal disappear before presenting the sign-in route.
         authTimer.current = setTimeout(props.onAuthRequired, 220);
       } else {
+        if (recipientAccountId && err instanceof TabApiError) {
+          const deliveryHint =
+            err.code === "people_request_cooldown"
+              ? "peopleSearch.requestCooldown"
+              : err.code === "people_request_pending"
+                ? "peopleSearch.requestPending"
+                : err.code === "people_request_ended"
+                  ? "peopleSearch.requestEnded"
+                  : null;
+          if (deliveryHint) {
+            setError(t(deliveryHint));
+            return;
+          }
+        }
         if (target.current?.invite_url && action !== "copy" && !recipientAccountId)
           setShareFailed(true);
         setError(

@@ -359,6 +359,7 @@ export default function VaultInviteScreen() {
         await applyForCurrentSession(session, async () => {
           if (!current()) return;
           setRecipient(profile.person);
+          setRole(profile.activity?.kaata_invitation_role ?? "editor");
           setProfileLoading(false);
         });
       })

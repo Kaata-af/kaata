@@ -137,6 +137,9 @@ func TestFriendshipExplicitMutualLifecycle(t *testing.T) {
 	if _, err := f.svc.AcceptFriendRequest(t.Context(), f.b, r.ID); !errors.Is(err, ErrFriendRequestNotFound) {
 		t.Fatalf("stale accept restored removed friendship: %v", err)
 	}
+	if next := f.send(t, f.a, f.b); next.State != "outgoing" || next.ID == r.ID {
+		t.Fatalf("unfriend must allow a fresh request: %+v", next)
+	}
 	for _, table := range []string{"vaults", "vault_members", "tab_groups", "people_requests", "events"} {
 		if f.count(t, `SELECT COUNT(*) FROM `+table) != 0 {
 			t.Fatalf("friendship changed financial table %s", table)
@@ -214,12 +217,12 @@ func TestFriendshipRotatingInstancesAndCooldown(t *testing.T) {
 	if _, err := f.svc.SendFriendRequest(t.Context(), f.a, f.b); !errors.Is(err, ErrFriendRequestLimited) {
 		t.Fatalf("decline cooldown: %v", err)
 	}
-	f.exec(t, `UPDATE account_friendships SET updated_at=NOW()-INTERVAL '25 hours' WHERE id=$1::uuid`, old.ID)
-	next := f.send(t, f.b, f.a)
+	f.exec(t, `UPDATE account_friendships SET updated_at=NOW()-INTERVAL '6 minutes' WHERE id=$1::uuid`, old.ID)
+	next := f.send(t, f.a, f.b)
 	if next.ID == old.ID {
 		t.Fatal("new request reused old instance")
 	}
-	if _, err := f.svc.AcceptFriendRequest(t.Context(), f.a, old.ID); !errors.Is(err, ErrFriendRequestNotFound) {
+	if _, err := f.svc.AcceptFriendRequest(t.Context(), f.b, old.ID); !errors.Is(err, ErrFriendRequestNotFound) {
 		t.Fatalf("stale accept: %v", err)
 	}
 	if err := f.svc.DeleteFriendRequest(t.Context(), f.b, old.ID); !errors.Is(err, ErrFriendRequestNotFound) {
@@ -232,7 +235,7 @@ func TestFriendshipRotatingInstancesAndCooldown(t *testing.T) {
 		t.Fatal("stale request changed replacement")
 	}
 	f.exec(t, `UPDATE account_friendships SET expires_at=NOW()-INTERVAL '1 second' WHERE id=$1::uuid`, next.ID)
-	if _, err := f.svc.AcceptFriendRequest(t.Context(), f.a, next.ID); !errors.Is(err, ErrFriendRequestNotFound) {
+	if _, err := f.svc.AcceptFriendRequest(t.Context(), f.b, next.ID); !errors.Is(err, ErrFriendRequestNotFound) {
 		t.Fatalf("expired accept: %v", err)
 	}
 	renewed := f.send(t, f.a, f.b)
@@ -242,8 +245,15 @@ func TestFriendshipRotatingInstancesAndCooldown(t *testing.T) {
 	if err := f.svc.DeleteFriendRequest(t.Context(), f.a, renewed.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.SendFriendRequest(t.Context(), f.b, f.a); !errors.Is(err, ErrFriendRequestLimited) {
-		t.Fatalf("cancel cooldown crossed direction: %v", err)
+	resent := f.send(t, f.a, f.b)
+	if resent.State != "outgoing" || resent.ID == renewed.ID {
+		t.Fatalf("cancel must allow a fresh request: %+v", resent)
+	}
+	if err := f.svc.DeleteFriendRequest(t.Context(), f.b, resent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if reversed := f.send(t, f.b, f.a); reversed.State != "outgoing" || reversed.ID == resent.ID {
+		t.Fatalf("the person who declined may initiate a fresh request: %+v", reversed)
 	}
 }
 
@@ -400,7 +410,7 @@ func TestFriendshipDeletionLockPrecedesPairLock(t *testing.T) {
 	if err := f.svc.DeleteFriendRequest(t.Context(), f.b, r.ID); err != nil {
 		t.Fatal(err)
 	}
-	f.exec(t, `UPDATE account_friendships SET updated_at=NOW()-INTERVAL '25 hours' WHERE id=$1::uuid`, r.ID)
+	f.exec(t, `UPDATE account_friendships SET updated_at=NOW()-INTERVAL '6 minutes' WHERE id=$1::uuid`, r.ID)
 	tx, err := f.pool.Begin(t.Context())
 	if err != nil {
 		t.Fatal(err)

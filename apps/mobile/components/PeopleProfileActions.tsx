@@ -171,8 +171,7 @@ export function PeopleProfileActions(props: {
     ready &&
     !pending &&
     (opensLedger ? !!shown.localPersonId : permissions.current.share && shown.canReceiveRequests);
-  const canAddMember =
-    ready && !memberRole && permissions.current.invite && shown.canReceiveRequests;
+  const canAddMember = ready && permissions.current.invite && shown.canReceiveRequests;
 
   async function act(kind: "share" | "member") {
     if (
@@ -283,10 +282,15 @@ export function PeopleProfileActions(props: {
         hint={
           shown
             ? memberRole
-              ? t("peopleProfile.memberPendingHint", {
-                  role: t(`invite.role.${memberRole}`),
-                  kaata: shown.vaultName,
-                })
+              ? t(
+                  canAddMember
+                    ? "peopleProfile.memberManageHint"
+                    : "peopleProfile.memberPendingHint",
+                  {
+                    role: t(`invite.role.${memberRole}`),
+                    kaata: shown.vaultName,
+                  },
+                )
               : !shown.canReceiveRequests
                 ? t("peopleProfile.friendRequired")
                 : t(

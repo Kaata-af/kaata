@@ -222,8 +222,14 @@ async function main() {
     const f = fixture({ activity: { shared_tally: "pending", kaata_invitation_role: "clerk" } });
     await f.settle();
     assert.equal(f.row("peopleProfile.tallyPending").props.disabled, true);
-    assert.equal(f.row("peopleProfile.memberPending").props.disabled, true);
-    assert.match(f.row("peopleProfile.memberPending").props.hint, /clerk/);
+    const invite = f.row("peopleProfile.memberPending");
+    assert.equal(invite.props.disabled, false);
+    assert.match(invite.props.hint, /clerk/);
+    invite.props.onPress();
+    await f.settle();
+    assert.deepEqual(f.navigations, [
+      { pathname: "/vault/invite", params: { profileAccountId: "target" } },
+    ]);
   }
   {
     const f = fixture({

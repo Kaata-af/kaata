@@ -88,9 +88,6 @@ func TestAccountInviteRecipientLifecycle(t *testing.T) {
 	if retry.InviteID != r.InviteID || !retry.ExpiresAt.Equal(r.ExpiresAt) {
 		t.Fatalf("retry changed request: %+v / %+v", r, retry)
 	}
-	if _, err := f.svc.CreateAccountInvite(t.Context(), CreateAccountInviteInput{VaultID: f.vault, InviterAccID: f.owner, TargetAccountID: f.joiner, Role: "viewer"}); !errors.Is(err, ErrInviteRoleConflict) {
-		t.Fatalf("role conflict: %v", err)
-	}
 	if graceVaultCount(t, f, `SELECT COUNT(*) FROM vault_members WHERE invite_request_id=$1::uuid AND account_id IS NULL AND invite_token_hash IS NULL AND invite_email IS NULL`, r.InviteID) != 1 {
 		t.Fatal("pending request has access or a bearer secret")
 	}
@@ -145,6 +142,47 @@ func TestAccountInviteRecipientLifecycle(t *testing.T) {
 	}
 	if _, err := f.svc.AcceptInvite(t.Context(), AcceptInviteInput{Token: r.InviteToken, AccountID: f.joiner}); !errors.Is(err, ErrInviteNotFound) {
 		t.Fatalf("retry resurrected removed membership: %v", err)
+	}
+}
+
+func TestAccountInviteReplacePendingRole(t *testing.T) {
+	f := newGraceVaultFixture(t)
+	if _, err := f.svc.SetMemberRole(t.Context(), f.vault, f.owner, f.editor, "manager"); err != nil {
+		t.Fatal(err)
+	}
+	original := accountInviteCreate(t, f, f.editor, f.joiner, "editor")
+	// Failed replacements must not remove the request the recipient can see.
+	accountInviteExec(t, f, `UPDATE accounts SET discovery_enabled=FALSE WHERE id=$1::uuid`, f.joiner)
+	if _, err := f.svc.CreateAccountInvite(t.Context(), CreateAccountInviteInput{VaultID: f.vault, InviterAccID: f.owner, TargetAccountID: f.joiner, Role: "viewer"}); !errors.Is(err, ErrInviteRecipientUnavailable) {
+		t.Fatalf("role change bypassed discovery opt-out: %v", err)
+	}
+	if _, err := f.svc.AccountInviteInfo(t.Context(), f.joiner, original.InviteID); err != nil {
+		t.Fatalf("failed replacement retired a live invite: %v", err)
+	}
+	accountInviteExec(t, f, `UPDATE accounts SET discovery_enabled=TRUE WHERE id=$1::uuid`, f.joiner)
+
+	revised := accountInviteCreate(t, f, f.owner, f.joiner, "viewer")
+	if revised.InviteID == original.InviteID {
+		t.Fatal("owner's replacement reused the old consent selector")
+	}
+	if _, err := f.svc.CreateAccountInvite(t.Context(), CreateAccountInviteInput{VaultID: f.vault, InviterAccID: f.editor, TargetAccountID: f.joiner, Role: "clerk"}); !errors.Is(err, ErrInviteRoleConflict) {
+		t.Fatalf("manager replaced another inviter's live request: %v", err)
+	}
+	newest := accountInviteCreate(t, f, f.owner, f.joiner, "clerk")
+	if newest.InviteID == revised.InviteID {
+		t.Fatal("changing the role on one's own invite reused the old selector")
+	}
+	if retry := accountInviteCreate(t, f, f.owner, f.joiner, "clerk"); retry.InviteID != newest.InviteID || !retry.ExpiresAt.Equal(newest.ExpiresAt) {
+		t.Fatalf("same role created a duplicate: %+v", retry)
+	}
+	for _, stale := range []AccountInviteResult{original, revised} {
+		if _, err := f.svc.AcceptInvite(t.Context(), AcceptInviteInput{Token: stale.InviteToken, AccountID: f.joiner}); !errors.Is(err, ErrInviteNotFound) {
+			t.Fatalf("old selector remained usable: %v", err)
+		}
+	}
+	pending, err := f.svc.ListPendingInvites(t.Context(), f.joiner)
+	if err != nil || len(pending) != 1 || pending[0].InviteID != newest.InviteID || pending[0].Role != "clerk" {
+		t.Fatalf("expected only the latest role: %+v %v", pending, err)
 	}
 }
 
@@ -309,6 +347,15 @@ func TestAccountInvitePendingStateChanges(t *testing.T) {
 	accountInviteExec(t, f, `UPDATE vault_members SET revoked_at=NOW() WHERE vault_id=$1::uuid AND account_id=$2::uuid`, f.vault, f.joiner)
 	if _, err := f.svc.AcceptInvite(t.Context(), AcceptInviteInput{Token: r.InviteToken, AccountID: f.joiner}); !errors.Is(err, ErrMemberReadmissionRequired) {
 		t.Fatalf("removed member admitted: %v", err)
+	}
+	returning, err := f.svc.CreateAccountInvite(t.Context(), CreateAccountInviteInput{
+		VaultID: f.vault, InviterAccID: f.owner, TargetAccountID: f.joiner, Role: "editor", ReadmitRemoved: true,
+	})
+	if err != nil || !returning.MemberReadmission || returning.InviteID == r.InviteID {
+		t.Fatalf("ordinary pending invite blocked owner readmission: %+v %v", returning, err)
+	}
+	if _, err := f.svc.AcceptInvite(t.Context(), AcceptInviteInput{Token: r.InviteToken, AccountID: f.joiner}); !errors.Is(err, ErrInviteNotFound) {
+		t.Fatalf("ordinary invite survived its readmission replacement: %v", err)
 	}
 }
 
