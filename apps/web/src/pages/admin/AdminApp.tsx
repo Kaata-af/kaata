@@ -233,11 +233,6 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
 
   const Active = SECTIONS.find((s) => s.id === section)?.component ?? Overview;
 
-  const navigate = (id: SectionId) => {
-    window.location.hash = id;
-    setSection(id);
-  };
-
   return (
     <div className="min-h-screen min-w-0 w-full bg-brand-ivory text-neutral-900 lg:flex">
       <a
@@ -260,9 +255,9 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
           {SECTIONS.map((s) => {
             const active = section === s.id;
             return (
-              <button
+              <a
                 key={s.id}
-                onClick={() => navigate(s.id)}
+                href={`#${s.id}`}
                 aria-current={active ? "page" : undefined}
                 className={`flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 ${
                   active
@@ -275,7 +270,7 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
                   className={`h-4 w-4 ${active ? "text-white" : "text-neutral-500"}`}
                 />
                 {s.label}
-              </button>
+              </a>
             );
           })}
         </nav>
@@ -310,15 +305,15 @@ function Shell(props: { token: string; onSignOut: () => void; onUnauthorized: ()
           </div>
           <nav aria-label="Mobile navigation" className="flex gap-1 overflow-x-auto px-2 pb-2">
             {SECTIONS.map((s) => (
-              <button
+              <a
                 key={s.id}
-                onClick={() => navigate(s.id)}
+                href={`#${s.id}`}
                 aria-current={section === s.id ? "page" : undefined}
-                className={`flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors ${section === s.id ? "bg-brand-primary text-white" : "text-neutral-600 hover:bg-brand-ivory"}`}
+                className={`flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-neutral-300 ${section === s.id ? "bg-brand-primary text-white" : "text-neutral-600 hover:bg-brand-ivory"}`}
               >
                 <AdminIcon name={s.id} className="h-4 w-4" />
                 {s.label}
-              </button>
+              </a>
             ))}
           </nav>
         </header>
