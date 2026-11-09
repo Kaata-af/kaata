@@ -15,12 +15,13 @@
 // to the dispatched chain below — verified by the shared JSON conformance
 // corpus in apps/_shared/projection-corpus/.
 
-import { getAppMetaInTx, getDb, getInstallIdSync, setAppMetaInTx, type SQLiteTx } from "../db-tx";
+import { getAccountIdSync, getAppMetaInTx, getDb, getInstallIdSync, setAppMetaInTx, type SQLiteTx } from "../db-tx";
 import type { EventType, LedgerEvent, VaultRole } from "../events";
 import { isKnownEventType } from "../events";
 import { signEvent } from "../event-sig";
 import { DeviceKeyUnavailableError, getDeviceSigner, type DeviceSigner } from "../mesh/device-key";
 import { deserializeHLC, serializeHLC, tickLocal, tickReceive, type HLC } from "../hlc";
+import { deniedCustomRoleForEvent } from "../vault-custom-role-policy";
 
 import { applyAccountBound } from "./account";
 import { applyCustomerGroup, applyPersonGroupSet } from "./customer_groups";
@@ -420,6 +421,18 @@ async function applyEventInTransaction(
     applied = false;
     notApplied.reason = "preflight";
     return outcome();
+  }
+  // A current custom role controls new local authorship. It must never make
+  // accepted historical events disappear on pull, replay, or restore.
+  if (opts.origin === "local" && event.vault_id) {
+    const role = await deniedCustomRoleForEvent(db, event.vault_id, getAccountIdSync(), event.event_type);
+    if (role) {
+      return {
+        applied: false,
+        reason: "role_gate",
+        role_gate: { reason: "insufficient_role", current_role: role, required_role: role },
+      };
+    }
   }
 
   // 1. HLC tick — read frontier, advance, write back at the end.

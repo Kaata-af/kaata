@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/matee/kaata-backend/internal/rolepolicy"
 )
 
 // ErrVaultCollision means the requested vault_id already exists owned by
@@ -501,7 +502,7 @@ func (s *Service) Update(ctx context.Context, in UpdateInput) (UpdateResult, err
 		return UpdateResult{}, err
 	}
 
-	callerRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.AccountID)
+	callerRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.AccountID, rolepolicy.VaultSettings)
 	if err != nil {
 		return UpdateResult{}, err
 	}
@@ -979,7 +980,7 @@ func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID
 		return 0, err
 	}
 
-	callerRole, err := requireOwnerOrManager(ctx, tx, vaultID, callerID)
+	callerRole, err := requireOwnerOrManager(ctx, tx, vaultID, callerID, rolepolicy.VaultMembers)
 	if err != nil {
 		return 0, err
 	}
@@ -988,19 +989,20 @@ func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID
 	}
 
 	var oldRole string
+	var assigned bool
 	if err := tx.QueryRow(ctx, `
-		SELECT role FROM vault_members
+		SELECT role, custom_role_id IS NOT NULL FROM vault_members
 		 WHERE vault_id = $1::uuid AND account_id = $2::uuid
 		   AND revoked_at IS NULL AND accepted_at IS NOT NULL
 		 FOR UPDATE
-	`, vaultID, targetID).Scan(&oldRole); err != nil {
+	`, vaultID, targetID).Scan(&oldRole, &assigned); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, ErrTargetNotMember
 		}
 		return 0, fmt.Errorf("read target role: %w", err)
 	}
-	if callerRole == "manager" && vaultRoleRank[oldRole] >= vaultRoleRank["manager"] {
-		// A manager can never touch owners or peer managers.
+	if callerRole == "manager" && (vaultRoleRank[oldRole] >= vaultRoleRank["manager"] || assigned) {
+		// Custom role assignments, owners, and peer managers require an owner.
 		return 0, ErrNotOwner
 	}
 
@@ -1088,24 +1090,25 @@ func (s *Service) RevokeMember(ctx context.Context, in RevokeInput) (int64, erro
 	}
 
 	// Roles v2 Phase B: managers may revoke members ranked below manager.
-	callerRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.CallerID)
+	callerRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.CallerID, rolepolicy.VaultMembers)
 	if err != nil {
 		return 0, err
 	}
 
 	var targetRole string
+	var assigned bool
 	if err := tx.QueryRow(ctx, `
-		SELECT role FROM vault_members
+		SELECT role, custom_role_id IS NOT NULL FROM vault_members
 		 WHERE vault_id = $1::uuid AND account_id = $2::uuid
 		   AND revoked_at IS NULL AND accepted_at IS NOT NULL
 		 FOR UPDATE
-	`, in.VaultID, in.TargetID).Scan(&targetRole); err != nil {
+	`, in.VaultID, in.TargetID).Scan(&targetRole, &assigned); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, ErrTargetNotMember
 		}
 		return 0, fmt.Errorf("read target role: %w", err)
 	}
-	if callerRole == "manager" && vaultRoleRank[targetRole] >= vaultRoleRank["manager"] {
+	if callerRole == "manager" && (vaultRoleRank[targetRole] >= vaultRoleRank["manager"] || assigned) {
 		return 0, ErrNotOwner
 	}
 
@@ -1356,7 +1359,7 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 
 	// Roles v2 Phase B: managers may invite too — the grantable set above is
 	// already capped below manager, so no further per-caller restriction.
-	if _, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID); err != nil {
+	if _, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID, rolepolicy.VaultMembers); err != nil {
 		return CreateInviteResult{}, err
 	}
 
@@ -1603,7 +1606,7 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		if !available {
 			return AcceptInviteResult{}, ErrInviteNotFound
 		}
-		if _, err := requireOwnerOrManager(ctx, tx, vaultID, invitedBy); err != nil {
+		if _, err := requireOwnerOrManager(ctx, tx, vaultID, invitedBy, rolepolicy.VaultMembers); err != nil {
 			if errors.Is(err, ErrNotMember) || errors.Is(err, ErrNotOwner) {
 				return AcceptInviteResult{}, ErrInviteNotFound
 			}
@@ -1983,18 +1986,24 @@ func requireOwner(ctx context.Context, tx pgx.Tx, vaultID, accountID string) err
 // Unknown roles rank 0 — fail closed.
 var vaultRoleRank = map[string]int{"viewer": 1, "clerk": 2, "editor": 3, "manager": 4, "owner": 5}
 
-// requireOwnerOrManager (roles v2 Phase B): member-management REST calls are
-// allowed for owners (uncapped, as always) and MANAGERS operating strictly
-// BELOW manager rank. Returns the caller's role so call sites can apply the
-// per-endpoint cap. Mirrors the chain-layer manager arms — lockstep with
-// membership.go managerCapSatisfied, chain.ts, role-gate.ts.
-func requireOwnerOrManager(ctx context.Context, tx pgx.Tx, vaultID, accountID string) (string, error) {
+// requireOwnerOrManager applies the current custom policy after the existing
+// preset gate. Member-management callers must also apply their target cap.
+func requireOwnerOrManager(ctx context.Context, tx pgx.Tx, vaultID, accountID, permission string) (string, error) {
 	role, err := activeMemberRoleLocked(ctx, tx, vaultID, accountID)
 	if err != nil {
 		return "", err
 	}
 	if role != "owner" && role != "manager" {
 		return "", ErrNotOwner
+	}
+	if role == "manager" {
+		allowed, err := rolepolicy.Allows(ctx, tx, vaultID, accountID, permission)
+		if err != nil {
+			return "", err
+		}
+		if !allowed {
+			return "", ErrNotOwner
+		}
 	}
 	return role, nil
 }

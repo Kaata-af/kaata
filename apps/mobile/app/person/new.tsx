@@ -111,13 +111,13 @@ export default function PersonAddOrFindScreen() {
   const caps = useActiveVaultWriteCaps(activeVaultId);
   // Search works during role lookup; creation and phone-book access wait for
   // the current vault's role so a viewer never briefly sees the add flow.
-  const canCreate = caps.resolved && caps.canCreate;
+  const canCreate = caps.resolved && caps.canAddPerson;
   // Home now searches in place. Its plus opens creation only; old links still
   // retain the combined picker, and a viewer always falls back to read-only find.
   const addOnly = params.mode === "add" && canCreate;
   const canCreateRef = useRef(canCreate);
   canCreateRef.current = canCreate;
-  const canWriteNote = caps.resolved && caps.canAmend;
+  const canWriteNote = caps.resolved && caps.canEditPerson;
   const canWriteNoteRef = useRef(canWriteNote);
   canWriteNoteRef.current = canWriteNote;
   const [findQuery, setFindQuery] = useState("");

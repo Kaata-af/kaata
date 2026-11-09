@@ -33,6 +33,7 @@ import {
   type SessionSnapshot,
 } from "./auth";
 import { getAppMeta, getLocalSelf, setAppMeta } from "./db";
+import { PERSONAL_BACKUP_JOINED_RECOVERY_KEY } from "./db-backup";
 import { isPlaceholderSelfName, t } from "./i18n";
 import {
   ACTIVE_VAULT_META_KEY,
@@ -53,6 +54,7 @@ import { scheduleSweep, sweepVaultNow } from "./projection/sweep";
 import { syncAllTabs } from "./tabs/sync";
 import { fetchMine } from "./tabs/api";
 import { getTabLink } from "./tabs/db";
+import { emitLedgerApplied } from "./ledger-events";
 import {
   emitWitnessedSelfAdmission,
   JoinProofPendingError,
@@ -111,7 +113,26 @@ const TAB_PULL_BUDGET_MS = 20_000;
  * for a single vault's failure (only for a total inability to list).
  */
 export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<RecoveryResult> {
-  const session = await captureCurrentSession();
+  return recoverVaults(await captureCurrentSession(), opts, "all");
+}
+
+/**
+ * Runs from the normal online sweep after a personal ZIP restore. A failed
+ * listing or pull leaves the marker for the next sweep, including after reboot.
+ */
+export async function recoverPersonalBackupMemberships(session: SessionSnapshot): Promise<void> {
+  const { recovered, failed } = await recoverVaults(session, { includeArchived: true }, "joined");
+  await applyForCurrentSession(session, async () => {
+    for (const id of recovered) emitLedgerApplied(id, "remote");
+    if (!failed.length) await setAppMeta(PERSONAL_BACKUP_JOINED_RECOVERY_KEY, "");
+  });
+}
+
+async function recoverVaults(
+  session: SessionSnapshot,
+  opts: RecoverOptions,
+  scope: "all" | "joined",
+): Promise<RecoveryResult> {
   function apply<T>(work: () => Promise<T>): Promise<T> {
     return applyForCurrentSession(session, work);
   }
@@ -160,7 +181,7 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
 
   let listings: VaultListing[];
   try {
-    listings = await listVaults();
+    listings = await listVaults(session);
   } catch (err) {
     if (err instanceof SessionChangedError) throw err;
     return {
@@ -171,7 +192,9 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
   }
   await apply(async () => {});
 
-  const live = opts.includeArchived ? listings : listings.filter((v) => v.archived_at_ms == null);
+  const live = listings.filter((v) =>
+    (opts.includeArchived || v.archived_at_ms == null) && (scope === "all" || v.role !== "owner"),
+  );
   vaultTotal = live.length;
   // Per-vault width of the loop's slice of the bar (0 when nothing to restore).
   const slice = live.length > 0 ? (PROGRESS_LOOP_END - PROGRESS_LOOP_START) / live.length : 0;
@@ -214,7 +237,9 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
         );
         continue;
       }
-      const snapshot = await fetchSnapshot({ defaultVaultId: v.vault_id });
+      // The event tail can rebuild a joined book without replacing the shared
+      // user rows that an owned book restored from its personal ZIP.
+      const snapshot = scope === "all" ? await fetchSnapshot({ defaultVaultId: v.vault_id }) : null;
       if (snapshot) {
         await restoreFromSnapshot(snapshot, { setActiveDefault: false, localSelfId, session });
       } else {
@@ -241,7 +266,7 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
         await pullEvents(v.vault_id, session);
       } catch (err) {
         if (err instanceof SessionChangedError) throw err;
-        if (opts.requireComplete) throw err;
+        if (opts.requireComplete || scope === "joined") throw err;
         console.warn(`[recovery] initial pull failed for ${v.vault_id.slice(0, 8)}`, err);
       }
       if (opts.includeArchived) await apply(() => preserveListingArchive(v));
@@ -320,7 +345,7 @@ export async function recoverAllVaults(opts: RecoverOptions = {}): Promise<Recov
     const activeRecovered = recovered.filter((id) =>
       live.some((v) => v.vault_id === id && v.archived_at_ms == null),
     );
-    if (activeRecovered.length > 0) {
+    if (activeRecovered.length > 0 && (scope === "all" || !(await getAppMeta(ACTIVE_VAULT_META_KEY)))) {
       const originalDefault = await getAppMeta("default_vault_id");
       const accountDefault = await getAppMeta("signin_default_vault_id");
       activeVaultId =

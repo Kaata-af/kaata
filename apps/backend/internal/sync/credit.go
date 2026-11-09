@@ -549,8 +549,7 @@ func (h *Handler) CreditLimits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPut {
-		if role != "owner" && role != "manager" {
-			httpx.ErrorCode(w, 403, "insufficient_role", "manager required")
+		if !allowVaultSettings(w, r, tx, vaultID, claims.AccountID, role) {
 			return
 		}
 		// Missing on older apps: preserve the existing editor restriction rather

@@ -430,6 +430,10 @@ const roleHooks = compile("../use-vault-role", {
   },
   "./effective-account": { resolveAccountIdCandidates: async () => ["account"] },
   "./projection/role-gate": { invalidateRoleGateCache() {} },
+  "./vault-custom-role-policy": {
+    customRoleAllowsAction: () => true,
+    readCachedCustomRole: async () => null,
+  },
   "./tally-note-policy": compile("../tally-note-policy", {
     "./digits": require("../digits"),
     "./effective-account": { resolveAccountIdCandidates: async () => ["account"] },

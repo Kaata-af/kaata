@@ -18,6 +18,7 @@ import {
 } from "./drive-backup";
 import {
   PERSONAL_BACKUP_EXPORT as EXPORT,
+  PERSONAL_BACKUP_JOINED_RECOVERY_KEY,
   PERSONAL_BACKUP_RESTORE_STAGE as STAGE,
   PERSONAL_BACKUP_RESTORE_MARKER as RECEIPT,
   PERSONAL_BACKUP_RESTORE_MARKER_SCRATCH as RECEIPT_SCRATCH,
@@ -26,6 +27,8 @@ import {
 import { buildLocalAccountId } from "./trust/account-id";
 export type PersonalBackupErrorCode =
   | "ownership"
+  | "ownershipUnavailable"
+  | "noOwnedVaults"
   | "differentAccount"
   | "notEmpty"
   | "invalid"
@@ -45,6 +48,7 @@ const ORIGINAL_SCHEMA = "051_tally_removal_requests";
 const TALLY_NOTES_SCHEMA = "052_tally_notes";
 const TALLY_NOTE_NUMBERS_SCHEMA = "053_tally_note_number";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const MEMBER_ROLES = new Set(["manager", "editor", "clerk", "viewer"]);
 const TABLES = new Set([
   "app_meta",
   "schema_migrations",
@@ -129,6 +133,13 @@ type Vault = {
   registered_with_server_at: number | null;
   vault_trust_anchor_pubkey: string | null;
   is_default: number;
+  archived_at: number | null;
+};
+type CloudVault = { role: string; vault_trust_anchor_pubkey?: unknown };
+export type PersonalBackupCoverage = {
+  included: number;
+  skipped: number;
+  skippedPending: number;
 };
 type BackupInfo = {
   version: 1;
@@ -422,7 +433,11 @@ function matchSession(
     fail("differentAccount");
   return bound;
 }
-async function ownedVaults(db: DB, accountId: string | null): Promise<Vault[]> {
+async function selectBackupVaults(
+  db: DB,
+  accountId: string | null,
+  cloud?: ReadonlyMap<string, CloudVault>,
+) {
   const values = await meta(db);
   const publicKeys = [values.get("mesh_device_ed25519_pubkey")];
   try {
@@ -446,13 +461,14 @@ async function ownedVaults(db: DB, accountId: string | null): Promise<Vault[]> {
     }
   });
   const vaults = await db.getAllAsync<Vault>(
-    "SELECT id,account_id,registered_with_server_at,vault_trust_anchor_pubkey,is_default FROM vaults",
+    `SELECT id, account_id, registered_with_server_at, vault_trust_anchor_pubkey,
+            is_default, archived_at FROM vaults ORDER BY id`,
   );
   if (!vaults.length) fail("empty");
+  const owned: Vault[] = [];
+  const skipped: Vault[] = [];
   for (const vault of vaults) {
-    if (!UUID.test(vault.id) || (vault.account_id !== null && vault.account_id !== accountId))
-      fail("ownership");
-    if (!accountId && vault.registered_with_server_at !== null) fail("ownership");
+    if (!UUID.test(vault.id)) fail("ownership");
     const memberships = await db.getAllAsync<{
       account_id: string;
       role: string;
@@ -472,15 +488,38 @@ async function ownedVaults(db: DB, accountId: string | null): Promise<Vault[]> {
       effective?.role === "owner" &&
       effective.accepted_at !== null &&
       effective.revoked_at === null;
+    const foreign = vault.account_id !== null && vault.account_id !== accountId;
+    // A confirmed member seat (including a removed seat) is safe to exclude.
+    // An otherwise owner book with ambiguous ownership must stop the upload
+    // rather than replace the last good copy with an incomplete one.
+    const cloudRole = cloud?.get(vault.id)?.role;
+    const knownNonOwner =
+      !mine &&
+      (foreign ||
+        effective?.revoked_at != null ||
+        (effective?.accepted_at != null && MEMBER_ROLES.has(effective.role)));
+    if (cloud && (cloudRole === undefined ? knownNonOwner : MEMBER_ROLES.has(cloudRole))) {
+      skipped.push(vault);
+      continue;
+    }
     // An unregistered book has no server ownership proof. Its original anchor
     // must instead be one of this installation's own current/retired keys.
     if (
       !mine ||
+      foreign ||
+      (!accountId && vault.registered_with_server_at !== null) ||
       ((!real || !vault.account_id || vault.registered_with_server_at === null) &&
         !keys.includes(vault.vault_trust_anchor_pubkey ?? ""))
     )
       fail("ownership");
+    owned.push(vault);
   }
+  if (!owned.length) fail("noOwnedVaults");
+  return { owned, skipped };
+}
+
+async function assertLedgerScope(db: DB, accountId: string | null): Promise<void> {
+  const names = await tables(db);
   const self = await db.getAllAsync<{
     account_id: string | null;
   }>("SELECT account_id FROM users WHERE is_local_self=1");
@@ -501,7 +540,7 @@ async function ownedVaults(db: DB, accountId: string | null): Promise<Vault[]> {
     "credit_alert_policies",
     "customer_credit_limit_notifications",
   ]) {
-    if (!(await tables(db)).has(table)) continue;
+    if (!names.has(table)) continue;
     if (
       await db.getFirstAsync(
         `SELECT 1 FROM ${quote(table)} r WHERE r.vault_id IS NULL OR NOT EXISTS(SELECT 1 FROM vaults v WHERE v.id=r.vault_id) LIMIT 1`,
@@ -510,7 +549,7 @@ async function ownedVaults(db: DB, accountId: string | null): Promise<Vault[]> {
       fail("ownership");
   }
   for (const table of ["tab_entries", "tab_outbox", "tab_failed_ops", "tab_settlements"]) {
-    if (!(await tables(db)).has(table)) continue;
+    if (!names.has(table)) continue;
     if (
       await db.getFirstAsync(
         `SELECT 1 FROM ${quote(table)} r WHERE NOT EXISTS(SELECT 1 FROM tab_links t WHERE t.tab_id=r.tab_id) LIMIT 1`,
@@ -518,17 +557,127 @@ async function ownedVaults(db: DB, accountId: string | null): Promise<Vault[]> {
     )
       fail("ownership");
   }
-  return vaults;
 }
+
+async function ownedVaults(db: DB, accountId: string | null): Promise<Vault[]> {
+  const { owned } = await selectBackupVaults(db, accountId);
+  await assertLedgerScope(db, accountId);
+  return owned;
+}
+
+async function pruneJoinedVaults(
+  db: DB,
+  { owned, skipped }: { owned: Vault[]; skipped: Vault[] },
+): Promise<PersonalBackupCoverage> {
+  const coverage = { included: owned.length, skipped: skipped.length, skippedPending: 0 };
+  if (!skipped.length) return coverage;
+
+  const names = await tables(db);
+  const skippedIds = JSON.stringify(skipped.map(({ id }) => id));
+  const excluded = "SELECT value FROM json_each(?)";
+  const pending = [
+    `EXISTS (SELECT 1 FROM event_log e WHERE e.vault_id=v.id
+             AND e.server_acked_at IS NULL AND e.tombstone_reason IS NULL)`,
+  ];
+  for (const table of ["tab_outbox", "tab_failed_ops"]) {
+    if (!names.has("tab_links") || !names.has(table)) continue;
+    pending.push(`EXISTS (SELECT 1 FROM tab_links t JOIN ${quote(table)} o USING (tab_id)
+                          WHERE t.vault_id=v.id)`);
+  }
+  for (const table of [
+    "customer_credit_limits",
+    "credit_alert_policies",
+    "customer_credit_limit_notifications",
+  ]) {
+    if (!names.has(table)) continue;
+    pending.push(`EXISTS (SELECT 1 FROM ${quote(table)} p WHERE p.vault_id=v.id AND p.sync_pending<>0)`);
+  }
+  coverage.skippedPending =
+    (await db.getFirstAsync<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM vaults v WHERE v.id IN (${excluded}) AND (${pending.join(" OR ")})`,
+      skippedIds,
+    ))?.n ?? 0;
+
+  // Work only on the private temporary copy. Disable cascades while removing
+  // scoped rows explicitly, so a corrupt cross-book reference can't delete an
+  // included row. The caller validates the surviving foreign keys afterward.
+  await db.execAsync("PRAGMA secure_delete=ON; PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;");
+  try {
+    const columns = await db.getAllAsync<{ name: string; column_name: string }>(
+      `SELECT t.name, p.name AS column_name FROM sqlite_master t
+        JOIN pragma_table_info(t.name) p WHERE t.type='table'`,
+    );
+    const scoped = columns.filter(
+      ({ name, column_name }) => TABLES.has(name) && column_name === "vault_id",
+    );
+    for (const { name } of scoped) {
+      if (!columns.some((col) => col.name === name && col.column_name === "relationship_id")) continue;
+      if (
+        await db.getFirstAsync(
+          `SELECT 1 FROM ${quote(name)} s JOIN relationships r ON r.id=s.relationship_id
+            WHERE s.vault_id<>r.vault_id AND s.vault_id NOT IN (${excluded}) LIMIT 1`,
+          skippedIds,
+        )
+      ) fail("ownership");
+    }
+    for (const table of ["tab_entries", "tab_outbox", "tab_failed_ops", "tab_settlements"]) {
+      if (!names.has(table)) continue;
+      await db.runAsync(
+        `DELETE FROM ${quote(table)} WHERE tab_id IN (
+           SELECT tab_id FROM tab_links WHERE vault_id IN (${excluded})
+         )`,
+        skippedIds,
+      );
+    }
+    for (const { name } of scoped)
+      await db.runAsync(`DELETE FROM ${quote(name)} WHERE vault_id IN (${excluded})`, skippedIds);
+    await db.runAsync(`DELETE FROM vaults WHERE id IN (${excluded})`, skippedIds);
+
+    // Contact identities are global and may belong to several books. Retain
+    // local self and every identity still referenced by an included book.
+    const references = await db.getAllAsync<{ name: string; column_name: string }>(
+      `SELECT t.name, f."from" AS column_name FROM sqlite_master t
+        JOIN pragma_foreign_key_list(t.name) f WHERE t.type='table' AND f."table"='users'`,
+    );
+    const referenced = references
+      .filter(({ name }) => TABLES.has(name) && !CLEAR_TABLES.includes(name))
+      .map(({ name, column_name }) =>
+        `EXISTS (SELECT 1 FROM ${quote(name)} r WHERE r.${quote(column_name)}=users.id)`,
+      );
+    await db.execAsync(
+      `DELETE FROM users WHERE COALESCE(is_local_self,0)<>1${referenced.map((sql) => ` AND NOT ${sql}`).join("")};`,
+    );
+
+    const values = await meta(db);
+    const activeBooks = owned.filter((v) => v.archived_at === null);
+    const defaultBook =
+      activeBooks.find((v) => v.id === values.get("default_vault_id")) ??
+      activeBooks.find((v) => v.is_default === 1) ??
+      activeBooks[0];
+    const activeBook = activeBooks.find((v) => v.id === values.get("active_vault_id")) ?? defaultBook;
+    await setMeta(db, "active_vault_id", activeBook?.id ?? "");
+    await setMeta(db, "default_vault_id", defaultBook?.id ?? "");
+    await db.runAsync(
+      "UPDATE vaults SET is_default=CASE WHEN id=? THEN 1 ELSE 0 END",
+      defaultBook?.id ?? "",
+    );
+    await db.execAsync("COMMIT;");
+  } catch (error) {
+    await db.execAsync("ROLLBACK;");
+    throw error;
+  }
+  return coverage;
+}
+
 // This request authenticates the scoped JWT on the server. The file's backend
 // URL is NEVER used: only the existing installation's trusted configuration.
-async function verifyCloudOwnership(
+async function listCloudVaults(
   session: SessionSnapshot,
   values: Meta,
-  vaults: Vault[],
   accountId: string | null,
-): Promise<void> {
-  if (!accountId) return;
+): Promise<Map<string, CloudVault>> {
+  const result = new Map<string, CloudVault>();
+  if (!accountId) return result;
   if (accountFromJWT(session.jwt) !== accountId) fail("differentAccount");
   const url = (values.get("backend_url_override") || BACKEND_URL_FALLBACK).replace(/\/$/, "");
   const controller = new AbortController();
@@ -538,7 +687,7 @@ async function verifyCloudOwnership(
       headers: { Authorization: `Bearer ${session.jwt}` },
       signal: controller.signal,
     });
-    if (!response.ok) fail("ownership");
+    if (!response.ok) fail("ownershipUnavailable");
     const body: unknown = await response.json();
     const listings =
       body && typeof body === "object" && "vaults" in body
@@ -548,26 +697,44 @@ async function verifyCloudOwnership(
             }
           ).vaults
         : null;
-    if (!Array.isArray(listings)) fail("ownership");
-    for (const vault of vaults) {
-      const remote = listings.find(
-        (row) => row && row.vault_id === vault.id && row.role === "owner",
-      );
-      const registered = listings.find((row) => row && row.vault_id === vault.id);
-      if (vault.registered_with_server_at === null && !registered) continue;
+    if (!Array.isArray(listings)) fail("ownershipUnavailable");
+    for (const row of listings) {
       if (
-        !remote ||
-        (vault.vault_trust_anchor_pubkey &&
-          remote.vault_trust_anchor_pubkey !== vault.vault_trust_anchor_pubkey)
+        !row ||
+        typeof row.vault_id !== "string" ||
+        !UUID.test(row.vault_id) ||
+        (row.role !== "owner" && !MEMBER_ROLES.has(row.role)) ||
+        result.has(row.vault_id)
       )
-        fail("ownership");
+        fail("ownershipUnavailable");
+      result.set(row.vault_id, row);
     }
+    return result;
   } catch (error) {
     if (error instanceof PersonalBackupError) throw error;
-    fail("ownership");
+    fail("ownershipUnavailable");
   } finally {
     clearTimeout(timer);
   }
+}
+function assertCloudOwnership(vaults: Vault[], cloud: ReadonlyMap<string, CloudVault>): void {
+  for (const vault of vaults) {
+    const remote = cloud.get(vault.id);
+    if (vault.registered_with_server_at === null && !remote) continue;
+    if (
+      remote?.role !== "owner" ||
+      (vault.vault_trust_anchor_pubkey &&
+        remote.vault_trust_anchor_pubkey !== vault.vault_trust_anchor_pubkey)
+    ) fail("ownership");
+  }
+}
+async function verifyCloudOwnership(
+  session: SessionSnapshot,
+  values: Meta,
+  vaults: Vault[],
+  accountId: string | null,
+): Promise<void> {
+  assertCloudOwnership(vaults, await listCloudVaults(session, values, accountId));
 }
 async function assertEmpty(db: DB): Promise<void> {
   for (const table of [
@@ -744,6 +911,7 @@ export async function createPersonalBackupSnapshot(
 ): Promise<{
   file: File;
   readableTables: Awaited<ReturnType<typeof readDriveBackupTables>>;
+  coverage: PersonalBackupCoverage;
   dispose: () => void;
 }> {
   return exclusive(async () => {
@@ -760,14 +928,16 @@ export async function createPersonalBackupSnapshot(
       // scope again before copying, then authorize the exact resulting copy.
       const initialValues = await meta(source),
         initialAccount = matchSession(initialValues, session);
-      const initialVaults = await ownedVaults(source, initialAccount);
-      await verifyCloudOwnership(session, initialValues, initialVaults, initialAccount);
-      await applyForUnchangedLocalSession(session, async () => {
+      const initialCloud = await listCloudVaults(session, initialValues, initialAccount);
+      const initialScope = await selectBackupVaults(source, initialAccount, initialCloud);
+      await assertLedgerScope(source, initialAccount);
+      assertCloudOwnership(initialScope.owned, initialCloud);
+      const coverage = await applyForUnchangedLocalSession(session, async () => {
         if (await live.isInTransactionAsync()) fail("busy");
         const values = await meta(source),
           accountId = matchSession(values, session);
-        const currentVaults = await ownedVaults(source, accountId);
-        if (JSON.stringify(currentVaults) !== JSON.stringify(initialVaults)) fail("sessionChanged");
+        const currentScope = await selectBackupVaults(source, accountId, initialCloud);
+        if (JSON.stringify(currentScope) !== JSON.stringify(initialScope)) fail("sessionChanged");
         const before =
           (await count(source, "event_log")) +
           (await count(source, "entries")) +
@@ -783,7 +953,10 @@ export async function createPersonalBackupSnapshot(
         )
           fail("invalid");
         matchSession(await meta(copy!), session);
-        await ownedVaults(copy!, accountId);
+        const copyScope = await selectBackupVaults(copy!, accountId, initialCloud);
+        if (JSON.stringify(copyScope) !== JSON.stringify(initialScope)) fail("sessionChanged");
+        await assertLedgerScope(copy!, accountId);
+        const coverage = await pruneJoinedVaults(copy!, copyScope);
         if (requireData) {
           // A new installation may already have a default book. Do not publish
           // that shell as the latest copy when a real backup exists elsewhere.
@@ -802,9 +975,13 @@ export async function createPersonalBackupSnapshot(
           `INSERT INTO ${INFO}(value) VALUES(?)`,
           JSON.stringify({ version: 1, accountId, createdAt: Date.now() } satisfies BackupInfo),
         );
+        return coverage;
       });
       const copyVaults = await ownedVaults(copy, initialAccount);
-      await verifyCloudOwnership(session, initialValues, copyVaults, initialAccount);
+      const latestCloud = await listCloudVaults(session, initialValues, initialAccount);
+      assertCloudOwnership(copyVaults, latestCloud);
+      if (initialScope.skipped.some(({ id }) => latestCloud.get(id)?.role === "owner"))
+        fail("sessionChanged");
       await applyForUnchangedLocalSession(session, async () => {
         matchSession(await meta(source), session, initialAccount);
       });
@@ -817,6 +994,7 @@ export async function createPersonalBackupSnapshot(
       return {
         file: file(EXPORT),
         readableTables,
+        coverage,
         dispose: () => {
           if (disposed) return;
           disposed = true;
@@ -865,6 +1043,10 @@ export async function stagePersonalBackupRestore(
       const vaults = await ownedVaults(candidate, header.accountId);
       await verifyCloudOwnership(session, target, vaults, header.accountId);
       await sanitize(candidate, target);
+      // The restored ZIP contains only owned books. Schedule account-scoped
+      // recovery of joined books after the staged DB is installed.
+      if (header.accountId)
+        await setMeta(candidate, PERSONAL_BACKUP_JOINED_RECOVERY_KEY, header.accountId);
       await candidate.closeAsync();
       candidate = null;
       const receipt: Receipt = {

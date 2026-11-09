@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/matee/kaata-backend/internal/memberreadmission"
+	"github.com/matee/kaata-backend/internal/rolepolicy"
 )
 
 var (
@@ -127,7 +128,7 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 	if !states[in.InviterAccID].active {
 		return AccountInviteResult{}, ErrNotMember
 	}
-	inviterRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID)
+	inviterRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID, rolepolicy.VaultMembers)
 	if err != nil {
 		return AccountInviteResult{}, err
 	}
@@ -169,7 +170,8 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
  WHERE vm.vault_id=$1::uuid AND vm.invite_account_id=$2::uuid AND vm.accepted_at IS NULL AND vm.revoked_at IS NULL
 	AND (vm.invite_expires_at<=NOW() OR (vm.readmission_from_id IS NOT NULL AND NOT (`+memberreadmission.PendingSQL+`)) OR NOT EXISTS(SELECT 1 FROM vault_members authority JOIN accounts a ON a.id=authority.account_id
  WHERE authority.vault_id=vm.vault_id AND authority.account_id=vm.invited_by AND authority.accepted_at IS NOT NULL
- AND authority.revoked_at IS NULL AND authority.role IN ('owner','manager') AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL))`, in.VaultID, in.TargetAccountID); err != nil {
+ AND authority.revoked_at IS NULL AND authority.role IN ('owner','manager') AND `+inviteManagerCapabilitySQL+`
+ AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL))`, in.VaultID, in.TargetAccountID); err != nil {
 		return AccountInviteResult{}, err
 	}
 	var id, role string
@@ -244,6 +246,9 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 // rechecked: turning it off stops new requests, not already-issued requests.
 const liveAccountInviteSQL = `vm.invite_account_id=$1::uuid AND ` + liveAccountInviteStateSQL
 
+const inviteManagerCapabilitySQL = `(authority.custom_role_id IS NULL OR EXISTS(
+ SELECT 1 FROM vault_custom_roles cr WHERE cr.id=authority.custom_role_id AND '` + rolepolicy.VaultMembers + `'=ANY(cr.permissions)))`
+
 const liveAccountInviteStateSQL = `vm.invite_request_id IS NOT NULL
  AND vm.accepted_at IS NULL AND vm.revoked_at IS NULL AND vm.invite_expires_at>NOW()
  AND v.archived_at IS NULL AND v.purged_at IS NULL
@@ -252,7 +257,7 @@ const liveAccountInviteStateSQL = `vm.invite_request_id IS NOT NULL
  AND vault_owner.disabled_at IS NULL AND vault_owner.pending_delete_at IS NULL
  AND EXISTS(SELECT 1 FROM vault_members authority WHERE authority.vault_id=vm.vault_id
   AND authority.account_id=vm.invited_by AND authority.accepted_at IS NOT NULL
-  AND authority.revoked_at IS NULL AND authority.role IN ('owner','manager'))
+  AND authority.revoked_at IS NULL AND authority.role IN ('owner','manager') AND ` + inviteManagerCapabilitySQL + `)
  AND ((vm.readmission_from_id IS NULL AND NOT EXISTS(SELECT 1 FROM vault_members existing WHERE existing.vault_id=vm.vault_id
   AND existing.account_id=vm.invite_account_id AND existing.accepted_at IS NOT NULL))
  OR (` + memberreadmission.PendingSQL + `))`

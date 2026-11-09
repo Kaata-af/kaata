@@ -143,7 +143,15 @@ export default function EditPersonScreen() {
   const isCurrent = (attempt: EditAttempt) =>
     hasScope(attempt) && focused.current && attempt.focus === focusGeneration.current;
   const canEdit = (attempt: EditAttempt) =>
-    isCurrent(attempt) && !!attempt.vaultId && capsRef.current.resolved && capsRef.current.canAmend;
+    isCurrent(attempt) &&
+    !!attempt.vaultId &&
+    capsRef.current.resolved &&
+    capsRef.current.canEditPerson;
+  const canManageGroups = (attempt: EditAttempt) =>
+    isCurrent(attempt) &&
+    !!attempt.vaultId &&
+    capsRef.current.resolved &&
+    capsRef.current.canManageGroups;
 
   useEffect(() => {
     mounted.current = true;
@@ -582,15 +590,20 @@ label so TalkBack still announces "Cancel", not "Back". */}
               setCurrencyPickerVisible(true);
             }}
           />
-          {caps.resolved && caps.canAmend && vaultId ? (
+          {caps.resolved && caps.canManageGroups && vaultId ? (
             <NavRow
               icon="pricetags-outline"
               label={t("groups.personAction")}
               trailing={groupName || t("groups.none")}
               isRTL={isRTL}
-              disabled={!editable}
+              disabled={!currentDraft || !canManageGroups(renderAttempt) || busy}
               onPress={() => {
-                if (canEdit(renderAttempt) && !savingRef.current)
+                if (
+                  currentDraft &&
+                  canManageGroups(renderAttempt) &&
+                  !savingRef.current &&
+                  !removingRef.current
+                )
                   router.push({ pathname: "/person/[id]/group", params: { id, vaultId } });
               }}
             />

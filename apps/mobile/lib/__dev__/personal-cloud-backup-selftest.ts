@@ -77,9 +77,9 @@ async function main() {
         check(session);
         return work();
       },
-      withReadablePersonalBackup: async (_session: unknown, work: (file: string) => unknown) => {
+      withReadablePersonalBackup: async (_session: unknown, work: (file: string, coverage: unknown) => unknown) => {
         if (empty) throw new PersonalBackupError("empty");
-        return work("private archive");
+        return work("private archive", { included: 2, skipped: 1, skippedPending: 1 });
       },
       restoreDownloadedPersonalBackup: async (session: Parameters<typeof check>[0], download: (file: string) => Promise<void>) => {
         check(session);
@@ -95,6 +95,9 @@ async function main() {
   assert.equal(await cloud.enablePersonalCloudBackup("googleDrive"), true);
   await settle();
   assert.equal(uploads, 1);
+  assert.deepEqual((await cloud.readPersonalCloudBackupStatuses()).googleDrive.coverage, {
+    included: 2, skipped: 1, skippedPending: 1,
+  });
   const saved = now;
   await cloud.runPersonalCloudBackupIfDue();
   assert.equal(uploads, 1);

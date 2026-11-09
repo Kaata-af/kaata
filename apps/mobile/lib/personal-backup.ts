@@ -18,6 +18,7 @@ import {
   createPersonalBackupSnapshot,
   PersonalBackupError,
   stagePersonalBackupRestore,
+  type PersonalBackupCoverage,
 } from "./personal-backup-db";
 
 export { PersonalBackupError } from "./personal-backup-db";
@@ -120,7 +121,7 @@ async function withTemporaryArchive<T>(work: (file: File) => Promise<T>): Promis
 
 export function withReadablePersonalBackup<T>(
   session: SessionSnapshot,
-  useArchive: (file: File) => Promise<T>,
+  useArchive: (file: File, coverage: PersonalBackupCoverage) => Promise<T>,
 ): Promise<T> {
   return runExclusive(async () => {
     await withPersonalBackupSession(session, async () => {});
@@ -147,7 +148,7 @@ export function withReadablePersonalBackup<T>(
         await file.write(archive);
         archive.fill(0);
         await withPersonalBackupSession(session, async () => {});
-        return useArchive(file);
+        return useArchive(file, snapshot.coverage);
       });
     } finally {
       archive.fill(0);

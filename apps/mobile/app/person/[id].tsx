@@ -435,8 +435,13 @@ export default function PersonDetailScreen() {
   const insets = useSafeAreaInsets();
   // Clerks can add; only editors and above can amend/review/cancel.
   const {
-    canCreate,
+    canCreate: canCreatePrivate,
     canAmend,
+    canDelete,
+    canAmendShared,
+    canCreateShared,
+    canEditPerson,
+    canManageGroups,
     canConfigureCredit,
     resolved: roleResolved,
   } = useActiveVaultWriteCaps(getActiveVaultIdSyncMaybe());
@@ -556,6 +561,13 @@ export default function PersonDetailScreen() {
     scope: "",
     codes: [],
   });
+  const writableEntryCurrency =
+    entryCurrencies.scope === flowScope
+      ? (entryCurrencies.codes.find((code) => code === (person?.currency ?? selectedCurrency)) ??
+        entryCurrencies.codes[0])
+      : undefined;
+  const canCreate = currencyPeriods.find((period) => period.currency === writableEntryCurrency)
+    ?.financialTab?.closed_at === null ? canCreateShared : canCreatePrivate;
   const [settleCurrency, setSettleCurrency] = useState<string | null>(null);
   const settlementRequest = useRef<{ id: string; throughSeq: number; tabId: string } | null>(null);
   const [historyDisclosure, setHistoryDisclosure] = useState({ key: "", expanded: false });
@@ -582,7 +594,7 @@ export default function PersonDetailScreen() {
   const removalRequests = useRef(new Map<string, string>());
   const removalIdentity = useRef(0);
   const removalRole = useRef(false);
-  removalRole.current = roleResolved && canAmend;
+  removalRole.current = roleResolved && canAmendShared;
   useEffect(
     () =>
       onAccountIdentityChanged(() => {
@@ -705,11 +717,6 @@ export default function PersonDetailScreen() {
   const financialTabHistory =
     (currencyPeriods.find((period) => period.currency === selectedCurrency) ?? currencyPeriods[0])
       ?.financialTab ?? null;
-  const writableEntryCurrency =
-    entryCurrencies.scope === flowScope
-      ? (entryCurrencies.codes.find((code) => code === (person?.currency ?? selectedCurrency)) ??
-        entryCurrencies.codes[0])
-      : undefined;
   const sharedAccountStatus = currencyPeriods.some(
     (period) => sharedAccountLinkStatus(period.tab) === "joined",
   )
@@ -1242,18 +1249,18 @@ export default function PersonDetailScreen() {
   // Eligibility spans this contact's full history. Search filters only decide
   // which eligible rows Select all toggles; already selected rows stay selected.
   const selecting =
-    selectionScope === flowScope && flowHistory?.scope === flowScope && roleResolved && canAmend;
+    selectionScope === flowScope && flowHistory?.scope === flowScope && roleResolved && (canDelete || canAmendShared);
   const selectableEntries = useMemo(
     () =>
-      flowHistory?.scope === flowScope && roleResolved && canAmend
+      flowHistory?.scope === flowScope && roleResolved
         ? displayedEntries.filter((entry) => {
             const period = currencyPeriods.find(
               (period) =>
                 period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
             );
             return (
-              selectableSharedTally(entry, period) ||
-              (!entry.tab &&
+              (canAmendShared && selectableSharedTally(entry, period)) ||
+              (canDelete && !entry.tab &&
                 !period?.financialTab &&
                 (!period?.tab || period.tab.closed_at != null) &&
                 period?.person.tab_close_pending !== 1 &&
@@ -1267,7 +1274,8 @@ export default function PersonDetailScreen() {
       flowScope,
       displayedEntries,
       roleResolved,
-      canAmend,
+      canAmendShared,
+      canDelete,
       financialTabHistory,
       settlement.lastSettledAtMs,
       currencyPeriods,
@@ -1380,7 +1388,7 @@ export default function PersonDetailScreen() {
     removalConfirmation,
     flowScope,
     filterEpoch,
-    canAmend,
+    canAmendShared,
     roleResolved,
     removalIdentity.current,
   ]);
@@ -1530,7 +1538,9 @@ export default function PersonDetailScreen() {
   visibleReviewIds.current = new Set(
     historyItems.flatMap((item) => (item.kind === "entry" ? [item.entry.id] : [])),
   );
-  const settleablePeriods = canAmend ? currencyPeriods.filter(canSettlePeriod) : [];
+  const canSettleWithRole = (period: CurrencyPeriod) =>
+    (period.financialTab ? canAmendShared : canAmend) && canSettlePeriod(period);
+  const settleablePeriods = currencyPeriods.filter(canSettleWithRole);
   const canSettle = settleablePeriods.length > 0;
   const settlementTarget = currencyPeriods.find(
     (period) => period.currency === (settleCurrency ?? person?.currency ?? selectedCurrency),
@@ -1542,9 +1552,8 @@ export default function PersonDetailScreen() {
       !person ||
       settlingRef.current ||
       !screenIsCurrent() ||
-      !canAmend ||
       !settlementTarget ||
-      !canSettlePeriod(settlementTarget)
+      !canSettleWithRole(settlementTarget)
     )
       return;
     const target = settlementTarget;
@@ -2416,24 +2425,24 @@ export default function PersonDetailScreen() {
     const meta = target.tab;
     if (!meta) {
       return [
-        {
+        ...(selectableIds.has(target.id) ? [{
           label: t("selection.start"),
           icon: "checkmark-circle-outline" as const,
           onPress: () => startSelection(target),
-        },
-        {
+        }] : []),
+        ...(canAmend ? [{
           label: t("person.sheet.edit"),
           icon: "create-outline" as const,
           onPress: () => {
             router.push({ pathname: "/entry/[id]/edit", params: { id: target.id } });
           },
-        },
-        {
+        }] : []),
+        ...(canDelete ? [{
           label: t("person.sheet.delete"),
           icon: "trash-outline" as const,
           destructive: true,
           onPress: () => setConfirmDeleteFor(target),
-        },
+        }] : []),
       ];
     }
     return [
@@ -2517,7 +2526,7 @@ export default function PersonDetailScreen() {
   };
   tallyRowActions.current.actions = {
     open: (entry) => {
-      if (searchIsCurrent() && canAmend) setSheetFor(entry);
+      if (searchIsCurrent() && (entry.tab ? canAmendShared : canAmend || canDelete)) setSheetFor(entry);
     },
     select: toggleSelection,
     accept: guardedSearchAction(onAccept),
@@ -2641,7 +2650,7 @@ export default function PersonDetailScreen() {
             allowed.add("approveRemoval");
             allowed.add("declineRemoval");
           }
-          if (canAmend && entry.tab && canWriteEntry) {
+          if (canAmendShared && entry.tab && canWriteEntry) {
             allowed.add("accept");
             allowed.add("reject");
             if (!recordedInSettledChapter) allowed.add("cancel");
@@ -2723,21 +2732,21 @@ export default function PersonDetailScreen() {
                 !hidden && removalAllowed(entry, "decline") ? declineRemovalRow : undefined
               }
               onAccept={
-                !hidden && canAmend && entry.tab && canWriteEntry
+                !hidden && canAmendShared && entry.tab && canWriteEntry
                   ? reuseTallyRows
                     ? acceptTallyRow
                     : guardedSearchAction(onAccept)
                   : undefined
               }
               onReject={
-                !hidden && canAmend && entry.tab && canWriteEntry
+                !hidden && canAmendShared && entry.tab && canWriteEntry
                   ? reuseTallyRows
                     ? rejectTallyRow
                     : guardedSearchAction(onReject)
                   : undefined
               }
               onCancel={
-                !hidden && canAmend && entry.tab && canWriteEntry && !recordedInSettledChapter
+                !hidden && canAmendShared && entry.tab && canWriteEntry && !recordedInSettledChapter
                   ? reuseTallyRows
                     ? cancelTallyRow
                     : guardedSearchAction(onVoid)
@@ -2925,7 +2934,7 @@ export default function PersonDetailScreen() {
                         },
                       ]
                     : []),
-                  ...(canAmend
+                  ...(canEditPerson
                     ? [
                         {
                           label: t("person.sheet.edit"),
@@ -2936,6 +2945,8 @@ export default function PersonDetailScreen() {
                               params: { id: person.id },
                             }),
                         },
+                      ] : []),
+                  ...(canAmendShared ? [
                         {
                           label:
                             openGroupLink || legacyLinkedPeriods.length > 0
@@ -2943,7 +2954,7 @@ export default function PersonDetailScreen() {
                               : t("tab.link.title"),
                           icon: "link-outline" as const,
                           onPress: () => {
-                            if (!screenIsCurrent() || !canAmend || selectionBusyRef.current) return;
+                            if (!screenIsCurrent() || !canAmendShared || selectionBusyRef.current) return;
                             if (openGroupLink) {
                               setManagementCurrency(openGroupLink.currency);
                               setLinkedSheetVisible(true);
@@ -2959,6 +2970,8 @@ export default function PersonDetailScreen() {
                             }
                           },
                         },
+                      ] : []),
+                  ...(canManageGroups ? [
                         {
                           label: t("groups.personAction"),
                           icon: "pricetags-outline" as const,
@@ -3105,7 +3118,7 @@ export default function PersonDetailScreen() {
                         isCurrent={screenIsCurrent}
                         loadMoreHistory={loadMoreCustomerNoteHistory}
                         onEdit={
-                          canAmend
+                          canEditPerson
                             ? () => {
                                 if (screenIsCurrent())
                                   router.push({ pathname: "/person/[id]/edit", params: { id } });
@@ -3343,15 +3356,15 @@ export default function PersonDetailScreen() {
                                           // Once linked, the name badge is enough; no duplicate chip.
                                           <Pressable
                                             onPress={
-                                              canAmend
+                                              canAmendShared
                                                 ? () => {
                                                     setManagementCurrency(code);
                                                     setLinkedSheetVisible(true);
                                                   }
                                                 : undefined
                                             }
-                                            disabled={!canAmend}
-                                            accessibilityRole={canAmend ? "button" : "text"}
+                                            disabled={!canAmendShared}
+                                            accessibilityRole={canAmendShared ? "button" : "text"}
                                             style={({ pressed }) => [
                                               styles.readOnlyChip,
                                               pressed && { opacity: 0.5 },
@@ -4268,7 +4281,7 @@ export default function PersonDetailScreen() {
           }))}
           selected={managementCurrency ?? person.currency ?? selectedCurrency}
           onSelect={(code) => {
-            if (!screenIsCurrent() || !canAmend || linkCurrencyBusy.current) return;
+            if (!screenIsCurrent() || !canAmendShared || linkCurrencyBusy.current) return;
             const target = legacyLinkedPeriods.find((period) => period.currency === code);
             if (!target) return;
             linkCurrencyBusy.current = true;
@@ -4330,7 +4343,7 @@ export default function PersonDetailScreen() {
         onCancel={() => setConfirmSettle(false)}
       />
       <ConfirmDialog
-        visible={confirmDeleteFor !== null}
+        visible={confirmDeleteFor !== null && canDelete}
         title={t("person.delete.title")}
         description={t("person.delete.description")}
         confirmLabel={t("person.delete.confirm")}
@@ -4342,7 +4355,7 @@ export default function PersonDetailScreen() {
           // Confirm tap (re-running the delete).
           const target = confirmDeleteFor;
           setConfirmDeleteFor(null);
-          if (!target) return;
+          if (!target || !canDelete || !screenIsCurrent()) return;
           try {
             await softDeleteEntry(target.id);
             await load();

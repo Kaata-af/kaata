@@ -37,6 +37,7 @@ let callerAccepted = true,
   peerRevoked = false;
 let actorRole: VaultRole = "owner",
   peerRole: VaultRole = "viewer";
+let restrictedAdmin = false;
 let permission: MemberCreditPermission = "inherit";
 let permissionRefreshes = 0;
 const permissionSaves: { vault: string; account: string; value: MemberCreditPermission }[] = [];
@@ -324,6 +325,7 @@ const screen = compile("../../app/vault/members", {
       pendingToasts.push(message);
     },
   },
+  "../../lib/custom-role-copy": { customRoleText: (key: string) => `customRoles.${key}` },
   "../../lib/auth": {
     captureCurrentSession: async () => {
       if (sessionCaptureFails) throw new Error("session capture unavailable");
@@ -439,7 +441,11 @@ const screen = compile("../../app/vault/members", {
   },
   "../../lib/ledger-events": ledger,
   "../../lib/tokens": { radius: {} },
-  "../../lib/use-vault-role": { useVaultRole: () => actorRole },
+  "../../lib/use-vault-role": {
+    useVaultRole: () => actorRole,
+    useVaultPermission: () =>
+      actorRole === "owner" || (actorRole === "manager" && !restrictedAdmin),
+  },
   "../../lib/vault-roles": { VAULT_ROLE_RANK },
   "../../lib/mesh/presence": { subscribePresence: () => () => {}, isPeerOnline: () => false },
   "../../lib/vault-api": { fetchPendingInvitations: async () => {} },
@@ -491,6 +497,7 @@ function fixture() {
   peerRevoked = false;
   actorRole = "owner";
   peerRole = "viewer";
+  restrictedAdmin = false;
   permission = "inherit";
   permissionRefreshes = 0;
   permissionSaves.length = 0;
@@ -968,6 +975,20 @@ export async function runMembersScreenSelftest() {
     await flush();
     assert.equal(memberSheet().props.visible, false);
   }
+
+  fixture();
+  actorRole = "manager";
+  restrictedAdmin = true;
+  await flush();
+  assert.equal(memberRow()?.props.disabled, true, "restricted admins can still read the roster");
+  assert.equal(
+    nodes(tree).some((node) => node.props.label === "members.row.sendInvite"),
+    false,
+    "restricted admins do not see invite controls",
+  );
+  memberRow()!.props.onPress();
+  await flush();
+  assert.equal(memberSheet().props.visible, false, "restricted admins cannot open write actions");
 
   fixture();
   await flush();

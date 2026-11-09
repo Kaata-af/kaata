@@ -83,8 +83,7 @@ func (h *Handler) CreditLimitNotifications(w http.ResponseWriter, r *http.Reques
 		httpx.JSON(w, 200, policies)
 		return
 	}
-	if role != "owner" && role != "manager" {
-		httpx.ErrorCode(w, 403, "insufficient_role", "manager required")
+	if !allowVaultSettings(w, r, tx, vaultID, claims.AccountID, role) {
 		return
 	}
 	var policy credit.LimitNotificationPolicy

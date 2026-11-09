@@ -25,7 +25,7 @@ export default function PersonGroupScreen() {
   const state = useCustomerGroups(vaultId),
     caps = useActiveVaultWriteCaps(vaultId);
   const inScope = viewAccount === getAccountIdSync() && vaultId === getActiveVaultIdSyncMaybe();
-  const canManage = caps.resolved && caps.canAmend && inScope;
+  const canManage = caps.resolved && caps.canManageGroups && inScope;
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
     writing = useRef(false);

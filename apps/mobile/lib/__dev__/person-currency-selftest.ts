@@ -220,6 +220,10 @@ export async function fixture() {
     "../hlc": require("../hlc"),
     "../currency-settings": require("../currency-settings"),
   });
+  const customRolePolicy = compileUI("../vault-custom-role-policy", {
+    "./db-tx": dbTx,
+    "./vault-roles": require("../vault-roles"),
+  });
   const projection = load("../projection", (name) => {
     if (name === "../db-tx") return dbTx;
     if (name === "../event-sig") return signature;
@@ -231,6 +235,7 @@ export async function fixture() {
     if (name === "./vault_members") return members;
     if (name === "./vault_settings") return settings;
     if (name === "../use-vault-role") return roleNotifications;
+    if (name === "../vault-custom-role-policy") return customRolePolicy;
     if (name === "../projection-conflicts") return { notifyProjectionConflictsChanged() {} };
     if (name === "../credit-admission") return creditAdmission;
     if (name === "./sweep") return { scheduleSweep() {} };

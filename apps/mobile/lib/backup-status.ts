@@ -8,7 +8,12 @@ import { syncTab } from "./tabs/sync";
 
 type CloudVault = { id: string; name: string; lastPushAt: number | null; pending: boolean };
 type CloudVaultRow = Omit<CloudVault, "pending"> & { pending: number; archived: number };
-type BackupStatus = { signedIn: boolean; vaults: CloudVault[]; localBackupAt: number | null };
+type BackupStatus = {
+  signedIn: boolean;
+  vaults: CloudVault[];
+  cloudUpToDate: boolean;
+  localBackupAt: number | null;
+};
 
 export class BackupSyncError extends Error {
   constructor(readonly code: "offline" | "incomplete") {
@@ -52,9 +57,11 @@ export async function readBackupStatus(): Promise<BackupStatus> {
     !!session.jwt && !!session.accountId && session.accountId === getSessionAccountIdSync();
   const localBackupAt = listLocalBackups()[0]?.modifiedAt ?? null;
   const rows = signedIn ? await cloudVaults(session) : [];
+  const current = rows.filter((vault) => !vault.archived || vault.pending);
   return {
     signedIn,
     localBackupAt,
+    cloudUpToDate: current.length > 0 && current.every((vault) => Boolean(vault.lastPushAt) && !vault.pending),
     vaults: rows.map(({ id, name, lastPushAt, pending }) => ({
       id,
       name,

@@ -145,6 +145,11 @@ function fixture() {
       throw Error(`Unexpected gate import ${name}`);
     },
   );
+  const customRolePolicy = compile<typeof import("../vault-custom-role-policy")>("../vault-custom-role-policy", (name) => {
+    if (name === "./db-tx") return dbModule;
+    if (name === "./vault-roles") return require("../vault-roles");
+    throw Error(`Unexpected custom role policy import ${name}`);
+  });
   const roleHooks = compile<typeof import("../use-vault-role")>("../use-vault-role", (name) => {
     if (name === "expo-router") return { useFocusEffect: () => {} };
     if (name === "react")
@@ -169,6 +174,7 @@ function fixture() {
     if (name === "./tally-note-policy")
       return { readCurrentTallyNoteRole: () => assert.fail("unexpected tally note") };
     if (name === "./vault-roles") return require("../vault-roles");
+    if (name === "./vault-custom-role-policy") return customRolePolicy;
     throw Error(`Unexpected hook import ${name}`);
   });
   const members = compile<typeof import("../projection/vault_members")>(
@@ -188,6 +194,7 @@ function fixture() {
     if (name === "./role-gate") return gate;
     if (name === "./vault_members") return members;
     if (name === "../use-vault-role") return roleHooks;
+    if (name === "../vault-custom-role-policy") return customRolePolicy;
     if (name === "../util/mutex") return require("../util/mutex");
     if (name === "../projection-conflicts")
       return {

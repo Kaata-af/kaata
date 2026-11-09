@@ -695,6 +695,11 @@ const mocks: Record<string, any> = {
     useActiveVaultWriteCaps: () => ({
       canCreate,
       canAmend,
+      canDelete: canAmend,
+      canCreateShared: canCreate,
+      canAmendShared: canAmend,
+      canEditPerson: canAmend,
+      canManageGroups: canAmend,
       canConfigureCredit: true,
       resolved: true,
     }),

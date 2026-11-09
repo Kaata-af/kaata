@@ -200,7 +200,11 @@ function fixture({
         useCustomerGroups: () => ({ groups: [], groupsByPerson: {} }),
       },
       "../../../lib/use-vault-role": {
-        useActiveVaultWriteCaps: () => ({ resolved: true, canAmend: role }),
+        useActiveVaultWriteCaps: () => ({
+          resolved: true,
+          canEditPerson: role,
+          canManageGroups: role,
+        }),
       },
     },
     {

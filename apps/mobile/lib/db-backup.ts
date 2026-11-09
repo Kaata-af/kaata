@@ -58,6 +58,7 @@ export const PERSONAL_BACKUP_RESTORE_STAGE = "kaata.personal.restore.db";
 export const PERSONAL_BACKUP_RESTORE_MARKER = "kaata.personal.restore.json";
 export const PERSONAL_BACKUP_RESTORE_MARKER_SCRATCH = "kaata.personal.restore.json.tmp";
 export const PERSONAL_BACKUP_RESTORE_PARKED = "kaata.personal.original.db";
+export const PERSONAL_BACKUP_JOINED_RECOVERY_KEY = "personal_backup_joined_recovery_account";
 
 /** Every file expo-sqlite may create for a database, so wipes leave nothing. */
 function sqliteSidecars(name: string): string[] {

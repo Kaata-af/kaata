@@ -36,6 +36,7 @@ import {
   SessionChangedError,
 } from "../auth";
 import { resolveAccountIdCandidates } from "../effective-account";
+import { PERSONAL_BACKUP_JOINED_RECOVERY_KEY } from "../db-backup";
 import {
   getAccountIdSync,
   getActiveVaultIdSyncMaybe,
@@ -330,13 +331,32 @@ export async function fullBackupSweep(): Promise<void> {
   const net = await Network.getNetworkStateAsync();
   if (!net.isConnected) return;
 
+  const db = await getDb();
+  const session = await captureCurrentSession();
+  if (session.jwt && session.accountId) {
+    try {
+      const pending = await applyForCurrentSession(session, () =>
+        db.getFirstAsync<{ value: string }>(
+          "SELECT value FROM app_meta WHERE key=?",
+          PERSONAL_BACKUP_JOINED_RECOVERY_KEY,
+        ),
+      );
+      if (pending?.value === session.accountId) {
+        const { recoverPersonalBackupMemberships } = await import("../recovery");
+        await recoverPersonalBackupMemberships(session);
+      }
+    } catch (error) {
+      if (error instanceof SessionChangedError) return;
+      console.warn("[reconcile] joined Kaata recovery will retry", error);
+    }
+  }
+
   await reconcileVaultRegistrations();
   // Repair anchor-less server rows in the same pass — same preconditions
   // (signed in + online), one extra GET, and it is what lets an owner add a
   // member to the kaata they created before signing in.
   await healMissingServerAnchors();
 
-  const db = await getDb();
   let accountId = getAccountIdSync();
   if (!accountId) accountId = await refreshAccountIdCache();
   // Paired memberships may still use this device's current/retired local-key

@@ -57,6 +57,11 @@ const buttonColors = {
     borderColor: colors.notePaperBorder,
     ink: colors.notePaperInk,
   },
+  success: {
+    backgroundColor: colors.collectBg,
+    borderColor: "transparent",
+    ink: colors.collectText,
+  },
   danger: {
     backgroundColor: colors.danger,
     borderColor: "transparent",

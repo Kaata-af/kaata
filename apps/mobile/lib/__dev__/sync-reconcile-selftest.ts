@@ -50,6 +50,7 @@ stub("../auth", {
   applyForCurrentSession: async (_: unknown, work: () => Promise<unknown>) => work(),
   SessionChangedError: class extends Error {},
 });
+stub("../db-backup", { PERSONAL_BACKUP_JOINED_RECOVERY_KEY: "personal_backup_joined_recovery_account" });
 stub("../db-tx", {
   getDb: async () => sqlite,
   getAccountIdSync: () => "synthetic-account",

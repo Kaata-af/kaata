@@ -830,7 +830,7 @@ export async function customerGroupUIChecks() {
       "../../../lib/i18n": { t: (key: string) => key },
       "../../../lib/use-customer-groups": { useCustomerGroups: () => personState },
       "../../../lib/use-vault-role": {
-        useActiveVaultWriteCaps: () => ({ resolved: true, canAmend: editable }),
+        useActiveVaultWriteCaps: () => ({ resolved: true, canManageGroups: editable }),
       },
       "../../../lib/tokens": { icon: { row: 22 } },
     }).default;
@@ -1065,7 +1065,7 @@ export async function customerGroupUIChecks() {
           useCustomerGroups: () => ({ groups: [], loaded: true, failed: false, refresh() {} }),
         },
         "../lib/use-vault-role": {
-          useActiveVaultWriteCaps: () => ({ resolved: true, canAmend: true }),
+          useActiveVaultWriteCaps: () => ({ resolved: true, canManageGroups: true }),
         },
         "../lib/tokens": { icon: { row: 22 }, radius: { sm: 8 } },
       },
@@ -1178,7 +1178,7 @@ export async function customerGroupUIChecks() {
       "../lib/tokens": { icon: { row: 22 }, radius: { sm: 8 } },
       "../lib/use-customer-groups": { useCustomerGroups: () => groupState },
       "../lib/use-vault-role": {
-        useActiveVaultWriteCaps: () => ({ resolved: true, canAmend }),
+        useActiveVaultWriteCaps: () => ({ resolved: true, canManageGroups: canAmend }),
       },
     });
     const renderMembers = () => hooks.render(() => GroupMembers());
@@ -1268,7 +1268,7 @@ export async function customerGroupUIChecks() {
       "../lib/tokens": { icon: { row: 22 }, radius: { sm: 8 } },
       "../lib/use-customer-groups": { useCustomerGroups: () => groupState },
       "../lib/use-vault-role": {
-        useActiveVaultWriteCaps: () => ({ resolved: true, canAmend }),
+        useActiveVaultWriteCaps: () => ({ resolved: true, canManageGroups: canAmend }),
       },
     });
     viewerHooks.render(() => ViewerMembers());

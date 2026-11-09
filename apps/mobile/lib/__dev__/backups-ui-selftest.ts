@@ -38,6 +38,7 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
   const cloudRestores: BackupChoice[] = [];
   const status = {
     signedIn,
+    cloudUpToDate: false,
     vaults: signedIn ? [{ id: "vault-a", name: "Shop", lastPushAt: 1000, pending: true }] : [],
     localBackupAt: 500,
   };
@@ -113,6 +114,8 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
         syncBackupNow: async () => {
           syncs++;
           if (syncError) throw syncError;
+          status.cloudUpToDate = true;
+          for (const vault of status.vaults) vault.pending = false;
         },
       },
       "../lib/colors": { colors: {} },
@@ -286,6 +289,9 @@ async function main() {
     assert.equal(f.find("backups.googleDrive")!.props.hint, "backups.automaticOff");
     assert.equal(f.find("backups.googleDrive")!.props.hintLines, 0);
     assert.equal(Boolean(f.find("backups.icloudDrive")), platform === "ios");
+    f.press("backups.syncNow");
+    await f.flush();
+    assert.equal(f.find("backups.cloudUpToDate")!.props.variant, "success");
     f.find("backups.restoreCloud")!.props.onPress();
     f.find("backups.restoreCloud")!.props.onPress();
     assert.deepEqual(f.routes, ["/restore"]);
@@ -319,6 +325,7 @@ async function main() {
   ninja.press("backups.backUpNow");
   await ninja.flush();
   assert.ok(ninja.find("backups.googleDrive")!.props.hint.includes("date:2000"));
+  assert.equal(ninja.find("backups.backupSaved")!.props.variant, "success");
   ninja.press("backups.icloudDrive");
   ninja.press("backups.connect");
   await ninja.flush();
@@ -329,6 +336,7 @@ async function main() {
   assert.ok(ninja.find("backups.icloudDrive")!.props.hint.includes("backups.backupQueued"));
   assert.ok(ninja.find("backups.icloudDrive")!.props.hint.includes("date:3000"));
   assert.ok(!ninja.find("backups.icloudDrive")!.props.hint.includes("backups.lastBackup"));
+  assert.equal(ninja.find("backups.uploadQueued")!.props.disabled, true);
   ninja.press("backups.turnOff");
   await ninja.flush();
   assert.equal(ninja.find("backups.icloudDrive")!.props.hint, "backups.automaticOff");

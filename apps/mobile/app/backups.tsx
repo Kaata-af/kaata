@@ -63,8 +63,9 @@ function backupError(code: string | undefined, destination?: PersonalCloudProvid
   switch (code) {
     case "ownership":
     case "foreignVault":
-    case "ownershipUnavailable":
       return t("backups.error.ownership");
+    case "ownershipUnavailable":
+      return t("backups.error.ownershipUnavailable");
     case "differentAccount":
       return t("backups.error.differentAccount");
     case "notEmpty":
@@ -73,6 +74,8 @@ function backupError(code: string | undefined, destination?: PersonalCloudProvid
       return t("backups.error.invalid");
     case "empty":
       return t(destination ? "backups.autoBackupEmpty" : "backups.error.empty");
+    case "noOwnedVaults":
+      return t("backups.noOwnedVaults");
     case "unsupported":
       return t("backups.error.unsupported");
     case "tooLarge":
@@ -106,6 +109,12 @@ function providerHint(destination: PersonalCloudProviderId, status?: PersonalClo
         : t("backups.noBackupYet"),
     status.running ? t("backups.backingUp") : null,
     status.error ? backupError(status.error, destination) : null,
+    status.coverage?.skipped
+      ? t("backups.coverage", { included: status.coverage.included, skipped: status.coverage.skipped })
+      : null,
+    status.coverage?.skippedPending
+      ? t("backups.skippedPending")
+      : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -155,6 +164,8 @@ export default function BackupsScreen() {
   const mode = form?.scope === scope ? form.mode : null;
   const currentCandidate = candidate?.scope === scope ? candidate : null;
   const currentNotice = notice?.scope === scope ? notice : null;
+  const cloudUpToDate = view?.kaata?.cloudUpToDate === true &&
+    !(currentNotice?.destination === "kaata" && currentNotice.error);
   const readFailed = view !== null && (!view.personal || !view.kaata);
   const signedIn = Boolean(getSessionAccountIdSync());
   const current = useCallback(
@@ -396,6 +407,8 @@ export default function BackupsScreen() {
                   ? providerHint(destination, status)
                   : t("backups.statusUnknown");
             const reconnect = status?.error === "reconnect";
+            const queued = Boolean(status?.pending && !status.error);
+            const saved = Boolean(status?.savedAt && !status.pending && !status.error);
             return (
               <View key={destination}>
                 <NavRow
@@ -443,11 +456,14 @@ export default function BackupsScreen() {
                       </>
                     ) : (
                       <Button
-                        label={t("backups.backUpNow")}
-                        disabled={locked || offline || status.running}
+                        label={t(queued ? "backups.uploadQueued" : saved ? "backups.backupSaved" : "backups.backUpNow")}
+                        accessibilityLabel={saved ? `${t("backups.backupSaved")}. ${t("backups.backUpNow")}` : undefined}
+                        variant={saved ? "success" : queued ? "muted" : "primary"}
+                        icon={saved ? "checkmark-circle-outline" : queued ? "time-outline" : undefined}
+                        disabled={locked || offline || status.running || queued}
                         loading={busy === "backup" || status.running}
                         onPress={() => {
-                          if (offline || status.running) return;
+                          if (offline || status.running || queued) return;
                           void run(
                             "backup",
                             () => backUpToPersonalCloudNow(destination),
@@ -499,6 +515,9 @@ export default function BackupsScreen() {
           <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
             {t("backups.restoreRestriction")}
           </Text>
+          {!restoreOnly ? (
+            <Text style={[styles.hint, styles.inset, textDir(rtl)]}>{t("backups.ownedScope")}</Text>
+          ) : null}
           {(restoreOnly && (busy === "find" || busy === "restoreCloud")) ||
           busy === "restoreFile" ? (
             <ActivityIndicator color={colors.textSubtle} style={styles.inset} />
@@ -539,7 +558,10 @@ export default function BackupsScreen() {
                     <Text style={[styles.hint, textDir(rtl)]}>{t("backups.offline")}</Text>
                   ) : null}
                   <Button
-                    label={t("backups.syncNow")}
+                    label={t(cloudUpToDate ? "backups.cloudUpToDate" : "backups.syncNow")}
+                    variant={cloudUpToDate ? "success" : "primary"}
+                    icon={cloudUpToDate ? "checkmark-circle-outline" : undefined}
+                    accessibilityLabel={cloudUpToDate ? `${t("backups.cloudUpToDate")}. ${t("backups.syncNow")}` : undefined}
                     loading={busy === "sync"}
                     disabled={locked || offline}
                     onPress={() => {

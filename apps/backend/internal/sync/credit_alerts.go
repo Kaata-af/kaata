@@ -82,8 +82,7 @@ func (h *Handler) CreditAlerts(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, policies)
 		return
 	}
-	if role != "owner" && role != "manager" {
-		httpx.ErrorCode(w, http.StatusForbidden, "insufficient_role", "manager required")
+	if !allowVaultSettings(w, r, tx, vaultID, claims.AccountID, role) {
 		return
 	}
 	if r.Method == http.MethodDelete {

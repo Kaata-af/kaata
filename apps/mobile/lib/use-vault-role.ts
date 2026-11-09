@@ -20,6 +20,7 @@ import { useLedgerRefresh } from "./ledger-events";
 import { invalidateRoleGateCache } from "./projection/role-gate";
 import { readCurrentTallyNoteRole } from "./tally-note-policy";
 import { canPerformAction, type VaultAction, type VaultRole } from "./vault-roles";
+import { customRoleAllowsAction, readCachedCustomRole } from "./vault-custom-role-policy";
 
 // Process-local cache. Account resets and applied membership/device events
 // clear it and refresh any mounted role consumers.
@@ -271,35 +272,55 @@ export function useVaultPermission(
   action: VaultAction,
 ): boolean {
   const role = useVaultRole(vaultId, accountId);
-  return useCallback(() => canPerformAction(role, action), [role, action])();
+  const [allowed, setAllowed] = useState<{ vaultId: string; accountId: string; action: VaultAction; value: boolean } | null>(null);
+  const reread = useCallback(() => {
+    let cancelled = false;
+    if (accountId) {
+      void readStableRole(async () => readCachedCustomRole(await getDb(), vaultId, accountId))
+        .then((custom) => {
+          if (!cancelled && getAccountIdSync() === accountId) {
+            setAllowed({ vaultId, accountId, action, value: customRoleAllowsAction(custom, action) });
+          }
+        })
+        .catch(() => {});
+    }
+    return () => { cancelled = true; };
+  }, [vaultId, accountId, action]);
+  useLiveRoleRefresh(vaultId, reread);
+  const current = allowed?.vaultId === vaultId && allowed.accountId === accountId && allowed.action === action;
+  return canPerformAction(role, action) && (role === "owner" || !current || allowed.value);
 }
 
-/**
- * Write capabilities for the active user on `vaultId`. Roles v2 split
- * (docs/roles-v2-design.md):
- *   canCreate — may APPEND (new entries / new people). False for viewers.
- *   canAmend  — may MUTATE HISTORY (edit/delete entries, rename people).
- *               False for viewers AND clerks (append-only role).
- * The single old boolean gated both create and edit affordances, which
- * cannot express a clerk. Defaults to true (local-only / owner), re-reads on
- * focus. The role-gate + server already REFUSE unauthorized writes; this
- * just stops users seeing buttons that would only fail.
- */
-export function useActiveVaultWriteCaps(vaultId: string | null): {
-  canCreate: boolean;
-  canAmend: boolean;
-  canConfigureCredit: boolean;
+// Private ledger capabilities can vary independently within a preset. Shared
+// tallies have their own server authorization and retain their preset gates.
+function writeCaps(role: VaultRole, custom: Awaited<ReturnType<typeof readCachedCustomRole>>) {
+  const allows = (action: VaultAction) =>
+    canPerformAction(role, action) && (role === "owner" || customRoleAllowsAction(custom, action));
+  return {
+    canCreate: allows("entry.create"),
+    canAmend: allows("entry.amend"),
+    canDelete: allows("entry.delete"),
+    canAddPerson: allows("person.add"),
+    canEditPerson: allows("person.rename"),
+    canManageGroups: allows("group.manage"),
+    canConfigureCredit: allows("credit.configure"),
+    canAmendShared: canPerformAction(role, "entry.amend"),
+    canCreateShared: canPerformAction(role, "entry.create"),
+    role,
+  };
+}
+
+const unresolvedCaps = { ...writeCaps("owner", null), canConfigureCredit: false };
+
+export function useActiveVaultWriteCaps(vaultId: string | null): ReturnType<typeof writeCaps> & {
   /** True only after the role for this exact vault was read successfully.
    * Consumers offering optional write/phone-book flows can wait for it. */
   resolved: boolean;
 } {
-  const [caps, setCaps] = useState<{
-    canCreate: boolean;
-    canAmend: boolean;
-    canConfigureCredit: boolean;
+  const [caps, setCaps] = useState<ReturnType<typeof writeCaps> & {
     resolvedVaultId: string | null | undefined;
     resolvedAccountId?: string | null;
-  }>({ canCreate: true, canAmend: true, canConfigureCredit: false, resolvedVaultId: undefined });
+  }>({ ...unresolvedCaps, resolvedVaultId: undefined });
   const generation = useRef(0);
   const reread = useCallback(
     (invalidate = true) => {
@@ -317,9 +338,7 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
       };
       if (!vaultId) {
         setCaps({
-          canCreate: true,
-          canAmend: true,
-          canConfigureCredit: false,
+          ...unresolvedCaps,
           resolvedVaultId: null,
           resolvedAccountId: accountId,
         });
@@ -328,13 +347,14 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
       // A background role event still invalidates permission immediately. The
       // resume listener pays the database read before restoring those controls.
       if (AppState.currentState !== "active") return cancel;
-      readRoleFromDb(vaultId, accountId)
-        .then((role) => {
+      readStableRole(async () => ({
+        role: await readRoleSnapshotFromDb(vaultId, accountId),
+        custom: await readCachedCustomRole(await getDb(), vaultId, accountId),
+      }))
+        .then(({ role, custom }) => {
           if (current()) {
             setCaps({
-              canCreate: canPerformAction(role, "entry.create"),
-              canAmend: canPerformAction(role, "entry.amend"),
-              canConfigureCredit: canPerformAction(role, "credit.configure"),
+              ...writeCaps(role, custom),
               resolvedVaultId: vaultId,
               resolvedAccountId: accountId,
             });
@@ -344,9 +364,7 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
           // Never lock the user out on a transient DB error (local-only invariant).
           if (current())
             setCaps({
-              canCreate: true,
-              canAmend: true,
-              canConfigureCredit: false,
+              ...unresolvedCaps,
               resolvedVaultId: undefined,
             });
         });
@@ -355,12 +373,8 @@ export function useActiveVaultWriteCaps(vaultId: string | null): {
     [vaultId],
   );
   useLiveRoleRefresh(vaultId, reread);
-  return {
-    canCreate: caps.canCreate,
-    canAmend: caps.canAmend,
-    canConfigureCredit: caps.canConfigureCredit,
-    resolved: caps.resolvedVaultId === vaultId && caps.resolvedAccountId === getAccountIdSync(),
-  };
+  const { resolvedVaultId, resolvedAccountId, ...permissions } = caps;
+  return { ...permissions, resolved: resolvedVaultId === vaultId && resolvedAccountId === getAccountIdSync() };
 }
 
 /** Back-compat sugar: the append capability (hides creation for viewers). */
@@ -378,6 +392,7 @@ export function useTallyNoteAccess(vaultId: string | null): {
     vaultId: string;
     accountId: string | null;
     role: VaultRole | null;
+    custom: Awaited<ReturnType<typeof readCachedCustomRole>>;
   } | null>(null);
   const generation = useRef(0);
   const reread = useCallback(
@@ -386,10 +401,16 @@ export function useTallyNoteAccess(vaultId: string | null): {
       if (invalidate) setSnapshot(null);
       if (!vaultId || AppState.currentState !== "active") return () => {};
       const accountId = getAccountIdSync();
-      void readStableRole(async () => readCurrentTallyNoteRole(await getDb(), vaultId, accountId))
-        .then((role) => {
+      void readStableRole(async () => {
+        const db = await getDb();
+        return {
+          role: await readCurrentTallyNoteRole(db, vaultId, accountId),
+          custom: await readCachedCustomRole(db, vaultId, accountId),
+        };
+      })
+        .then(({ role, custom }) => {
           if (run === generation.current && getAccountIdSync() === accountId)
-            setSnapshot({ vaultId, accountId, role });
+            setSnapshot({ vaultId, accountId, role, custom });
         })
         .catch(() => {});
       return () => {
@@ -410,13 +431,14 @@ export function useTallyNoteAccess(vaultId: string | null): {
       cancel?.();
     };
   }, [reread]);
-  const role =
+  const current =
     snapshot && snapshot.vaultId === vaultId && snapshot.accountId === getAccountIdSync()
-      ? snapshot.role
+      ? snapshot
       : null;
+  const role = current?.role;
   return {
-    canAddTallyNote: role != null && canPerformAction(role, "tally_note.add"),
-    canRemoveTallyNote: role != null && canPerformAction(role, "tally_note.remove"),
+    canAddTallyNote: role != null && canPerformAction(role, "tally_note.add") && (role === "owner" || customRoleAllowsAction(current?.custom ?? null, "tally_note.add")),
+    canRemoveTallyNote: role != null && canPerformAction(role, "tally_note.remove") && (role === "owner" || customRoleAllowsAction(current?.custom ?? null, "tally_note.remove")),
   };
 }
 

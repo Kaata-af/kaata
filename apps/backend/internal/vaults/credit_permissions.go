@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/matee/kaata-backend/internal/credit"
+	"github.com/matee/kaata-backend/internal/rolepolicy"
 )
 
 var (
@@ -105,7 +106,7 @@ func (s *Service) SetMemberCreditPermission(ctx context.Context, vaultID, caller
 	if err := credit.Lock(ctx, tx, vaultID); err != nil {
 		return MemberCreditPermission{}, err
 	}
-	callerRole, err := requireOwnerOrManager(ctx, tx, vaultID, callerID)
+	callerRole, err := requireOwnerOrManager(ctx, tx, vaultID, callerID, rolepolicy.VaultSettings)
 	if err != nil {
 		return MemberCreditPermission{}, err
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/matee/kaata-backend/internal/auth"
 	"github.com/matee/kaata-backend/internal/credit"
+	"github.com/matee/kaata-backend/internal/rolepolicy"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 )
@@ -623,6 +624,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		if ev.ActorAccountID != nil && *ev.ActorAccountID != "" {
 			eventActor = *ev.ActorAccountID
 		}
+		policyActor := in.AccountID
 		if isTallyNoteEvent(ev.EventType) {
 			author := accountUUID
 			if storedActor != nil {
@@ -634,6 +636,36 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 			}
 			if refusal != nil {
 				rejected = append(rejected, *refusal)
+				continue
+			}
+			// Only notes can relay a different actor. Admission authenticated
+			// that author and device before we read their current policy.
+			policyActor = author.String()
+		}
+		permission := customRolePermission(ev.EventType)
+		// Signed membership is checked against its proven signer. Leaving or
+		// acknowledging one's own invite does not require staff permissions.
+		if permission == rolepolicy.VaultMembers && (m2Verified || legacySelfLeave || legacySelfAdmission) {
+			permission = ""
+		}
+		if permission != "" {
+			allowed, err := rolepolicy.Allows(ctx, tx, in.VaultID, policyActor, permission)
+			if err != nil {
+				return nil, fmt.Errorf("custom role permission check: %w", err)
+			}
+			if !allowed {
+				// An identical event already stored before a policy change
+				// keeps its original acknowledgement and never re-applies.
+				matches, err := creditDuplicateMatches(ctx, tx, in.VaultID, ev)
+				if err != nil {
+					return nil, fmt.Errorf("custom role duplicate check: %w", err)
+				}
+				if matches {
+					duplicates = append(duplicates, ev.EventID)
+				} else {
+					rejected = append(rejected, RejectedEvent{EventID: ev.EventID, Reason: "insufficient_role",
+						CurrentRole: eventRole, RequiredRole: RequiredRoleFor(ev.EventType)})
+				}
 				continue
 			}
 		}

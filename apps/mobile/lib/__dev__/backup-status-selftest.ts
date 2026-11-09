@@ -68,6 +68,7 @@ async function main() {
   });
   assert.deepEqual(await status.readBackupStatus(), {
     signedIn: true,
+    cloudUpToDate: false,
     localBackupAt: 123,
     vaults: [
       { id: "joined", name: "Joined", lastPushAt: null, pending: true },
@@ -85,14 +86,18 @@ async function main() {
   uploads = true;
   await status.syncBackupNow();
   assert.equal(calls, 4);
+  assert.equal((await status.readBackupStatus()).cloudUpToDate, true);
   assert.ok(
     (await status.readBackupStatus()).vaults.every(
       (vault: { pending: boolean; lastPushAt: number }) => !vault.pending && vault.lastPushAt > 30,
     ),
   );
+  db.exec("INSERT INTO tab_outbox VALUES ('tab')");
+  assert.equal((await status.readBackupStatus()).cloudUpToDate, false);
   account = null;
   assert.deepEqual(await status.readBackupStatus(), {
     signedIn: false,
+    cloudUpToDate: false,
     localBackupAt: 123,
     vaults: [],
   });

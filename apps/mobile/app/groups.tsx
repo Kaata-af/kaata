@@ -43,7 +43,7 @@ export default function GroupsScreen() {
   const { groups, loaded, failed, refresh } = useCustomerGroups(vaultId);
   const caps = useActiveVaultWriteCaps(vaultId);
   const inScope = viewAccount === getAccountIdSync() && vaultId === getActiveVaultIdSyncMaybe();
-  const canManage = caps.resolved && caps.canAmend && inScope;
+  const canManage = caps.resolved && caps.canManageGroups && inScope;
   const [editing, setEditing] = useState<{ id: string | null; name: string } | null>(null);
   const [selected, setSelected] = useState<CustomerGroup | null>(null);
   const [archiving, setArchiving] = useState<CustomerGroup | null>(null);

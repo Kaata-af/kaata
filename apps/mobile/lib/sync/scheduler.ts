@@ -114,13 +114,18 @@ export async function syncOnce(
   } catch (err) {
     pullErr = err;
   }
+  const refreshConfiguration = creditRefreshDue.has(vaultId) ||
+    Date.now() - (creditRefreshedAt.get(vaultId) ?? 0) >= CREDIT_REFRESH_EVERY_MS;
+  if (!pullErr && refreshConfiguration) {
+    // Refresh restrictions even when the push below will refuse a queued
+    // write made on an older device policy.
+    const { readCustomRoles } = await import("../vault-custom-roles");
+    await readCustomRoles(vaultId).catch(() => undefined);
+  }
   const pushRes = await pushEvents(vaultId);
   // Configuration is separate from signed ledger evidence. Local policies
   // publish after cloud registration/contact push and then refresh peers.
-  if (
-    creditRefreshDue.has(vaultId) ||
-    Date.now() - (creditRefreshedAt.get(vaultId) ?? 0) >= CREDIT_REFRESH_EVERY_MS
-  ) {
+  if (refreshConfiguration) {
     creditRefreshDue.delete(vaultId);
     creditRefreshedAt.set(vaultId, Date.now());
     const { refreshCreditPolicies } = await import("../credit-limits");

@@ -47,11 +47,11 @@ const schema = `CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE schema_migrations(name TEXT PRIMARY KEY,applied_at INTEGER);
 ${migrationNames.map((name) => `INSERT INTO schema_migrations VALUES('${name}',1);`).join("\n")}
 CREATE TABLE users(id TEXT PRIMARY KEY,account_id TEXT,is_local_self INTEGER);
-CREATE TABLE vaults(id TEXT PRIMARY KEY,account_id TEXT,registered_with_server_at INTEGER,vault_trust_anchor_pubkey TEXT,is_default INTEGER);
+CREATE TABLE vaults(id TEXT PRIMARY KEY,account_id TEXT,registered_with_server_at INTEGER,vault_trust_anchor_pubkey TEXT,is_default INTEGER,archived_at INTEGER);
 CREATE TABLE vault_members_mirror(vault_id TEXT REFERENCES vaults(id),account_id TEXT,role TEXT,accepted_at INTEGER,revoked_at INTEGER);
-CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id));
+CREATE TABLE relationships(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),user_a_id TEXT REFERENCES users(id),user_b_id TEXT REFERENCES users(id));
 CREATE TABLE entries(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),note TEXT);
-CREATE TABLE event_log(event_id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),event_type TEXT,payload_json TEXT);
+CREATE TABLE event_log(event_id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),event_type TEXT,payload_json TEXT,server_acked_at INTEGER,tombstone_reason TEXT);
 CREATE TABLE shop_profile(vault_id TEXT REFERENCES vaults(id),name TEXT);
 CREATE TABLE pending_invitations(token TEXT);
 CREATE TABLE vault_credentials(vmc_blob TEXT);
@@ -200,6 +200,7 @@ CREATE INDEX idx_tally_notes_relationship ON tally_notes(vault_id,relationship_i
           PERSONAL_BACKUP_RESTORE_MARKER: "kaata.personal.restore.json",
           PERSONAL_BACKUP_RESTORE_MARKER_SCRATCH: "kaata.personal.restore.json.tmp",
           PERSONAL_BACKUP_RESTORE_PARKED: "kaata.personal.original.db",
+          PERSONAL_BACKUP_JOINED_RECOVERY_KEY: "personal_backup_joined_recovery_account",
         },
         "./trust/account-id": { buildLocalAccountId: localAccount },
       },
@@ -239,25 +240,25 @@ CREATE INDEX idx_tally_notes_relationship ON tally_notes(vault_id,relationship_i
   if (account) metadata("account_id", account);
   function seed(ledger = true) {
     sql("INSERT INTO users VALUES('self',?,1)", account);
-    sql("INSERT INTO vaults VALUES(?,?,?,?,1)", VAULT, account, account ? 1 : null, PUB);
+    sql("INSERT INTO vaults VALUES(?,?,?,?,1,NULL)", VAULT, account, account ? 1 : null, PUB);
     sql(
       "INSERT INTO vault_members_mirror VALUES(?,?,'owner',1,NULL)",
       VAULT,
       account ?? localAccount(PUB),
     );
     sql(
-      "INSERT INTO event_log VALUES('genesis',?,'vault_member_added',?)",
+      "INSERT INTO event_log VALUES('genesis',?,'vault_member_added',?,NULL,NULL)",
       VAULT,
       JSON.stringify({ role: "owner", account_id: account ?? localAccount(PUB) }),
     );
     sql(
-      "INSERT INTO event_log VALUES('currency',?,'vault_setting_set',?)",
+      "INSERT INTO event_log VALUES('currency',?,'vault_setting_set',?,NULL,NULL)",
       VAULT,
       JSON.stringify({ key: "enabled_currencies", value: '["AFN"]' }),
     );
-    sql("INSERT INTO event_log VALUES('profile',?,'shop_profile_updated','{}')", VAULT);
+    sql("INSERT INTO event_log VALUES('profile',?,'shop_profile_updated','{}',NULL,NULL)", VAULT);
     if (ledger) {
-      sql("INSERT INTO relationships VALUES('person',?)", VAULT);
+      sql("INSERT INTO relationships VALUES('person',?,'self',NULL)", VAULT);
       sql("INSERT INTO entries VALUES('tally',?,'Keep this tally')", VAULT);
     }
   }
@@ -416,7 +417,7 @@ async function main() {
   const staleOwner = fixture("stale-export-owner", ACCOUNT);
   staleOwner.seed();
   staleOwner.remote[0].role = "editor";
-  await errorCode(() => exported(staleOwner), "ownership");
+  await errorCode(() => exported(staleOwner), "noOwnedVaults");
   const localOnly = fixture("signed-local-only", ACCOUNT);
   localOnly.seed();
   localOnly.sql("UPDATE vaults SET account_id=NULL,registered_with_server_at=NULL");
@@ -465,10 +466,65 @@ async function main() {
   const member = fixture("member-not-owner", ACCOUNT);
   member.seed();
   member.sql("UPDATE vault_members_mirror SET role='editor'");
-  await errorCode(() => member.module.createPersonalBackupSnapshot(), "ownership");
+  member.remote[0].role = "editor";
+  await errorCode(() => member.module.createPersonalBackupSnapshot(), "noOwnedVaults");
+
+  const mixed = fixture("mixed-owner-and-member", ACCOUNT);
+  mixed.seed();
+  mixed.sql("INSERT INTO vaults VALUES(?,?,?,?,0,NULL)", TARGET, ACCOUNT, 1, PUB);
+  mixed.sql("INSERT INTO vaults VALUES(?,?,?,?,0,100)", OTHER, ACCOUNT, 1, PUB);
+  mixed.remote.push(
+    { vault_id: TARGET, role: "manager", vault_trust_anchor_pubkey: PUB },
+    { vault_id: OTHER, role: "viewer", vault_trust_anchor_pubkey: PUB },
+  );
+  // Simulate one missing local membership mirror and one explicit joined seat.
+  mixed.sql("INSERT INTO vault_members_mirror VALUES(?,?,'viewer',1,NULL)", OTHER, ACCOUNT);
+  mixed.metadata("active_vault_id", TARGET);
+  mixed.metadata("default_vault_id", TARGET);
+  mixed.sql("INSERT INTO users VALUES('PRIVATE_JOINED_CONTACT',NULL,0)");
+  mixed.sql("INSERT INTO users VALUES('shared-contact',NULL,0)");
+  mixed.sql("UPDATE relationships SET user_b_id='shared-contact' WHERE id='person'");
+  mixed.sql("INSERT INTO relationships VALUES('joined-only',?,'self','PRIVATE_JOINED_CONTACT')", TARGET);
+  mixed.sql("INSERT INTO relationships VALUES('joined-shared',?,'self','shared-contact')", OTHER);
+  mixed.sql("INSERT INTO entries VALUES('joined-tally',?,'PRIVATE_JOINED_TALLY')", TARGET);
+  mixed.sql(
+    "INSERT INTO event_log VALUES('joined-event',?,'entry_created',?,NULL,NULL)",
+    TARGET,
+    JSON.stringify({ note: "PRIVATE_JOINED_EVENT" }),
+  );
+  mixed.sql("INSERT INTO tab_links VALUES('joined-tab',?,'PRIVATE_JOINED_TOKEN',NULL,NULL,1,1)", TARGET);
+  mixed.sql("INSERT INTO tab_entries VALUES('joined-tab-entry','joined-tab','PRIVATE_JOINED_SHARED_TALLY')");
+  mixed.sql(
+    "INSERT INTO tab_outbox VALUES('joined-op','joined-tab',0,NULL,NULL,?)",
+    JSON.stringify({ note: "PRIVATE_JOINED_OP" }),
+  );
+  const mixedBackup = await mixed.module.createPersonalBackupSnapshot();
+  let mixedBytes: Uint8Array;
+  try {
+    assert.deepEqual(mixedBackup.coverage, { included: 1, skipped: 2, skippedPending: 1 });
+    mixedBytes = mixedBackup.file.bytesSync();
+    ok(!Buffer.from(mixedBytes).includes("PRIVATE_JOINED_"), "no skipped data remains in SQLite bytes");
+    ok(!Buffer.from(mixedBytes).includes(TARGET), "skipped active/default metadata is replaced");
+  } finally {
+    mixedBackup.dispose();
+  }
+  ok(mixed.rows("SELECT * FROM vaults").length === 3, "pruning never touches live Kaatas");
+  ok(mixed.rows("SELECT * FROM tab_outbox").length === 1, "joined pending edits remain on the phone");
+  const mixedTarget = fixture("mixed-restore-target", ACCOUNT);
+  await mixedTarget.module.stagePersonalBackupRestore(mixedBytes);
+  await mixedTarget.boot();
+  assert.deepEqual(mixedTarget.rows("SELECT id FROM vaults"), [{ id: VAULT }]);
+  assert.deepEqual(mixedTarget.rows("SELECT id FROM users ORDER BY id"), [{ id: "self" }, { id: "shared-contact" }]);
+  assert.deepEqual(mixedTarget.rows("SELECT value FROM app_meta WHERE key IN ('active_vault_id','default_vault_id')"), [{ value: VAULT }, { value: VAULT }]);
+  assert.deepEqual(mixedTarget.rows("SELECT value FROM app_meta WHERE key='personal_backup_joined_recovery_account'"), [{ value: ACCOUNT }]);
+
+  const verificationUnavailable = fixture("owner-verification-unavailable", ACCOUNT);
+  verificationUnavailable.seed();
+  verificationUnavailable.denyCloud();
+  await errorCode(() => verificationUnavailable.module.createPersonalBackupSnapshot(), "ownershipUnavailable");
   const denied = fixture("server-denial", ACCOUNT);
   denied.denyCloud();
-  await errorCode(() => denied.module.stagePersonalBackupRestore(signedBytes), "ownership");
+  await errorCode(() => denied.module.stagePersonalBackupRestore(signedBytes), "ownershipUnavailable");
   const demoted = fixture("server-role", ACCOUNT);
   demoted.remote[0].role = "editor";
   await errorCode(() => demoted.module.stagePersonalBackupRestore(signedBytes), "ownership");
@@ -490,11 +546,11 @@ async function main() {
   ok(!late.exists("kaata.personal.restore.json"), "refused boot does not repeat forever");
   const secondary = fixture("secondary");
   secondary.seed(false);
-  secondary.sql("INSERT INTO vaults VALUES(?,NULL,NULL,?,0)", OTHER, PUB);
+  secondary.sql("INSERT INTO vaults VALUES(?,NULL,NULL,?,0,NULL)", OTHER, PUB);
   await errorCode(() => secondary.module.stagePersonalBackupRestore(bytes), "notEmpty");
   const edited = fixture("edited-setup");
   edited.seed(false);
-  edited.sql("INSERT INTO event_log VALUES('profile2',?,'shop_profile_updated','{}')", VAULT);
+  edited.sql("INSERT INTO event_log VALUES('profile2',?,'shop_profile_updated','{}',NULL,NULL)", VAULT);
   await errorCode(() => edited.module.stagePersonalBackupRestore(bytes), "notEmpty");
   const revoked = fixture("revoked-after-stage", ACCOUNT);
   await revoked.module.stagePersonalBackupRestore(signedBytes);

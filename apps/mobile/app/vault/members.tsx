@@ -52,6 +52,7 @@ import {
   type SessionSnapshot,
 } from "../../lib/auth";
 import { colors } from "../../lib/colors";
+import { customRoleText } from "../../lib/custom-role-copy";
 import {
   getActiveVaultId,
   getActiveVaultIdSyncMaybe,
@@ -82,7 +83,7 @@ import {
 } from "../../lib/member-credit-permissions";
 import { onLedgerApplied, useLedgerRefresh } from "../../lib/ledger-events";
 import { radius } from "../../lib/tokens";
-import { useVaultRole } from "../../lib/use-vault-role";
+import { useVaultPermission, useVaultRole } from "../../lib/use-vault-role";
 import { VAULT_ROLE_RANK } from "../../lib/vault-roles";
 import { subscribePresence, isPeerOnline } from "../../lib/mesh/presence";
 import { fetchPendingInvitations } from "../../lib/vault-api";
@@ -100,6 +101,8 @@ type MemberRow = {
   has_profile: number;
   email: string | null;
 };
+
+type ScopedMemberTarget = { member: MemberRow; vaultId: string; identity: string };
 
 type PendingInviteRow = {
   invite_token: string;
@@ -187,8 +190,16 @@ export default function VaultMembersScreen() {
   const [pending, setPending] = useState<PendingInviteRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [sheetTarget, setSheetTarget] = useState<MemberRow | null>(null);
-  const [revokeTarget, setRevokeTarget] = useState<MemberRow | null>(null);
+  const [storedSheetTarget, setSheetTarget] = useState<ScopedMemberTarget | null>(null);
+  const [storedRevokeTarget, setRevokeTarget] = useState<ScopedMemberTarget | null>(null);
+  const sheetTarget =
+    storedSheetTarget?.vaultId === vaultId && storedSheetTarget.identity === identity
+      ? storedSheetTarget.member
+      : null;
+  const revokeTarget =
+    storedRevokeTarget?.vaultId === vaultId && storedRevokeTarget.identity === identity
+      ? storedRevokeTarget.member
+      : null;
   const [transferTarget, setTransferTarget] = useState<MemberRow | null>(null);
   const [transferRequest, setTransferRequest] = useState<TransferRequest | null>(null);
   const transferPending = useRef(false);
@@ -227,6 +238,23 @@ export default function VaultMembersScreen() {
   // author events the server refuses (permanent local divergence). Owners
   // keep the offline event path unchanged.
   const isManager = role === "manager";
+  const invitePermission = useVaultPermission(vaultId, accountId, "vault.invite_member");
+  const memberPermission = useVaultPermission(vaultId, accountId, "vault.change_member_role");
+  const creditPermission = useVaultPermission(vaultId, accountId, "credit.configure");
+  const canInvite = (isOwner || isManager) && invitePermission;
+  const canManageMembers = (isOwner || isManager) && memberPermission;
+  const canManageCredit = (isOwner || isManager) && creditPermission;
+  const canCustomizeRoles = isOwner && !!getSessionAccountIdSync();
+  const memberActionScope = {
+    vaultId,
+    identity,
+    members: canManageMembers,
+    invites: canInvite,
+    credit: canManageCredit,
+    custom: canCustomizeRoles,
+  };
+  const memberActionScopeRef = useRef(memberActionScope);
+  memberActionScopeRef.current = memberActionScope;
   const ownerScopeRef = useRef({ vaultId, accountId, isOwner });
   ownerScopeRef.current = { vaultId, accountId, isOwner };
   const readmissionCurrent = useCallback(
@@ -515,8 +543,13 @@ export default function VaultMembersScreen() {
             const next = members.map((member) => sanitize(member)!);
             return next.some((member, index) => member !== members[index]) ? next : members;
           });
-          setSheetTarget(sanitize);
-          setRevokeTarget(sanitize);
+          const sanitizeTarget = (target: ScopedMemberTarget | null): ScopedMemberTarget | null => {
+            if (!target) return null;
+            const member = sanitize(target.member)!;
+            return member === target.member ? target : { ...target, member };
+          };
+          setSheetTarget(sanitizeTarget);
+          setRevokeTarget(sanitizeTarget);
           setTransferTarget(sanitize);
         });
       } catch (err) {
@@ -704,13 +737,35 @@ export default function VaultMembersScreen() {
     if (failed) toast.push(t("common.refreshFailed"), "info");
   }
 
-  function openMemberSheet(m: MemberRow) {
-    if (transferPending.current) return;
-    if (!isOwner && !isManager) return;
-    if (m.account_id === accountId || localSelfAccountIds.includes(m.account_id)) return;
+  function currentMemberAction(action: "members" | "invites" | "credit" | "custom") {
+    const latest = memberActionScopeRef.current;
+    return (
+      focusedRef.current &&
+      latest[action] &&
+      latest.identity === identity &&
+      latest.vaultId === vaultId &&
+      getActiveVaultIdSyncMaybe() === vaultId
+    );
+  }
+
+  function openCustomRoles(memberId?: string) {
+    if (!currentMemberAction("custom")) return;
+    router.push({
+      pathname: "/vault/custom-roles",
+      params: { vaultId, ...(memberId ? { memberId } : {}) },
+    });
+  }
+
+  function canOpenMemberSheet(m: MemberRow) {
+    if (transferPending.current || transferRequest !== null) return false;
+    if (!isOwner && !canManageMembers && !canManageCredit) return false;
+    if (m.account_id === accountId || localSelfAccountIds.includes(m.account_id)) return false;
     // Manager cap: owners and peer managers are out of a manager's reach.
-    if (isManager && VAULT_ROLE_RANK[m.role] >= VAULT_ROLE_RANK.manager) return;
-    setSheetTarget(m);
+    return isOwner || (isManager && VAULT_ROLE_RANK[m.role] < VAULT_ROLE_RANK.manager);
+  }
+
+  function openMemberSheet(m: MemberRow) {
+    if (canOpenMemberSheet(m)) setSheetTarget({ member: m, vaultId, identity });
   }
 
   function openReadmission(request: MemberReadmission) {
@@ -783,12 +838,12 @@ export default function VaultMembersScreen() {
   }
 
   async function openCreditPermission(member: MemberRow) {
-    if (creditPermissionPending.current || (!isOwner && !isManager)) return;
+    if (creditPermissionPending.current || !currentMemberAction("credit")) return;
     if (VAULT_ROLE_RANK[member.role] >= VAULT_ROLE_RANK.manager) return;
     const scope = vaultId;
     const request = ++creditEditRequest.current;
     const current = () =>
-      focusedRef.current &&
+      currentMemberAction("credit") &&
       request === creditEditRequest.current &&
       getActiveVaultIdSyncMaybe() === scope;
     creditPermissionPending.current = true;
@@ -821,13 +876,13 @@ export default function VaultMembersScreen() {
 
   async function onCreditPermission(value: string) {
     const editor = creditEditor;
-    if (!editor || creditPermissionPending.current) return;
+    if (!editor || creditPermissionPending.current || !currentMemberAction("credit")) return;
     if (value !== "inherit" && value !== "enforce" && value !== "bypass") return;
     setCreditEditor(null);
     if (value === editor.value) return;
     const request = ++creditEditRequest.current;
     const current = () =>
-      focusedRef.current &&
+      currentMemberAction("credit") &&
       request === creditEditRequest.current &&
       getActiveVaultIdSyncMaybe() === editor.vaultId;
     creditPermissionPending.current = true;
@@ -879,7 +934,7 @@ export default function VaultMembersScreen() {
   // spinner existed only because the action awaited a network round-trip.
 
   async function onChangeRole(targetRole: VaultRole) {
-    if (!sheetTarget) return;
+    if (!sheetTarget || !currentMemberAction("members")) return;
     const target = sheetTarget;
     setSheetTarget(null);
     // Refuse self-demotion: the role picker is hidden for self (openMemberSheet
@@ -927,6 +982,7 @@ export default function VaultMembersScreen() {
     if (!revokeTarget) return;
     const target = revokeTarget;
     setRevokeTarget(null);
+    if (!currentMemberAction("members")) return;
     try {
       if (isManager) {
         // Manager path: REST-first (see onChangeRole).
@@ -1077,15 +1133,32 @@ export default function VaultMembersScreen() {
     };
   }, [transferRequest, loadAll, router, toast]);
 
-  const sheetActions: SheetAction[] = sheetTarget
-    ? buildSheetActions(sheetTarget, ownerCount, isOwner ? "owner" : "manager", {
-        onChangeRole,
-        onRevoke: () => setRevokeTarget(sheetTarget),
-        onTransfer: () => setTransferTarget(sheetTarget),
-        onCreditPermission: () => void openCreditPermission(sheetTarget),
-        creditPermissionBusy,
-      })
-    : [];
+  const sheetActions: SheetAction[] =
+    sheetTarget && canOpenMemberSheet(sheetTarget)
+      ? buildSheetActions(sheetTarget, ownerCount, isOwner ? "owner" : "manager", {
+          onChangeRole,
+          onRevoke: () => {
+            if (currentMemberAction("members"))
+              setRevokeTarget({ member: sheetTarget, vaultId, identity });
+          },
+          onTransfer: () => {
+            if (currentMemberAction("members") && ownerScopeRef.current.isOwner)
+              setTransferTarget(sheetTarget);
+          },
+          onCreditPermission: () => void openCreditPermission(sheetTarget),
+          onCustomRole:
+            canCustomizeRoles &&
+            sheetTarget.role !== "owner" &&
+            sheetTarget.accepted_at != null &&
+            sheetTarget.revoked_at == null &&
+            !sheetTarget.account_id.startsWith("local:")
+              ? () => openCustomRoles(sheetTarget.account_id)
+              : undefined,
+          canManageMembers,
+          canManageCredit,
+          creditPermissionBusy,
+        })
+      : [];
 
   const excluded =
     rosterExclusions?.vaultId === vaultId && rosterExclusions.identity === identity
@@ -1162,7 +1235,17 @@ export default function VaultMembersScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {isOwner || isManager ? <EmptyHint label={t("members.rolesHelp")} isRTL={isRTL} /> : null}
+        {canManageMembers ? <EmptyHint label={t("members.rolesHelp")} isRTL={isRTL} /> : null}
+        {canCustomizeRoles ? (
+          <NavRow
+            icon="shield-outline"
+            label={customRoleText("title")}
+            hint={customRoleText("manageHint")}
+            onPress={() => openCustomRoles()}
+            isRTL={isRTL}
+            isLast
+          />
+        ) : null}
         {creditPermissionBusy ? (
           <EmptyHint label={t("members.credit.working")} isRTL={isRTL} />
         ) : null}
@@ -1200,11 +1283,7 @@ export default function VaultMembersScreen() {
                 isRTL={isRTL}
                 online={!isSelf && onlineAccounts.has(m.account_id)}
                 onPress={() => openMemberSheet(m)}
-                disabled={
-                  transferRequest !== null ||
-                  isSelf ||
-                  (!isOwner && (!isManager || VAULT_ROLE_RANK[m.role] >= VAULT_ROLE_RANK.manager))
-                }
+                disabled={!canOpenMemberSheet(m)}
                 isLast={last}
               />
             );
@@ -1262,7 +1341,7 @@ export default function VaultMembersScreen() {
           </>
         ) : null}
 
-        {isOwner || isManager ? (
+        {canInvite || isOwner ? (
           <>
             {/* PARKED (mesh): the in-person QR pair flow (vault/pair) is parked
                 with the rest of the offline mesh. The online invite link is the
@@ -1280,15 +1359,19 @@ export default function VaultMembersScreen() {
             {/* Online invite link. Requires sign-in + internet; the destination
                 screen renders a disabled state when offline so users get clear
                 feedback rather than an opaque API error. */}
-            <NavRow
-              icon="person-add-outline"
-              label={t("members.row.sendInvite")}
-              hint={t("members.row.sendInvite.hint")}
-              onPress={() => router.push("/vault/invite")}
-              isRTL={isRTL}
-              emphasis
-              isLast={!isOwner}
-            />
+            {canInvite ? (
+              <NavRow
+                icon="person-add-outline"
+                label={t("members.row.sendInvite")}
+                hint={t("members.row.sendInvite.hint")}
+                onPress={() => {
+                  if (currentMemberAction("invites")) router.push("/vault/invite");
+                }}
+                isRTL={isRTL}
+                emphasis
+                isLast={!isOwner}
+              />
+            ) : null}
             {isOwner ? (
               <NavRow
                 icon="key-outline"
@@ -1327,7 +1410,7 @@ export default function VaultMembersScreen() {
       </ScrollView>
 
       <BottomSheet
-        visible={sheetTarget !== null}
+        visible={sheetTarget !== null && sheetActions.length > 0}
         title={
           sheetTarget
             ? t("members.sheet.title", {
@@ -1361,7 +1444,7 @@ export default function VaultMembersScreen() {
         }}
       />
       <ConfirmDialog
-        visible={revokeTarget !== null}
+        visible={revokeTarget !== null && canManageMembers}
         title={t("members.confirm.remove.title")}
         description={t("members.confirm.remove.body")}
         confirmLabel={t("members.confirm.remove.cta")}
@@ -1409,7 +1492,7 @@ export default function VaultMembersScreen() {
         onCancel={() => setTransferTarget(null)}
       />
       <OptionSheet
-        visible={creditEditor !== null}
+        visible={creditEditor !== null && canManageCredit}
         title={t("members.credit.title", { name: creditEditor?.member.display_name ?? "" })}
         options={[
           {
@@ -1526,6 +1609,9 @@ function buildSheetActions(
     onRevoke: () => void;
     onTransfer: () => void;
     onCreditPermission: () => void;
+    onCustomRole?: () => void;
+    canManageMembers: boolean;
+    canManageCredit: boolean;
     creditPermissionBusy: boolean;
   },
 ): SheetAction[] {
@@ -1538,7 +1624,15 @@ function buildSheetActions(
   const isLastOwner = member.role === "owner" && ownerCount <= 1;
   if (isLastOwner) return actions;
 
-  if (VAULT_ROLE_RANK[member.role] < VAULT_ROLE_RANK.manager) {
+  if (handlers.onCustomRole) {
+    actions.push({
+      label: customRoleText("current"),
+      icon: "shield-outline",
+      onPress: handlers.onCustomRole,
+    });
+  }
+
+  if (handlers.canManageCredit && VAULT_ROLE_RANK[member.role] < VAULT_ROLE_RANK.manager) {
     actions.push({
       label: t("members.credit.action"),
       icon: "shield-checkmark-outline",
@@ -1546,6 +1640,8 @@ function buildSheetActions(
       disabled: handlers.creditPermissionBusy,
     });
   }
+
+  if (!handlers.canManageMembers) return actions;
 
   // Roles v2 Phase B: managers grant strictly below manager (openMemberSheet
   // already caps their TARGETS below manager); only owners mint managers,

@@ -297,16 +297,16 @@ export default function HomeScreen() {
   const [vaultPickerVisible, setVaultPickerVisible] = useState(false);
   const [activeVaultId, setActiveVaultIdState] = useState<string | null>(null);
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
-  // Viewer read-only gate: false only when I'm a viewer on the active (shared)
-  // vault. Hides write affordances (long-press edit/delete). Defaults true
-  // for local-only / owner / editor.
-  // Search is available to every role; only resolved writers get the add button.
+  // Search is available to every role. Customer and group actions each wait
+  // for the permission read for this Kaata and account.
   const caps = useActiveVaultWriteCaps(activeVaultId);
   const currentVaultScope =
     activeVaultId != null &&
     activeVaultId === getActiveVaultIdSyncMaybe() &&
     activeAccountId === getAccountIdSync();
-  const canCreate = caps.resolved && caps.canCreate && currentVaultScope;
+  const canCreate = caps.resolved && caps.canAddPerson && currentVaultScope;
+  const canEditPerson = caps.resolved && caps.canEditPerson && currentVaultScope;
+  const canManageGroups = caps.resolved && caps.canManageGroups && currentVaultScope;
   // Refocusing Home refreshes permissions. Preserve the last confirmed
   // button footprint for this scope so search does not widen and shrink;
   // permission and press handling remain disabled throughout that refresh.
@@ -319,19 +319,20 @@ export default function HomeScreen() {
     createButtonPresentation.current = {
       vaultId: activeVaultId,
       accountId: activeAccountId,
-      visible: caps.canCreate,
+      visible: caps.canAddPerson,
     };
   }
   const showCreateButton =
     currentVaultScope &&
     (caps.resolved
-      ? caps.canCreate
+      ? caps.canAddPerson
       : createButtonPresentation.current?.vaultId === activeVaultId &&
         createButtonPresentation.current?.accountId === activeAccountId &&
         createButtonPresentation.current.visible);
-  const { canAmend } = caps;
   const canCreateRef = useRef(canCreate);
   canCreateRef.current = canCreate;
+  const canManageGroupsRef = useRef(canManageGroups);
+  canManageGroupsRef.current = canManageGroups;
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -879,7 +880,7 @@ export default function HomeScreen() {
       ),
     [searchMatches, listPreference, groupByPerson, locale],
   );
-  const canSelect = caps.resolved && canAmend && currentVaultScope && currentPeopleScope;
+  const canSelect = canEditPerson && currentPeopleScope;
   const selecting = selectionMode && canSelect;
   const peopleSearch = usePeopleSearch(customerQuery, currentPeopleScope && !selecting);
   const canSelectRef = useRef(canSelect);
@@ -1510,7 +1511,7 @@ export default function HomeScreen() {
           ref={searchInputRef}
           accessibilityLabel={t("customers.search")}
           placeholder={t(
-            canCreate && canAmend && activeAccountId
+            canCreate && canEditPerson && activeAccountId
               ? "peopleSearch.placeholder"
               : "customers.search",
           )}
@@ -1738,7 +1739,7 @@ export default function HomeScreen() {
         isRTL={isRTL}
         onChange={changeListPreference}
       />
-      {canAmend ? (
+      {canManageGroups ? (
         <Button
           label={t("groups.manage")}
           icon="add-outline"
@@ -1748,7 +1749,7 @@ export default function HomeScreen() {
             if (
               !isCurrentHome() ||
               selectionBusyRef.current ||
-              !canSelectRef.current ||
+              !canManageGroupsRef.current ||
               !activeVaultId ||
               homeInteraction.current.confirming
             )
@@ -1882,7 +1883,7 @@ export default function HomeScreen() {
             picker (it used to: the switcher's tap target spanned to the avatar). */}
             {/* Viewer badge — shown when I'm a viewer on this (shared) kaata, so
             the absent FAB / write actions are explained rather than mysterious. */}
-            {caps.resolved && !caps.canCreate && currentVaultScope ? (
+            {caps.resolved && caps.role === "viewer" && currentVaultScope ? (
               <View style={[styles.readOnlyBadge, isRTL ? { marginRight: 8 } : { marginLeft: 8 }]}>
                 {/* Stays 12, NOT icon.trailing (16): this glyph is optically paired
                 to the 11px caption inside a 3px-padded micro-pill — a composed
@@ -2174,7 +2175,7 @@ export default function HomeScreen() {
                   sharedStatusByPerson={sharedStatusByPerson}
                   paddingBottom={24}
                   onPersonPress={openPerson}
-                  onPersonLongPress={canAmend ? openHomePersonActions : undefined}
+                  onPersonLongPress={canSelect ? openHomePersonActions : undefined}
                 />
               ) : (
                 // Pre-load: spinner instead of the page. Rendering the page before
@@ -2425,7 +2426,7 @@ export default function HomeScreen() {
       />
 
       <BottomSheet
-        visible={sheetFor !== null}
+        visible={sheetFor !== null && canSelect}
         title={sheetFor?.name}
         onDismiss={() => {
           if (isCurrentHome()) setSheetFor(null);
@@ -2463,7 +2464,7 @@ export default function HomeScreen() {
       />
 
       <ConfirmDialog
-        visible={confirmDeleteFor !== null}
+        visible={confirmDeleteFor !== null && canSelect}
         title={t("common.remove.title", { name: confirmDeleteFor?.name ?? "" })}
         description={t("common.remove.description")}
         confirmLabel={t("common.remove")}

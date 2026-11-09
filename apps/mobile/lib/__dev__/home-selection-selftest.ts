@@ -48,7 +48,13 @@ let backClock = 10_000;
 const backHandlers = new Set<() => boolean>();
 let selectedCurrency = "AFN";
 let fixtureRTL = false;
-let writeCaps = { resolved: false, canCreate: true, canAmend: true };
+let writeCaps: {
+  resolved: boolean;
+  canCreate: boolean;
+  canAmend: boolean;
+  role?: "editor" | "viewer";
+  canAddPerson?: boolean;
+} = { resolved: false, canCreate: true, canAmend: true };
 let archiveGuardReads = 0;
 let hapticImpacts = 0;
 let enabledCurrencies = ["AFN"];
@@ -442,7 +448,13 @@ const mocks: Record<string, any> = {
     }),
   },
   "../lib/use-vault-role": {
-    useActiveVaultWriteCaps: () => writeCaps,
+    useActiveVaultWriteCaps: () => ({
+      role: writeCaps.canCreate ? "editor" : "viewer",
+      canAddPerson: writeCaps.canCreate,
+      canEditPerson: writeCaps.canAmend,
+      canManageGroups: writeCaps.canAmend,
+      ...writeCaps,
+    }),
   },
   "../lib/battery-exemption": {},
   "../lib/mesh": {
@@ -1413,6 +1425,24 @@ async function main() {
   assert.deepEqual(addGeometry(addButton()!), confirmedGeometry);
   assert.equal(addButton()!.props.disabled, false);
   assert.equal(input().props.ref.current, nativeSearchBeforeRefresh);
+  writeCaps = {
+    resolved: true,
+    role: "editor",
+    canCreate: false,
+    canAmend: false,
+    canAddPerson: true,
+  };
+  render();
+  assert.equal(
+    addButton()?.props.disabled,
+    false,
+    "customer permission is independent of tally writes",
+  );
+  assert.equal(
+    homeNodes().some((node) => node.props.children === "vaultSettings.role.viewer"),
+    false,
+    "an editor with restricted tally access is not labeled a viewer",
+  );
   writeCaps = { resolved: true, canCreate: false, canAmend: false };
   render();
   assert.equal(addButton(), undefined, "A confirmed viewer role removes the writer action");

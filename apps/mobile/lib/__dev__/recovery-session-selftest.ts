@@ -9,7 +9,8 @@ function fixture() {
     locked = false;
   let tail = Promise.resolve();
   const writes: string[] = [],
-    calls: string[] = [];
+    calls: string[] = [],
+    pulled: string[] = [];
   const sqlWrites: { sql: string; args: unknown[] }[] = [];
   const meta = new Map<string, string>([["signin_default_vault_id", "vault-a"]]);
   class SessionChangedError extends Error {}
@@ -180,6 +181,7 @@ function fixture() {
       },
       "./auth": auth,
       "./db": dbModule,
+      "./db-backup": { PERSONAL_BACKUP_JOINED_RECOVERY_KEY: "personal_backup_joined_recovery_account" },
       "./db-tx": dbTx,
       "./currency-metadata": require("../currency-metadata"),
       "./i18n": { t: (s: string) => s, isPlaceholderSelfName: () => false },
@@ -193,8 +195,9 @@ function fixture() {
       },
       "./vault-roles": { parseVaultRole: (role: string) => role },
       "./sync/pull": {
-        pullEvents: async (_: string, before: any) => {
+        pullEvents: async (vaultId: string, before: any) => {
           remote("pull");
+          pulled.push(vaultId);
           if (pullError) throw pullError;
           await auth.applyForCurrentSession(before, async () => write("pull-apply"));
         },
@@ -220,6 +223,7 @@ function fixture() {
         },
       },
       "./tabs/db": { getTabLink: async (id: string) => links.get(id) ?? null },
+      "./ledger-events": { emitLedgerApplied: () => write("ledger-applied") },
       "./trust/backfill": {
         emitWitnessedSelfAdmission: async (_: string, opts: any) => {
           remote("witness");
@@ -261,6 +265,7 @@ function fixture() {
     writes,
     sqlWrites,
     calls,
+    pulled,
     db,
     dbModule,
     dbTx,
@@ -298,7 +303,7 @@ function fixture() {
     setMineError: (error: Error) => {
       mineError = error;
     },
-    setPullError: (error: Error) => {
+    setPullError: (error: Error | null) => {
       pullError = error;
     },
     setLink: (id: string, link: any) => {
@@ -450,6 +455,24 @@ async function main() {
     seeded.writes.includes("INSERT OR IGNORE"),
     "no-snapshot recovery keeps its bare seed behavior",
   );
+
+  const personal = fixture();
+  const marker = "personal_backup_joined_recovery_account";
+  personal.meta.set(marker, "account-a");
+  personal.meta.set("active_vault_id", "owned");
+  personal.setListing([
+    { vault_id: "owned", name: "Owned", role: "owner", archived_at_ms: null, created_at_ms: 1 },
+    { vault_id: "joined", name: "Joined", role: "manager", archived_at_ms: null, created_at_ms: 2 },
+  ]);
+  personal.setPullError(new Error("temporary connection loss"));
+  await personal.recovery.recoverPersonalBackupMemberships(personal.session());
+  assert.equal(personal.meta.get(marker), "account-a", "failed joined recovery retries later");
+  personal.setPullError(null);
+  await personal.recovery.recoverPersonalBackupMemberships(personal.session());
+  assert.deepEqual(personal.pulled, ["joined", "joined"]);
+  assert.ok(!personal.calls.includes("snapshot"), "existing ZIP and global contacts stay intact");
+  assert.equal(personal.meta.get("active_vault_id"), "owned");
+  assert.equal(personal.meta.get(marker), "", "successful joined recovery clears its retry marker");
 
   for (const stage of ["list", "snapshot", "tabs"] as const) {
     const f = fixture(),

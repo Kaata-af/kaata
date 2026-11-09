@@ -66,6 +66,7 @@ import (
 	"github.com/matee/kaata-backend/internal/canonical"
 	"github.com/matee/kaata-backend/internal/mesh"
 	"github.com/matee/kaata-backend/internal/ownership"
+	"github.com/matee/kaata-backend/internal/rolepolicy"
 )
 
 // RejectReasonMembershipUnverified is the per-event rejection reason for
@@ -382,7 +383,18 @@ func (s *Service) verifyMembershipEvent(
 			}
 		}
 		if found && role == "owner" {
-			return true, nil
+			// A former owner with a current restricted seat cannot upload new
+			// governance events under their historical role. Exact replays still
+			// acknowledge what was already accepted.
+			ok, err := rolepolicy.Allows(ctx, tx, vaultID, acct, rolepolicy.VaultMembers)
+			if err != nil || ok {
+				return ok, err
+			}
+			stored, err := storedMembershipEventMatches(ctx, tx, vaultID, ev)
+			if err != nil || stored {
+				return stored, err
+			}
+			continue
 		}
 		// 2b-manager (roles v2, docs/roles-v2-design.md): a manager-bound
 		// device may author member events strictly BELOW manager rank —
@@ -397,7 +409,13 @@ func (s *Service) verifyMembershipEvent(
 				return false, merr
 			}
 			if ok {
-				return true, nil
+				ok, err := allowsManagerMembershipEvent(ctx, tx, vaultID, acct, ev)
+				if err != nil {
+					return false, err
+				}
+				if ok {
+					return true, nil
+				}
 			}
 		}
 	}
@@ -543,6 +561,44 @@ func (s *Service) verifyMembershipEvent(
 	}
 
 	return false, nil
+}
+
+// Check current custom policy even on an offline/backdated event. Only owners
+// can clear a target's assignment through a seat mutation. Stored, signed
+// history keeps its prior acknowledgement after a policy change.
+func allowsManagerMembershipEvent(ctx context.Context, tx pgx.Tx, vaultID, actorID string, ev *PushEvent) (bool, error) {
+	allowed, err := rolepolicy.Allows(ctx, tx, vaultID, actorID, rolepolicy.VaultMembers)
+	if err != nil {
+		return false, err
+	}
+	var payload struct {
+		AccountID string `json:"account_id"`
+	}
+	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+		return false, nil
+	}
+	if allowed {
+		// Local sentinel seats cannot carry custom assignments.
+		if _, err := uuid.Parse(payload.AccountID); err != nil {
+			return true, nil
+		}
+		assigned, err := rolepolicy.HasAssignment(ctx, tx, vaultID, payload.AccountID)
+		if err != nil {
+			return false, err
+		}
+		if !assigned {
+			return true, nil
+		}
+	}
+	return storedMembershipEventMatches(ctx, tx, vaultID, ev)
+}
+
+func storedMembershipEventMatches(ctx context.Context, tx pgx.Tx, vaultID string, ev *PushEvent) (bool, error) {
+	var alreadyStored bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE vault_id=$1::uuid AND event_id=$2::uuid
+	 AND event_sig_b64=$3 AND signer_device_pubkey=$4)`, vaultID, ev.EventID,
+		derefStr(ev.EventSigB64), derefStr(ev.SignerDevicePubkeyB64)).Scan(&alreadyStored)
+	return alreadyStored, err
 }
 
 // boundAccountsForPubkey lists the accounts whose vault_devices binding for

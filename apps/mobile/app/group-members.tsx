@@ -46,7 +46,7 @@ export default function GroupMembersScreen() {
   const state = useCustomerGroups(vaultId);
   const caps = useActiveVaultWriteCaps(vaultId);
   const inScope = viewAccount === getAccountIdSync() && vaultId === getActiveVaultIdSyncMaybe();
-  const canManage = caps.resolved && caps.canAmend && inScope;
+  const canManage = caps.resolved && caps.canManageGroups && inScope;
   const group = state.groups.find((candidate) => candidate.id === params.groupId) ?? null;
   const [people, setPeople] = useState<PersonWithBalance[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);

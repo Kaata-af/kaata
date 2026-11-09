@@ -12,7 +12,7 @@ import {
   withPersonalBackupSession,
   withReadablePersonalBackup,
 } from "./personal-backup";
-import type { PersonalBackupErrorCode } from "./personal-backup-db";
+import type { PersonalBackupCoverage, PersonalBackupErrorCode } from "./personal-backup-db";
 import {
   PersonalCloudProviderError,
   type PersonalCloudConnection,
@@ -31,6 +31,7 @@ export type PersonalCloudStatus = {
   pending?: boolean;
   running?: boolean;
   error?: BackupError;
+  coverage?: PersonalBackupCoverage;
 };
 type Settings = PersonalCloudStatus & {
   attemptedAt?: number;
@@ -148,8 +149,8 @@ export async function readPersonalCloudBackupStatuses(): Promise<
   for (const id of destinations) {
     const value = settings[id];
     if (value) {
-      const { connection, savedAt, pending, error } = value;
-      result[id] = { connection, savedAt, pending, error, running: !!(
+      const { connection, savedAt, pending, error, coverage } = value;
+      result[id] = { connection, savedAt, pending, error, coverage, running: !!(
         running?.session.bindingVersion === session.bindingVersion &&
         running.session.accountId === session.accountId && running.ids.includes(id)
       ) };
@@ -221,7 +222,7 @@ function isDue(settings: Settings, now: number, revision: number): boolean {
 }
 
 function needsNewData(error: BackupError): boolean {
-  return error === "empty" || error === "tooLarge" || error === "unsupported" || error === "invalid";
+  return error === "empty" || error === "noOwnedVaults" || error === "tooLarge" || error === "unsupported" || error === "invalid";
 }
 
 function errorCode(error: unknown): BackupError {
@@ -263,6 +264,7 @@ async function runBackups(force?: PersonalCloudProviderId): Promise<void> {
         setting.pending = copy?.pending === true;
         if (!copy) {
           setting.savedAt = undefined;
+          setting.coverage = undefined;
           setting.error = "providerFailed";
         } else {
           setting.error = copy.error;
@@ -283,7 +285,7 @@ async function runBackups(force?: PersonalCloudProviderId): Promise<void> {
     notify();
     try {
       await requireNetwork();
-      await withReadablePersonalBackup(session, async (archive) => {
+      await withReadablePersonalBackup(session, async (archive, coverage) => {
         for (const id of due) {
           const setting = settings[id]!;
           try {
@@ -293,6 +295,7 @@ async function runBackups(force?: PersonalCloudProviderId): Promise<void> {
             setting.pending = copy.pending === true;
             setting.copyId = copy.id;
             setting.revision = revision;
+            setting.coverage = coverage;
             setting.error = copy.error;
           } catch (error) {
             failures.set(id, error);

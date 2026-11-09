@@ -23,6 +23,7 @@ const en = {
   "backups.pending": "Some changes are still waiting to upload.",
   "backups.noKaatas": "No Kaatas to back up yet.",
   "backups.syncNow": "Sync now",
+  "backups.cloudUpToDate": "Synced to Kaata Cloud",
   "backups.syncFailed":
     "Some changes could not be uploaded. Check your connection and try again; the dates below show the last confirmed syncs.",
   "backups.restoreCloud": "Restore from Kaata Cloud",
@@ -48,6 +49,12 @@ const en = {
   "backups.reconnect": "Reconnect {destination}",
   "backups.reconnectHint": "Reconnect to resume automatic backups.",
   "backups.backUpNow": "Back up now",
+  "backups.backupSaved": "Backup saved",
+  "backups.uploadQueued": "Waiting for upload",
+  "backups.ownedScope": "Personal backups include the Kaatas you own. Joined Kaatas sync through Kaata Cloud while you have access.",
+  "backups.coverage": "Kaatas in this backup: {included} included, {skipped} skipped",
+  "backups.skippedPending": "Skipped Kaatas had unsynced changes when this backup was made.",
+  "backups.noOwnedVaults": "There are no Kaatas you own on this phone to back up.",
   "backups.turnOff": "Turn off automatic backup",
   "backups.restoreLatest": "Restore latest backup",
   "backups.restoreLatestTitle": "Restore from {destination}?",
@@ -76,6 +83,7 @@ const en = {
     "Kaata keeps a recovery copy on this phone. It does not protect against losing or resetting the phone.",
   "backups.error.ownership":
     "This phone contains data that cannot be included in a personal backup for this account.",
+  "backups.error.ownershipUnavailable": "Kaata Cloud couldn’t verify ownership. Try again in a moment.",
   "backups.error.differentAccount":
     "Use the same Kaata account as this backup. A Ninja backup must be restored in Ninja mode.",
   "backups.error.notEmpty":
@@ -2825,6 +2833,7 @@ const fa: Partial<Record<Key, string>> = {
   "backups.pending": "بعضی تغییرات هنوز منتظر ارسال است.",
   "backups.noKaatas": "هنوز کاته‌ای برای پشتیبان‌گیری نیست.",
   "backups.syncNow": "همگام‌سازی اکنون",
+  "backups.cloudUpToDate": "با فضای ابری کاته همگام شد",
   "backups.syncFailed":
     "بعضی تغییرات ارسال نشد. اتصال اینترنت را بررسی کرده دوباره تلاش کنید؛ تاریخ‌های زیر آخرین همگام‌سازی تأییدشده را نشان می‌دهد.",
   "backups.restoreCloud": "بازیابی از فضای ابری کاته",
@@ -2850,6 +2859,12 @@ const fa: Partial<Record<Key, string>> = {
   "backups.reconnect": "اتصال دوباره به {destination}",
   "backups.reconnectHint": "برای ادامۀ پشتیبان‌گیری خودکار، دوباره وصل شوید.",
   "backups.backUpNow": "همین حالا پشتیبان بگیرید",
+  "backups.backupSaved": "نسخۀ پشتیبان ذخیره شد",
+  "backups.uploadQueued": "در انتظار بارگذاری",
+  "backups.ownedScope": "نسخۀ پشتیبان شخصی شامل کاته‌هایی است که مالک آن‌ها هستید. کاته‌هایی که به آن‌ها پیوسته‌اید، تا زمانی که دسترسی دارید با فضای ابری کاته همگام می‌شوند.",
+  "backups.coverage": "کاته‌ها در این نسخه: {included} شامل شد، {skipped} کنار گذاشته شد",
+  "backups.skippedPending": "هنگام ساخت این نسخه، تغییرات کاته‌های کنار گذاشته‌شده هنوز همگام نشده بود.",
+  "backups.noOwnedVaults": "در این گوشی کاته‌ای که مالک آن باشید برای پشتیبان‌گیری وجود ندارد.",
   "backups.turnOff": "خاموش کردن پشتیبان‌گیری خودکار",
   "backups.restoreLatest": "بازیابی آخرین نسخۀ پشتیبان",
   "backups.restoreLatestTitle": "از {destination} بازیابی شود؟",
@@ -2877,6 +2892,7 @@ const fa: Partial<Record<Key, string>> = {
     "کاته یک کاپی بازیابی در همین گوشی نگه می‌دارد. این کاپی در برابر گم‌شدن یا بازنشانی گوشی محافظت نمی‌کند.",
   "backups.error.ownership":
     "این گوشی اطلاعاتی دارد که نمی‌توان در نسخۀ پشتیبان شخصی این حساب گنجاند.",
+  "backups.error.ownershipUnavailable": "فضای ابری کاته نتوانست مالکیت را تأیید کند. کمی بعد دوباره امتحان کنید.",
   "backups.error.differentAccount":
     "از همان حساب کاته که این نسخه به آن تعلق دارد استفاده کنید. نسخۀ نینجا باید در حالت نینجا بازیابی شود.",
   "backups.error.notEmpty":
@@ -5344,6 +5360,7 @@ const ps: Record<Key, string> = {
   "backups.pending": "ځینې بدلونونه لا لېږلو ته منتظر دي.",
   "backups.noKaatas": "لا د شاتړ لپاره کاته نشته.",
   "backups.syncNow": "اوس همغږي کول",
+  "backups.cloudUpToDate": "د کاته له کلاوډ سره همغږی شو",
   "backups.syncFailed":
     "ځینې بدلونونه ونه لېږل شول. انټرنېټ وګورئ او بیا هڅه وکړئ؛ لاندې نېټې وروستۍ تایید شوې همغږۍ ښيي.",
   "backups.restoreCloud": "د کاته له کلاوډ څخه بېرته راوستل",
@@ -5369,6 +5386,12 @@ const ps: Record<Key, string> = {
   "backups.reconnect": "له {destination} سره بیا نښلول",
   "backups.reconnectHint": "د اوتومات شاتړ د دوام لپاره بیا ونښلوئ.",
   "backups.backUpNow": "اوس شاتړ واخلئ",
+  "backups.backupSaved": "شاتړ خوندي شو",
+  "backups.uploadQueued": "پورته کېدو ته په تمه دی",
+  "backups.ownedScope": "شخصي شاتړ هغه کاتې رانغاړي چې تاسو یې مالک یاست. د نورو کاتې تر هغه د کاته له کلاوډ سره همغږي کېږي چې لاسرسی ورته لرئ.",
+  "backups.coverage": "په دې شاتړ کې: {included} کاتې شاملې دي، {skipped} پرېښودل شوې دي",
+  "backups.skippedPending": "د دې شاتړ پر وخت د پرېښودل شوو کاتو بدلونونه لا نه وو همغږي شوي.",
+  "backups.noOwnedVaults": "په دې موبایل کې د شاتړ لپاره ستاسو په ملکیت کې کومه کاته نشته.",
   "backups.turnOff": "اوتومات شاتړ بندول",
   "backups.restoreLatest": "وروستی شاتړ بېرته راوستل",
   "backups.restoreLatestTitle": "له {destination} څخه شاتړ بېرته راوړئ؟",
@@ -5394,6 +5417,7 @@ const ps: Record<Key, string> = {
     "کاته په همدې موبایل کې د بېرته راوستلو کاپي ساتي. دا کاپي د موبایل د ورکېدو یا بیا تنظیمېدو پر وړاندې ساتنه نه کوي.",
   "backups.error.ownership":
     "په دې موبایل کې داسې معلومات شته چې د دې حساب په شخصي شاتړ کې نه شي شاملېدای.",
+  "backups.error.ownershipUnavailable": "د کاته کلاوډ مالکیت تایید نه کړای شو. لږ وروسته بیا هڅه وکړئ.",
   "backups.error.differentAccount":
     "د دې شاتړ هماغه کاته حساب وکاروئ. د نینجا شاتړ باید په نینجا حالت کې بېرته راوستل شي.",
   "backups.error.notEmpty":
