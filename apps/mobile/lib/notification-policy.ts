@@ -177,6 +177,18 @@ export function notificationChannel(
   return `${reminder ? "customer-reminders" : "tab-updates"}-s${Number(policy.sound)}-v${Number(policy.vibration)}`;
 }
 
+export function notificationChannelDelivery({
+  sound,
+  vibration,
+}: Pick<NotificationPolicy, "sound" | "vibration">) {
+  return {
+    sound: sound ? "default" : null,
+    enableVibrate: vibration,
+    // Android 8.0 can crash while saving a channel with an empty vibration pattern.
+    ...(vibration ? { vibrationPattern: [0, 250, 250, 250] } : {}),
+  };
+}
+
 export function parseNotificationTime(value: string): number | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
   if (!match) return null;

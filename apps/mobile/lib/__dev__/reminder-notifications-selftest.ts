@@ -21,7 +21,7 @@ async function main() {
   const scheduledCalls: any[] = [],
     canceled: string[] = [],
     dismissed: string[] = [],
-    channels: any[] = [],
+    channels: [id: string, options: Record<string, unknown>][] = [],
     sql: any[] = [];
   const prefix = "kaata-customer-reminder:";
   let deliveryPolicy = notificationPolicy.defaultNotificationPolicy();
@@ -46,8 +46,8 @@ async function main() {
     },
     AndroidImportance: { DEFAULT: 3 },
     IosAuthorizationStatus: { PROVISIONAL: 3 },
-    setNotificationChannelAsync: async (...args: any[]) => {
-      channels.push(args);
+    setNotificationChannelAsync: async (id: string, options: Record<string, unknown>) => {
+      channels.push([id, options]);
     },
     getPermissionsAsync: async () => permission,
     requestPermissionsAsync: async () => {
@@ -156,7 +156,16 @@ async function main() {
     ["date", "daily", "weekly"],
   );
   assert.equal(scheduledCalls[2].trigger.weekday, 5);
-  assert.ok(channels.length > 0);
+  const channelOptions = new Map(channels);
+  for (const sound of [0, 1]) {
+    const disabled = channelOptions.get(`customer-reminders-s${sound}-v0`);
+    const enabled = channelOptions.get(`customer-reminders-s${sound}-v1`);
+    assert.ok(disabled);
+    assert.equal(disabled.enableVibrate, false);
+    assert.equal(Object.hasOwn(disabled, "vibrationPattern"), false);
+    assert.equal(enabled?.enableVibrate, true);
+    assert.deepEqual(enabled?.vibrationPattern, [0, 250, 250, 250]);
+  }
   for (const request of scheduledCalls) {
     assert.equal(request.content.title, "Kaata");
     // The visible text names the customer (decided 2026-10-12)...

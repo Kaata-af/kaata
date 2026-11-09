@@ -90,7 +90,7 @@ function fixture() {
     cancelled: string[] = [],
     routes: any[] = [];
   const tray = new Map<string, any>();
-  const channels: any[] = [];
+  const channels: [id: string, options: Record<string, unknown>][] = [];
   const ledger = new Set<() => void>(),
     tabs = new Set<() => void>(),
     policies = new Set<() => void>(),
@@ -135,8 +135,8 @@ function fixture() {
     cancelScheduledNotificationAsync: async (id: string) => {
       cancelled.push(id);
     },
-    setNotificationChannelAsync: async (...args: any[]) => {
-      channels.push(args);
+    setNotificationChannelAsync: async (id: string, options: Record<string, unknown>) => {
+      channels.push([id, options]);
     },
     scheduleNotificationAsync: async (request: any) => {
       scheduled.push(request);
@@ -635,7 +635,16 @@ async function main() {
     !JSON.stringify(notice.content.data).includes("Sensitive customer"),
     "payload stays opaque",
   );
-  assert.ok(f.channels.length > 0);
+  const channelOptions = new Map(f.channels);
+  for (const sound of [0, 1]) {
+    const disabled = channelOptions.get(`credit-alerts-s${sound}-v0`);
+    const enabled = channelOptions.get(`credit-alerts-s${sound}-v1`);
+    assert.ok(disabled);
+    assert.equal(disabled.enableVibrate, false);
+    assert.equal(Object.hasOwn(disabled, "vibrationPattern"), false);
+    assert.equal(enabled?.enableVibrate, true);
+    assert.deepEqual(enabled?.vibrationPattern, [0, 250, 250, 250]);
+  }
   await f.service.openCreditAlertNotification(notice.content.data);
   assert.equal(f.routes[0].params.id, PERSON);
   f.setBalance({ USD: 1000000, AFN: 10000000 });

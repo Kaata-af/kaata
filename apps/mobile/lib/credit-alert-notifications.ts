@@ -33,7 +33,11 @@ import {
   notificationPreferencesRevision,
   onNotificationPreferencesChanged,
 } from "./notification-preferences";
-import { notificationAllowed, type NotificationPolicy } from "./notification-policy";
+import {
+  notificationAllowed,
+  notificationChannelDelivery,
+  type NotificationPolicy,
+} from "./notification-policy";
 import { getLocale, subscribeLocale, t } from "./i18n";
 import { readVaultRole } from "./use-vault-role";
 import { getBackendUrl } from "./api";
@@ -553,9 +557,7 @@ export function reconcileCreditAlertNotifications(): Promise<void> {
             await n.setNotificationChannelAsync(channel({ sound, vibration }), {
               name: t("creditAlerts.notify.channel"),
               importance: n.AndroidImportance.DEFAULT,
-              sound: sound ? "default" : null,
-              enableVibrate: vibration,
-              vibrationPattern: vibration ? [0, 250, 250, 250] : [],
+              ...notificationChannelDelivery({ sound, vibration }),
             });
         configuredLocale = getLocale();
       }

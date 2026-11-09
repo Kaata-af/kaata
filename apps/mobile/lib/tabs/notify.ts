@@ -22,6 +22,7 @@ import type { NotificationResponse, NotificationTaskPayload } from "expo-notific
 import {
   notificationAllowed,
   notificationChannel,
+  notificationChannelDelivery,
   notificationTimeZone,
 } from "../notification-policy";
 import { notificationPreferencesSupported } from "../notification-capabilities";
@@ -84,9 +85,7 @@ async function configure(n: typeof import("expo-notifications")) {
         await n.setNotificationChannelAsync(notificationChannel({ sound, vibration }), {
           name: `${t("tab.notify.channel")} · ${t(key)}`,
           importance: n.AndroidImportance.DEFAULT,
-          sound: sound ? "default" : null,
-          enableVibrate: vibration,
-          vibrationPattern: vibration ? [0, 250, 250, 250] : [],
+          ...notificationChannelDelivery({ sound, vibration }),
         });
       }
   }

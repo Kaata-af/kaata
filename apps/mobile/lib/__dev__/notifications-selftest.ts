@@ -66,6 +66,7 @@ const rows = new Map<string, any>();
 let responseListener: any;
 let receivedListener: any;
 let registeredTask = "";
+const channels = new Map<string, Record<string, unknown>>();
 let categories: Array<{ id: string; actions: any[] }> = [];
 let registrations: any[] = [];
 let scheduled: any[] = [];
@@ -223,7 +224,9 @@ stub("../../modules/kaata-notification-actions", {
 });
 stub("expo-notifications", {
   AndroidImportance: { DEFAULT: 3 },
-  setNotificationChannelAsync: async () => {},
+  setNotificationChannelAsync: async (id: string, options: Record<string, unknown>) => {
+    channels.set(id, options);
+  },
   setNotificationCategoryAsync: async (id: string, actions: any[]) => {
     categories.push({ id, actions });
   },
@@ -331,6 +334,15 @@ async function main() {
   await settled();
   assert.equal(typeof responseListener, "function");
   assert.equal(registeredTask, "kaata-tab-notification-actions");
+  for (const sound of [0, 1]) {
+    const disabled = channels.get(`tab-updates-s${sound}-v0`);
+    const enabled = channels.get(`tab-updates-s${sound}-v1`);
+    assert.ok(disabled);
+    assert.equal(disabled.enableVibrate, false);
+    assert.equal(Object.hasOwn(disabled, "vibrationPattern"), false);
+    assert.equal(enabled?.enableVibrate, true);
+    assert.deepEqual(enabled?.vibrationPattern, [0, 250, 250, 250]);
+  }
   for (const locale of ["en", "fa", "ps"]) {
     const category = categories.find((c) => c.id === `tab-review-${locale}`)!;
     assert.equal(category.actions.length, 2);
