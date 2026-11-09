@@ -1,8 +1,11 @@
 package sponsors
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -69,7 +72,18 @@ func (h *Handler) readPlacement(w http.ResponseWriter, r *http.Request, admin bo
 	if !placement.Banner.Enabled {
 		placement.Banner.Slides = []placementSlide{}
 	}
-	httpx.JSON(w, http.StatusOK, placement.sponsorPlacement)
+	body, err := json.Marshal(placement.sponsorPlacement)
+	if err != nil {
+		httpx.Error(w, http.StatusInternalServerError, "could not encode sponsor placement")
+		return
+	}
+	// Hash the public representation so a no-op save or an edit to hidden
+	// slides does not invalidate the app's saved copy. A weak tag remains
+	// valid if the proxy compresses the response.
+	w.Header().Set("ETag", fmt.Sprintf(`W/"%x"`, sha256.Sum256(body)))
+	w.Header().Set("Access-Control-Expose-Headers", "ETag")
+	w.Header().Set("Content-Type", "application/json")
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(body))
 }
 
 type placementInput struct {

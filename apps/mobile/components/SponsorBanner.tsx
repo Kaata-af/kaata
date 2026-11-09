@@ -1,6 +1,8 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useIsFocused } from "expo-router";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Image,
   Linking,
   Platform,
@@ -28,11 +30,13 @@ export function SponsorBanner({
   const width = Math.min(WIDTH, screenWidth);
   const height = (width * HEIGHT) / WIDTH;
   const [index, setIndex] = useState(0);
+  const [appState, setAppState] = useState(AppState.currentState);
   const [imageStatus, setImageStatus] = useState<Record<string, "ready" | "failed">>({});
   const offset = useRef(new Animated.Value(0)).current;
   const transitioning = useRef(false);
   const opening = useRef(false);
   const reducedMotion = useReducedMotion();
+  const focused = useIsFocused();
   const toast = useToast();
 
   const available = slides.filter((slide) => imageStatus[slide.image_url] !== "failed");
@@ -43,8 +47,13 @@ export function SponsorBanner({
   const ready = !!current && imageStatus[current.image_url] === "ready";
   const nextReady = !!next && imageStatus[next.image_url] === "ready";
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", setAppState);
+    return () => subscription.remove();
+  }, []);
+
   useLayoutEffect(() => {
-    if (!ready || !nextReady) return;
+    if (!focused || appState !== "active" || !ready || !nextReady) return;
     const animation = Animated.timing(offset, {
       toValue: -width,
       duration: 300,
@@ -67,7 +76,19 @@ export function SponsorBanner({
       offset.setValue(0);
       transitioning.current = false;
     };
-  }, [current, next, nextIndex, nextReady, offset, ready, reducedMotion, rotationSeconds, width]);
+  }, [
+    appState,
+    current,
+    focused,
+    next,
+    nextIndex,
+    nextReady,
+    offset,
+    ready,
+    reducedMotion,
+    rotationSeconds,
+    width,
+  ]);
 
   if (!current) return null;
   const recordStatus = (imageUrl: string, status: "ready" | "failed") =>
@@ -92,7 +113,7 @@ export function SponsorBanner({
           opening.current = false;
         }
       }}
-      style={[styles.frame, { width, height: ready ? height : 0 }, ready && styles.spacing]}
+      style={[styles.frame, { width, height }]}
     >
       <Animated.View
         style={[
@@ -120,7 +141,6 @@ export function SponsorBanner({
 }
 
 const styles = StyleSheet.create({
-  frame: { alignSelf: "center", direction: "ltr", overflow: "hidden" },
-  spacing: { marginBottom: space.sm },
+  frame: { alignSelf: "center", direction: "ltr", overflow: "hidden", marginBottom: space.sm },
   track: { flexDirection: "row", alignSelf: "flex-start" },
 });

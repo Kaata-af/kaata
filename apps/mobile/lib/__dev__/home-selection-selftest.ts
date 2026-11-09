@@ -252,7 +252,9 @@ const selectionSummary = compileUI("../selection-summary", {
     getDb: () => assert.fail("Selection must use the displayed list, without a database read"),
   },
 });
-let sponsorPlacement: ReturnType<typeof import("../sponsor-placement").useSponsorPlacement> = null;
+let sponsorPlacement: ReturnType<
+  typeof import("../sponsor-placement").useSponsorPlacement
+>["placement"] = null;
 const mocks: Record<string, any> = {
   react,
   "react/jsx-runtime": { jsx: homeJsx, jsxs: homeJsx, Fragment: "Fragment" },
@@ -310,7 +312,9 @@ const mocks: Record<string, any> = {
     SearchKeyboardFooter: "SearchKeyboardFooter",
   },
   "../lib/app-meta-context": { useAppMeta: () => ({ forceUpdate: false }) },
-  "../lib/sponsor-placement": { useSponsorPlacement: () => sponsorPlacement },
+  "../lib/sponsor-placement": {
+    useSponsorPlacement: () => ({ ready: true, placement: sponsorPlacement }),
+  },
   "../lib/use-store-review-prompt": {
     useStoreReviewPrompt: (options: NonNullable<typeof reviewPromptOptions>) => {
       reviewPromptOptions = options;

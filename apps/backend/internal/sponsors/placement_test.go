@@ -51,6 +51,7 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 		key        = "test-admin-key"
 	)
 	router := chi.NewRouter()
+	router.Use(httpx.CORS)
 	router.Get(publicPath, h.SponsorPlacement)
 	router.Get(sponsorImagePath+"{digest}", h.ServeSponsorImage)
 	router.Head(sponsorImagePath+"{digest}", h.ServeSponsorImage)
@@ -81,6 +82,22 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 			t.Fatalf("invalid or cacheable response: %s (%v)", res.Body, err)
 		}
 		return placement
+	}
+	readPublicTag := func(etag string, wantStatus int) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, publicPath, nil)
+		if etag != "" {
+			req.Header.Set("If-None-Match", etag)
+		}
+		res := request(req, wantStatus)
+		tag := res.Header().Get("ETag")
+		if tag == "" || res.Header().Get("Cache-Control") != "no-store" || res.Header().Get("Access-Control-Expose-Headers") != "ETag" {
+			t.Fatalf("missing revalidation headers: %v", res.Header())
+		}
+		if wantStatus == http.StatusNotModified && (res.Body.Len() != 0 || tag != etag) {
+			t.Fatalf("unchanged placement returned body %q or a different tag %q", res.Body.String(), tag)
+		}
+		return tag
 	}
 	upload := func(width, height int, authKey string, wantStatus int) string {
 		t.Helper()
@@ -132,6 +149,12 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 	if !initial.Button.Enabled || initial.Button.Label != "" || initial.Banner.Enabled || initial.Banner.RotationSeconds != 6 || initial.Banner.Slides == nil || !initial.UpdatedAt.IsZero() {
 		t.Fatalf("unexpected initial public settings: %+v", initial)
 	}
+	preflight := request(httptest.NewRequest(http.MethodOptions, publicPath, nil), http.StatusNoContent)
+	if !strings.Contains(preflight.Header().Get("Access-Control-Allow-Headers"), "If-None-Match") {
+		t.Fatal("browser revalidation is blocked by CORS")
+	}
+	initialTag := readPublicTag("", http.StatusOK)
+	readPublicTag(initialTag, http.StatusNotModified)
 	first := upload(320, 50, key, http.StatusCreated)
 	if retry := upload(320, 50, key, http.StatusCreated); retry != first {
 		t.Fatalf("duplicate upload changed its immutable URL: %s -> %s", first, retry)
@@ -169,6 +192,12 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 	if published.Button.Enabled || published.Button.Label != "Work with Kaata" || !published.Banner.Enabled || published.Banner.RotationSeconds != 8 || len(published.Banner.Slides) != 2 || published.Banner.Slides[0].ImageURL != second || published.Banner.Slides[0].DestinationURL != "https://example.test/second" || published.Banner.Slides[1].ImageURL != first {
 		t.Fatalf("expected independently enabled banner in admin order: %+v", published)
 	}
+	publishedTag := readPublicTag(initialTag, http.StatusOK)
+	if publishedTag == initialTag {
+		t.Fatal("publishing slides did not invalidate the cached placement")
+	}
+	save(read(adminPath, key), http.StatusOK)
+	readPublicTag(publishedTag, http.StatusNotModified)
 	paused := read(adminPath, key)
 	paused.Button.Enabled = true
 	paused.Banner.Enabled = false
@@ -177,5 +206,13 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 	if !public.Button.Enabled || public.Banner.Enabled || len(public.Banner.Slides) != 0 || public.Banner.Slides == nil || len(read(adminPath, key).Banner.Slides) != 2 {
 		t.Fatalf("expected disabled slides to be withheld from public placement and retained in admin settings: %+v", public)
 	}
+	pausedTag := readPublicTag(publishedTag, http.StatusOK)
+	if pausedTag == publishedTag {
+		t.Fatal("hiding the banner did not invalidate the cached placement")
+	}
+	paused = read(adminPath, key)
+	paused.Banner.Slides[0], paused.Banner.Slides[1] = paused.Banner.Slides[1], paused.Banner.Slides[0]
+	save(paused, http.StatusOK)
+	readPublicTag(pausedTag, http.StatusNotModified)
 	request(httptest.NewRequest(http.MethodGet, sponsorImagePath+"invalid", nil), http.StatusNotFound)
 }

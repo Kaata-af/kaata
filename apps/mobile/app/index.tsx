@@ -1185,7 +1185,9 @@ export default function HomeScreen() {
     !batteryDialogOpen &&
     !oemDialogOpen &&
     !bleSettingsDialogOpen;
-  const sponsorship = useSponsorPlacement(loaded && !!activeVaultId && !forceUpdate);
+  const { ready: sponsorshipReady, placement: sponsorship } = useSponsorPlacement(
+    loaded && !!activeVaultId && !forceUpdate,
+  );
   const showSponsorship =
     directionControlsEnabled &&
     !loadError &&
@@ -2090,7 +2092,7 @@ export default function HomeScreen() {
                     <Text style={styles.loadErrorRetryText}>{t("common.tryAgain")}</Text>
                   </Pressable>
                 </View>
-              ) : loaded ? (
+              ) : loaded && sponsorshipReady ? (
                 <HomePage
                   key={summaryScopeKey}
                   active={currentPeopleScope && currentVaultScope}

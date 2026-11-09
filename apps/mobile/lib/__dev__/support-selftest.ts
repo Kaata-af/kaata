@@ -150,89 +150,188 @@ function sponsorButtonFixture(
 }
 
 async function sponsorPlacementChecks() {
-  const path = `/v1/sponsor-images/${"a".repeat(64)}`;
+  const firstPath = `/v1/sponsor-images/${"a".repeat(64)}`;
+  const nextPath = `/v1/sponsor-images/${"b".repeat(64)}`;
   const destination = "https://example.invalid/?text=@shop";
-  const hooks = uiHooks();
-  const appState = { currentState: "active", addEventListener: () => ({ remove() {} }) };
-  const intervals = new Set<() => void>();
-  const requests: string[] = [];
+  const cached = new Set<string>();
+  const localArtwork = (path: string) => `file:///kaata/cache/${path.slice(-64)}.img`;
+  const requests: { url: string; tag?: string }[] = [];
+  const downloads: string[][] = [];
+  let saved: string | null = null;
+  let etag = 'W/"a"';
+  let path = firstPath;
   let buttonEnabled = true;
   let bannerEnabled = true;
   let unavailable = false;
-  const placementModule = compileUI(
-    "../sponsor-placement",
-    {
-      react: hooks.react,
-      "expo-router": {
-        useFocusEffect: (effect: () => () => void) => hooks.react.useEffect(effect, [effect]),
+  let waitForArtwork: Promise<void> | undefined;
+
+  function mountPlacement() {
+    const hooks = uiHooks();
+    const intervals = new Set<() => void>();
+    let onAppState = (_state: string) => {};
+    const appState = {
+      currentState: "active",
+      addEventListener: (_name: string, listener: typeof onAppState) => {
+        onAppState = listener;
+        return { remove() {} };
       },
-      "react-native": { AppState: appState },
-      "./api": { getBackendUrl: async () => "https://api.example.invalid/backend/" },
-    },
-    {
-      fetch: async (url: string) => {
-        requests.push(url);
-        return {
-          ok: !unavailable,
-          json: async () => ({
-            button: { enabled: buttonEnabled, label: " Advertise here " },
-            banner: {
-              enabled: bannerEnabled,
-              rotation_seconds: 8,
-              slides: [
-                { image_url: path, destination_url: destination },
-                {
-                  image_url: "https://tracker.example.invalid/pixel",
-                  destination_url: destination,
-                },
-                { image_url: path, destination_url: "kaata://invite/not-an-ad" },
-              ],
-            },
-          }),
-        };
+    };
+    const placementModule = compileUI(
+      "../sponsor-placement",
+      {
+        react: hooks.react,
+        "expo-router": {
+          useFocusEffect: (effect: () => () => void) => hooks.react.useEffect(effect, [effect]),
+        },
+        "react-native": { AppState: appState },
+        "./api": { getBackendUrl: async () => "https://api.example.invalid/backend/" },
+        "./db": {
+          getAppMeta: async () => saved,
+          setAppMeta: async (_key: string, value: string) => {
+            saved = value;
+          },
+        },
+        "./sponsor-artwork-cache": {
+          cachedSponsorArtwork: (_backend: string, image: string) =>
+            cached.has(image) ? localArtwork(image) : null,
+          stageSponsorArtwork: async (
+            _backend: string,
+            images: string[],
+            _retained: string[],
+            signal: AbortSignal,
+          ) => {
+            downloads.push(images);
+            await waitForArtwork;
+            if (!signal.aborted) images.forEach((image) => cached.add(image));
+          },
+        },
       },
-      setInterval: (fn: () => void, delay: number) => {
-        assert.equal(delay, 60_000);
-        intervals.add(fn);
-        return fn;
+      {
+        fetch: async (url: string, options: { headers: Record<string, string> }) => {
+          const tag = options.headers["If-None-Match"];
+          requests.push({ url, tag });
+          if (unavailable) throw new Error("offline");
+          if (tag === etag) return { status: 304, ok: false };
+          return {
+            status: 200,
+            ok: true,
+            headers: { get: () => etag },
+            json: async () => ({
+              button: { enabled: buttonEnabled, label: " Advertise here " },
+              banner: {
+                enabled: bannerEnabled,
+                rotation_seconds: 8,
+                slides: [
+                  { image_url: path, destination_url: destination },
+                  {
+                    image_url: "https://tracker.example.invalid/pixel",
+                    destination_url: destination,
+                  },
+                  { image_url: path, destination_url: "kaata://invite/not-an-ad" },
+                ],
+              },
+            }),
+          };
+        },
+        setInterval: (fn: () => void, delay: number) => {
+          assert.equal(delay, 60_000);
+          intervals.add(fn);
+          return fn;
+        },
+        clearInterval: (fn: () => void) => intervals.delete(fn),
       },
-      clearInterval: (fn: () => void) => intervals.delete(fn),
-    },
-  );
-  assert.equal(
-    hooks.render(() => placementModule.useSponsorPlacement(true)),
-    null,
-  );
+    );
+    type State = ReturnType<typeof import("../sponsor-placement").useSponsorPlacement>;
+    const render = () =>
+      hooks.render(() => placementModule.useSponsorPlacement(true)) as unknown as State;
+    const poll = async () => {
+      intervals.forEach((callback) => callback());
+      await settleUI();
+      return render().placement;
+    };
+    return {
+      render,
+      poll,
+      intervals,
+      unmount: hooks.unmount,
+      appState: (state: string) => {
+        appState.currentState = state;
+        onAppState(state);
+      },
+    };
+  }
+
+  const home = mountPlacement();
+  assert.equal(home.render().ready, false);
   await settleUI();
-  assert.deepEqual(hooks.render(), {
+  assert.deepEqual(home.render(), { ready: true, placement: null });
+  await settleUI();
+  const initial = home.render().placement;
+  assert.deepEqual(initial, {
     button: { enabled: true, label: "Advertise here" },
     banner: {
       enabled: true,
       rotation_seconds: 8,
-      slides: [
-        { image_url: `https://api.example.invalid/backend${path}`, destination_url: destination },
-      ],
+      slides: [{ image_url: localArtwork(firstPath), destination_url: destination }],
     },
   });
-  assert.deepEqual(requests, ["https://api.example.invalid/backend/v1/sponsor-placement"]);
-  const poll = async () => {
-    intervals.forEach((callback) => callback());
-    await settleUI();
-    return hooks.render();
-  };
-  buttonEnabled = false;
-  let result: any = await poll();
-  assert.equal(result.button.enabled, false);
-  assert.equal(result.banner.slides.length, 1);
-  buttonEnabled = true;
-  bannerEnabled = false;
-  result = await poll();
-  assert.equal(result.button.enabled, true);
-  assert.deepEqual(result.banner.slides, []);
+  assert.deepEqual(requests, [
+    { url: "https://api.example.invalid/backend/v1/sponsor-placement", tag: undefined },
+  ]);
+  assert.equal(await home.poll(), initial, "A 304 leaves the original placement untouched");
+  assert.equal(requests.at(-1)?.tag, etag);
+  assert.deepEqual(downloads, [[firstPath]]);
   unavailable = true;
-  assert.equal(await poll(), null, "A failed refresh clears an expired placement");
-  hooks.unmount();
-  assert.equal(intervals.size, 0);
+  home.appState("background");
+  assert.equal(home.render().placement, initial);
+  home.unmount();
+  assert.equal(home.intervals.size, 0);
+
+  const reopened = mountPlacement();
+  reopened.render();
+  await settleUI();
+  assert.deepEqual(
+    reopened.render(),
+    { ready: true, placement: initial },
+    "Cold Home draws saved artwork before the network resolves",
+  );
+  await settleUI();
+  const offline = reopened.render().placement;
+  assert.deepEqual(offline, initial);
+  assert.equal(await reopened.poll(), offline, "An offline refresh retains the saved banner");
+
+  unavailable = false;
+  cached.delete(firstPath);
+  assert.equal(
+    await reopened.poll(),
+    offline,
+    "A 304 can restore an evicted file without moving the row",
+  );
+  assert.deepEqual(downloads, [[firstPath], [firstPath]]);
+
+  etag = 'W/"b"';
+  path = nextPath;
+  buttonEnabled = false;
+  const stage = deferred<void>();
+  waitForArtwork = stage.promise;
+  const staged = await reopened.poll();
+  assert.equal(
+    staged?.button.enabled,
+    false,
+    "The button switch is independent of the asset download",
+  );
+  assert.equal(staged?.banner, offline?.banner, "Slow replacement art leaves the old row intact");
+  stage.resolve();
+  await settleUI();
+  assert.equal(reopened.render().placement?.banner.slides[0].image_url, localArtwork(nextPath));
+  assert.deepEqual(downloads, [[firstPath], [firstPath], [nextPath]]);
+
+  etag = 'W/"off"';
+  bannerEnabled = false;
+  const hidden = await reopened.poll();
+  assert.deepEqual(hidden?.banner.slides, []);
+  assert.equal(saved && JSON.parse(saved).etag, etag);
+  reopened.unmount();
 }
 
 async function sponsorCarouselChecks() {
@@ -243,6 +342,7 @@ async function sponsorCarouselChecks() {
     "../../components/SponsorBanner",
     {
       react: { ...hooks.react, useLayoutEffect: hooks.react.useEffect },
+      "expo-router": { useIsFocused: () => true },
       "react/jsx-runtime": { jsx, jsxs: jsx },
       "react-native": {
         Animated: {
@@ -258,6 +358,7 @@ async function sponsorCarouselChecks() {
             stop() {},
           }),
         },
+        AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
         Image: "Image",
         Linking: { openURL: async (url: string) => void urls.push(url) },
         Platform: { OS: "ios" },
@@ -285,6 +386,12 @@ async function sponsorCarouselChecks() {
   }));
   const tree = hooks.render(() => component.SponsorBanner({ slides, rotationSeconds: 6 }));
   assert.equal(tree.props.disabled, true);
+  const initialFrame = flattenStyle(tree.props.style);
+  assert.deepEqual(
+    [initialFrame.width, initialFrame.height],
+    [320, 50],
+    "No layout shift on decode",
+  );
   const images = nodes(tree).filter((node) => node.type === "Image");
   assert.equal(images.length, 2, "The next ad loads before rotation");
   assert.equal(

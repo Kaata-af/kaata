@@ -53,7 +53,7 @@ func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Kaata-Party, X-Kaata-Currencies, X-Kaata-Legacy-Currency, X-Kaata-Entry-Currency-Edit, X-Kaata-Tab-Recording, X-Kaata-Tab-One-Way, X-Kaata-Tab-Group")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, If-None-Match, X-Kaata-Party, X-Kaata-Currencies, X-Kaata-Legacy-Currency, X-Kaata-Entry-Currency-Edit, X-Kaata-Tab-Recording, X-Kaata-Tab-One-Way, X-Kaata-Tab-Group")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
