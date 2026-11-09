@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "6 November 2026";
+const UPDATED = "9 November 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -43,13 +43,13 @@ export function Privacy() {
         <Section title="What stays on your phone">
           <p>
             Your ledger — the people you add, their phone numbers, the amounts, notes, and running
-            balances — is stored in a database on your device. If you never sign in, that ledger
-            data is not uploaded unless you choose to share a bill. A WhatsApp reminder uploads a
-            snapshot of that one customer’s balance and entries to create the shareable link (see
-            below). Shared accounts require sign-in in the app and are stored on our server as
-            described below. Deleting the app removes the on-device ledger from the phone. If your
-            phone backs up app data to Google or iCloud, that backup can include a copy of the
-            ledger.
+            balances — is stored in a database on your device. In Ninja mode, the ledger stays on
+            your phone unless you choose to share a bill or use a personal backup. A WhatsApp
+            reminder uploads a snapshot of that one customer’s balance and entries to create the
+            shareable link (see below). Shared accounts require sign-in in the app and are stored on
+            our server as described below. Deleting the app removes the on-device ledger from the
+            phone. If your phone backs up app data to Google or iCloud, that backup can include a
+            copy of the ledger.
           </p>
         </Section>
 
@@ -155,6 +155,29 @@ export function Privacy() {
             Friends can see each other's Kaata name, username and profile picture. A friend request
             does not share a tally or give access to a kaata. Those invitations are separate, and
             removing a friend does not remove a shared tally or revoke a kaata membership.
+          </p>
+        </Section>
+
+        <Section title="Personal backups in Google Drive">
+          <p>
+            In Backups, you can connect Google Drive separately from signing in to Kaata. This is
+            optional and works with a Kaata account or in Ninja mode. Kaata uses Google’s per-file
+            Drive permission (<code>drive.file</code>) to create and update ZIP files in your{" "}
+            <strong>Kaata Backups</strong> folder and to find and download Kaata backups when you
+            restore. A copy can include customer and supplier names, phone numbers, tallies,
+            balances and notes from the ledger records eligible for backup.
+          </p>
+          <p>
+            Your phone transfers those files directly to and from Google Drive over HTTPS. Kaata
+            reads your Google account email and a Drive account identifier to display and confirm
+            which Drive is connected. Kaata keeps the connection details on your device and uses its
+            secure storage for saved Drive authorization credentials. This connection is used for
+            backup and restore.
+          </p>
+          <p>
+            Use <strong>Turn off automatic backup</strong> in Backups to remove the saved Drive
+            connection on that device. You can revoke Kaata’s Drive access in your Google Account
+            settings. To remove existing backup copies, delete the ZIP files in Google Drive.
           </p>
         </Section>
 
