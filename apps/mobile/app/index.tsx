@@ -1186,6 +1186,7 @@ export default function HomeScreen() {
     !oemDialogOpen &&
     !bleSettingsDialogOpen;
   const { ready: sponsorshipReady, placement: sponsorship } = useSponsorPlacement(
+    locale,
     loaded && !!activeVaultId && !forceUpdate,
   );
   const showSponsorship =

@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -70,22 +69,32 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 		}
 		return w
 	}
-	read := func(path, authKey string) savedPlacement {
+	read := func(path, authKey string, into any) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		if authKey != "" {
 			req.Header.Set("Authorization", "Bearer "+authKey)
 		}
 		res := request(req, http.StatusOK)
-		var placement savedPlacement
-		if err := json.Unmarshal(res.Body.Bytes(), &placement); err != nil || res.Header().Get("Cache-Control") != "no-store" {
+		if err := json.Unmarshal(res.Body.Bytes(), into); err != nil || res.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("invalid or cacheable response: %s (%v)", res.Body, err)
 		}
+	}
+	readAdmin := func() savedPlacement {
+		t.Helper()
+		var placement savedPlacement
+		read(adminPath, key, &placement)
 		return placement
 	}
-	readPublicTag := func(etag string, wantStatus int) string {
+	readPublic := func(path string) sponsorPlacement {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodGet, publicPath, nil)
+		var placement sponsorPlacement
+		read(path, "", &placement)
+		return placement
+	}
+	readPublicTag := func(path, etag string, wantStatus int) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
 		if etag != "" {
 			req.Header.Set("If-None-Match", etag)
 		}
@@ -130,10 +139,12 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 	}
 	save := func(placement savedPlacement, wantStatus int) {
 		t.Helper()
-		body, err := json.Marshal(struct {
-			sponsorPlacement
-			Revision time.Time `json:"expected_updated_at"`
-		}{placement.sponsorPlacement, placement.UpdatedAt})
+		body, err := json.Marshal(map[string]any{
+			"button":              placement.Button,
+			"banner":              placement.Banner,
+			"locales":             placement.Locales,
+			"expected_updated_at": placement.UpdatedAt,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,16 +156,16 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 	request(httptest.NewRequest(http.MethodGet, adminPath, nil), http.StatusUnauthorized)
 	upload(320, 50, "wrong-key", http.StatusUnauthorized)
 	upload(320, 51, key, http.StatusBadRequest)
-	initial := read(publicPath, "")
-	if !initial.Button.Enabled || initial.Button.Label != "" || initial.Banner.Enabled || initial.Banner.RotationSeconds != 6 || initial.Banner.Slides == nil || !initial.UpdatedAt.IsZero() {
+	initial := readPublic(publicPath)
+	if !initial.Button.Enabled || initial.Button.Label != "" || initial.Banner.Enabled || initial.Banner.RotationSeconds != 6 || initial.Banner.Slides == nil {
 		t.Fatalf("unexpected initial public settings: %+v", initial)
 	}
 	preflight := request(httptest.NewRequest(http.MethodOptions, publicPath, nil), http.StatusNoContent)
 	if !strings.Contains(preflight.Header().Get("Access-Control-Allow-Headers"), "If-None-Match") {
 		t.Fatal("browser revalidation is blocked by CORS")
 	}
-	initialTag := readPublicTag("", http.StatusOK)
-	readPublicTag(initialTag, http.StatusNotModified)
+	initialTag := readPublicTag(publicPath, "", http.StatusOK)
+	readPublicTag(publicPath, initialTag, http.StatusNotModified)
 	first := upload(320, 50, key, http.StatusCreated)
 	if retry := upload(320, 50, key, http.StatusCreated); retry != first {
 		t.Fatalf("duplicate upload changed its immutable URL: %s -> %s", first, retry)
@@ -173,46 +184,82 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 	conditional.Header.Set("If-None-Match", imageResponse.Header().Get("ETag"))
 	request(conditional, http.StatusNotModified)
 
-	edit := read(adminPath, key)
-	edit.Button = promotionButton{Enabled: false, Label: "  Work with Kaata  "}
+	edit := readAdmin()
+	edit.Button.Enabled = false
 	edit.Banner.Enabled = true
 	edit.Banner.RotationSeconds = 8
-	edit.Banner.Slides = []placementSlide{
-		{ImageURL: second, DestinationURL: " https://example.test/second "},
-		{ImageURL: first, DestinationURL: "http://example.test/first"},
+	save(edit, http.StatusBadRequest)
+	edit.Locales["en"] = &localizedPlacement{
+		ButtonLabel: "  Work with Kaata  ",
+		Slides: []placementSlide{
+			{ImageURL: second, DestinationURL: " https://example.test/second "},
+			{ImageURL: first, DestinationURL: "http://example.test/first"},
+		},
 	}
-	invalid := edit
-	invalid.Banner.Slides = []placementSlide{{ImageURL: first, DestinationURL: "javascript:alert(1)"}}
-	save(invalid, http.StatusBadRequest)
-	invalid.Banner.Slides[0] = placementSlide{ImageURL: sponsorImagePath + strings.Repeat("0", 64), DestinationURL: "https://example.test"}
-	save(invalid, http.StatusBadRequest)
+	edit.Locales["fa"] = &localizedPlacement{ButtonLabel: "همکاری با کاته"}
+	edit.Locales["ps"] = &localizedPlacement{ButtonLabel: "له کاټه سره کار"}
+	edit.Locales["fa"].Slides = []placementSlide{{ImageURL: first, DestinationURL: "javascript:alert(1)"}}
+	save(edit, http.StatusBadRequest)
+	edit.Locales["fa"].Slides[0] = placementSlide{ImageURL: sponsorImagePath + strings.Repeat("0", 64), DestinationURL: "https://example.test"}
+	save(edit, http.StatusBadRequest)
+	edit.Locales["fa"].Slides[0] = placementSlide{ImageURL: first, DestinationURL: "https://example.test/dari"}
+	delete(edit.Locales, "ps")
+	save(edit, http.StatusBadRequest)
+	edit.Locales["ps"] = &localizedPlacement{ButtonLabel: "له کاټه سره کار"}
 	save(edit, http.StatusOK)
 	save(edit, http.StatusConflict)
-	published := read(publicPath, "")
+	published := readPublic(publicPath)
 	if published.Button.Enabled || published.Button.Label != "Work with Kaata" || !published.Banner.Enabled || published.Banner.RotationSeconds != 8 || len(published.Banner.Slides) != 2 || published.Banner.Slides[0].ImageURL != second || published.Banner.Slides[0].DestinationURL != "https://example.test/second" || published.Banner.Slides[1].ImageURL != first {
 		t.Fatalf("expected independently enabled banner in admin order: %+v", published)
 	}
-	publishedTag := readPublicTag(initialTag, http.StatusOK)
+	dari := readPublic(publicPath + "?locale=fa")
+	if dari.Button.Label != "همکاری با کاته" || len(dari.Banner.Slides) != 1 || dari.Banner.Slides[0].DestinationURL != "https://example.test/dari" {
+		t.Fatalf("expected the Dari label and link: %+v", dari)
+	}
+	pashto := readPublic(publicPath + "?locale=ps")
+	if pashto.Button.Label != "له کاټه سره کار" || !pashto.Banner.Enabled || pashto.Banner.Slides == nil || len(pashto.Banner.Slides) != 0 {
+		t.Fatalf("empty Pashto banner should not fall back to English artwork: %+v", pashto)
+	}
+	publishedTag := readPublicTag(publicPath, initialTag, http.StatusOK)
 	if publishedTag == initialTag {
 		t.Fatal("publishing slides did not invalidate the cached placement")
 	}
-	save(read(adminPath, key), http.StatusOK)
-	readPublicTag(publishedTag, http.StatusNotModified)
-	paused := read(adminPath, key)
+	readPublicTag(publicPath+"?locale=invalid", publishedTag, http.StatusNotModified)
+	dariTag := readPublicTag(publicPath+"?locale=fa", publishedTag, http.StatusOK)
+	editDari := readAdmin()
+	editDari.Locales["fa"].Slides[0].DestinationURL = "https://example.test/dari-new"
+	save(editDari, http.StatusOK)
+	readPublicTag(publicPath+"?locale=en", publishedTag, http.StatusNotModified)
+	readPublicTag(publicPath+"?locale=fa", dariTag, http.StatusOK)
+	save(readAdmin(), http.StatusOK)
+	readPublicTag(publicPath, publishedTag, http.StatusNotModified)
+	paused := readAdmin()
 	paused.Button.Enabled = true
 	paused.Banner.Enabled = false
 	save(paused, http.StatusOK)
-	public := read(publicPath, "")
-	if !public.Button.Enabled || public.Banner.Enabled || len(public.Banner.Slides) != 0 || public.Banner.Slides == nil || len(read(adminPath, key).Banner.Slides) != 2 {
+	public := readPublic(publicPath)
+	if !public.Button.Enabled || public.Banner.Enabled || len(public.Banner.Slides) != 0 || public.Banner.Slides == nil || len(readAdmin().Locales["en"].Slides) != 2 {
 		t.Fatalf("expected disabled slides to be withheld from public placement and retained in admin settings: %+v", public)
 	}
-	pausedTag := readPublicTag(publishedTag, http.StatusOK)
+	pausedTag := readPublicTag(publicPath, publishedTag, http.StatusOK)
 	if pausedTag == publishedTag {
 		t.Fatal("hiding the banner did not invalidate the cached placement")
 	}
-	paused = read(adminPath, key)
-	paused.Banner.Slides[0], paused.Banner.Slides[1] = paused.Banner.Slides[1], paused.Banner.Slides[0]
+	paused = readAdmin()
+	english := paused.Locales["en"]
+	english.Slides[0], english.Slides[1] = english.Slides[1], english.Slides[0]
 	save(paused, http.StatusOK)
-	readPublicTag(pausedTag, http.StatusNotModified)
+	readPublicTag(publicPath, pausedTag, http.StatusNotModified)
+
+	pashtoOnly := readAdmin()
+	pashtoOnly.Banner.Enabled = true
+	pashtoOnly.Locales["en"].Slides = nil
+	pashtoOnly.Locales["fa"].Slides = nil
+	pashtoOnly.Locales["ps"].Slides = []placementSlide{{ImageURL: second, DestinationURL: "https://example.test/pashto"}}
+	save(pashtoOnly, http.StatusOK)
+	pashto = readPublic(publicPath + "?locale=ps")
+	if !pashto.Banner.Enabled || len(pashto.Banner.Slides) != 1 || pashto.Banner.Slides[0].DestinationURL != "https://example.test/pashto" || len(readPublic(publicPath).Banner.Slides) != 0 {
+		t.Fatalf("Pashto-only art was not isolated: %+v", pashto)
+	}
 	request(httptest.NewRequest(http.MethodGet, sponsorImagePath+"invalid", nil), http.StatusNotFound)
 }

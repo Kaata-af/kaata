@@ -15,6 +15,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext } from "react";
 import { BACKEND_URL } from "../../env";
+import type { Lang } from "../../lib/language";
 import { withOutreachDefaults } from "./outreach-model";
 
 // Key name is load-bearing: existing operator browsers already hold the admin
@@ -319,8 +320,9 @@ export const useAdminToken = () => useContext(AdminTokenContext);
 
 export type SponsorSlide = { image_url: string; destination_url: string };
 export type SponsorPlacement = {
-  button: { enabled: boolean; label: string };
-  banner: { enabled: boolean; rotation_seconds: number; slides: SponsorSlide[] };
+  button: { enabled: boolean };
+  banner: { enabled: boolean; rotation_seconds: number };
+  locales: Record<Lang, { button_label: string; slides: SponsorSlide[] }>;
   updated_at: string;
 };
 
@@ -337,7 +339,7 @@ export function useSponsorPlacement() {
   });
 }
 
-export function validSponsorUrl(value: string, httpsOnly = false) {
+export function validSponsorUrl(value: string) {
   if (
     !/^https?:\/\//i.test(value) ||
     /[ \\]/.test(value) ||
@@ -347,42 +349,10 @@ export function validSponsorUrl(value: string, httpsOnly = false) {
   }
   try {
     const url = new URL(value);
-    return Boolean(
-      url.hostname && !url.username && !url.password && (!httpsOnly || url.protocol === "https:"),
-    );
+    return Boolean(url.hostname && !url.username && !url.password);
   } catch {
     return false;
   }
-}
-
-export type SponsorCampaignInput = {
-  sponsor: string;
-  title: string;
-  body: string;
-  image_url: string | null;
-  cta_label: string | null;
-  cta_url: string | null;
-  starts_at: string;
-  ends_at: string;
-  is_active: boolean;
-};
-export type SponsorCampaign = SponsorCampaignInput & {
-  id: number;
-  created_at: string;
-  updated_at: string;
-};
-
-const SPONSOR_CAMPAIGNS_PATH = "/v1/admin/sponsor-campaigns";
-export const sponsorCampaignsKey = (token: string) =>
-  ["admin", "sponsor-campaigns", token] as const;
-
-export function useSponsorCampaigns() {
-  const token = useAdminToken();
-  return useQuery({
-    queryKey: sponsorCampaignsKey(token),
-    queryFn: () => fetchAdmin<{ campaigns: SponsorCampaign[] }>(SPONSOR_CAMPAIGNS_PATH, token),
-    enabled: !!token,
-  });
 }
 
 export type SponsorProposalStatus =
@@ -880,12 +850,12 @@ export async function postAdmin<T>(path: string, token: string, body: unknown): 
 
 export async function saveSponsorPlacement(
   token: string,
-  { button, banner, updated_at }: SponsorPlacement,
+  { button, banner, locales, updated_at }: SponsorPlacement,
 ): Promise<SponsorPlacement> {
   const res = await writeAdminResponse(
     SPONSOR_PLACEMENT_PATH,
     token,
-    { button, banner, expected_updated_at: updated_at },
+    { button, banner, locales, expected_updated_at: updated_at },
     "PUT",
   );
   if (res.status === 409) throw new ConflictError((await responseError(res)).message);
@@ -897,22 +867,6 @@ export function uploadSponsorImage(token: string, file: File): Promise<{ image_u
   const form = new FormData();
   form.append("image", file);
   return postAdmin("/v1/admin/sponsor-images", token, form);
-}
-
-export async function saveSponsorCampaign(
-  token: string,
-  body: SponsorCampaignInput,
-  campaign?: Pick<SponsorCampaign, "id" | "updated_at">,
-): Promise<SponsorCampaign> {
-  if (!campaign) return postAdmin<SponsorCampaign>(SPONSOR_CAMPAIGNS_PATH, token, body);
-  const res = await writeAdminResponse(
-    `${SPONSOR_CAMPAIGNS_PATH}/${campaign.id}`,
-    token,
-    { ...body, expected_updated_at: campaign.updated_at },
-    "PUT",
-  );
-  if (!res.ok) throw await responseError(res);
-  return readJson<SponsorCampaign>(res);
 }
 
 export async function saveSponsorProposal(

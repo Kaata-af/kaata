@@ -1,8 +1,9 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { getBackendUrl } from "./api";
 import { getAppMeta, setAppMeta } from "./db";
+import type { LocaleCode } from "./i18n";
 import { cachedSponsorArtwork, stageSponsorArtwork } from "./sponsor-artwork-cache";
 
 export type SponsorSlide = { image_url: string; destination_url: string };
@@ -12,10 +13,19 @@ type SponsorPlacement = {
   banner: { enabled: boolean; rotation_seconds: number; slides: SponsorSlide[] };
 };
 
-type PlacementSnapshot = { backend: string; etag: string | null; settings: SponsorPlacement };
+type PlacementSnapshot = { etag: string | null; settings: SponsorPlacement };
+type PlacementSwitches = { button: boolean; banner: boolean };
+type Locales<T> = Partial<Record<LocaleCode, T>>;
+type PlacementCache = {
+  backend: string;
+  switches: PlacementSwitches;
+  locales: Locales<PlacementSnapshot>;
+};
+type PlacementView = { switches: PlacementSwitches | null; locales: Locales<SponsorPlacement> };
 
 const IMAGE_PATH = /^\/v1\/sponsor-images\/[a-f0-9]{64}$/;
-const CACHE_KEY = "sponsor_placement_cache_v1";
+const CACHE_KEY = "sponsor_placement_cache_v2";
+const LOCALES = ["en", "fa", "ps"] as const satisfies readonly LocaleCode[];
 const REFRESH_MS = 60_000;
 const TIMEOUT_MS = 5_000;
 const ARTWORK_TIMEOUT_MS = 25_000;
@@ -64,7 +74,7 @@ const resolvedBackend = async () => (await getBackendUrl()).replace(/\/+$/, "");
 const artworkPaths = (placement: SponsorPlacement) =>
   placement.banner.slides.map((slide) => slide.image_url);
 
-function displayPlacement({ backend, settings }: PlacementSnapshot): SponsorPlacement {
+function displayPlacement(backend: string, settings: SponsorPlacement): SponsorPlacement {
   return {
     button: settings.button,
     banner: {
@@ -77,15 +87,38 @@ function displayPlacement({ backend, settings }: PlacementSnapshot): SponsorPlac
   };
 }
 
+function readCache(backend: string, raw: string): PlacementCache | null {
+  const saved = JSON.parse(raw) as Partial<PlacementCache> | null;
+  if (
+    saved?.backend !== backend ||
+    typeof saved.switches?.button !== "boolean" ||
+    typeof saved.switches.banner !== "boolean"
+  )
+    return null;
+
+  const locales: Locales<PlacementSnapshot> = {};
+  for (const locale of LOCALES) {
+    const entry = saved.locales?.[locale];
+    if (!entry) continue;
+    try {
+      const settings = parsePlacement(entry.settings);
+      locales[locale] = { settings, etag: typeof entry.etag === "string" ? entry.etag : null };
+    } catch {
+      // A bad entry for one locale does not discard the other saved artwork.
+    }
+  }
+  return { backend, switches: saved.switches, locales };
+}
+
 function same<T>(left: T, right: T) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
 /** Refresh independently of check-in, without sending any account or device data. */
-export function useSponsorPlacement(enabled: boolean) {
+export function useSponsorPlacement(locale: LocaleCode, enabled: boolean) {
   const [ready, setReady] = useState(false);
-  const [placement, setPlacement] = useState<SponsorPlacement | null>(null);
-  const snapshot = useRef<PlacementSnapshot | null>(null);
+  const [view, setView] = useState<PlacementView>({ switches: null, locales: {} });
+  const cache = useRef<PlacementCache | null>(null);
   const persistQueue = useRef(Promise.resolve());
 
   useEffect(() => {
@@ -94,12 +127,15 @@ export function useSponsorPlacement(enabled: boolean) {
       try {
         const [backend, raw] = await Promise.all([resolvedBackend(), getAppMeta(CACHE_KEY)]);
         if (!current || !raw) return;
-        const saved = JSON.parse(raw) as Partial<PlacementSnapshot> | null;
-        if (saved?.backend !== backend) return;
-        const settings = parsePlacement(saved.settings);
-        const etag = typeof saved.etag === "string" ? saved.etag : null;
-        snapshot.current = { backend, etag, settings };
-        setPlacement(displayPlacement(snapshot.current));
+        const saved = readCache(backend, raw);
+        if (!saved) return;
+        cache.current = saved;
+        const locales: Locales<SponsorPlacement> = {};
+        for (const language of LOCALES) {
+          const entry = saved.locales[language];
+          if (entry) locales[language] = displayPlacement(backend, entry.settings);
+        }
+        setView({ switches: saved.switches, locales });
       } catch {
         // A missing or corrupt cache must not block Home.
       } finally {
@@ -120,19 +156,29 @@ export function useSponsorPlacement(enabled: boolean) {
         request?.abort();
         request = null;
       };
-      const publish = (next: PlacementSnapshot) => {
-        const previous = snapshot.current;
-        snapshot.current = next;
-        const visible = displayPlacement(next);
-        setPlacement((prior) => {
-          if (!prior) return visible;
-          const button = same(prior.button, visible.button) ? prior.button : visible.button;
-          const banner = same(prior.banner, visible.banner) ? prior.banner : visible.banner;
-          return button === prior.button && banner === prior.banner ? prior : { button, banner };
+      const publish = (backend: string, next: PlacementSnapshot, switches: PlacementSwitches) => {
+        const previous = cache.current;
+        const saved = { backend, switches, locales: { ...previous?.locales, [locale]: next } };
+        cache.current = saved;
+        const visible = displayPlacement(backend, next.settings);
+        setView((prior) => {
+          const entry = prior.locales[locale];
+          const button =
+            entry && same(entry.button, visible.button) ? entry.button : visible.button;
+          const banner =
+            entry && same(entry.banner, visible.banner) ? entry.banner : visible.banner;
+          const nextSwitches = same(prior.switches, switches) ? prior.switches : switches;
+          const locales =
+            button === entry?.button && banner === entry.banner
+              ? prior.locales
+              : { ...prior.locales, [locale]: { button, banner } };
+          return locales === prior.locales && nextSwitches === prior.switches
+            ? prior
+            : { locales, switches: nextSwitches };
         });
-        if (!same(previous, next)) {
+        if (!same(previous, saved)) {
           persistQueue.current = persistQueue.current
-            .then(() => setAppMeta(CACHE_KEY, JSON.stringify(next)))
+            .then(() => setAppMeta(CACHE_KEY, JSON.stringify(saved)))
             .catch(() => {});
         }
       };
@@ -147,13 +193,12 @@ export function useSponsorPlacement(enabled: boolean) {
         try {
           const backend = await resolvedBackend();
           if (request !== controller) return;
-          let previous = snapshot.current;
-          if (previous && previous.backend !== backend) {
-            previous = null;
-            snapshot.current = null;
-            setPlacement(null);
+          if (cache.current && cache.current.backend !== backend) {
+            cache.current = null;
+            setView({ switches: null, locales: {} });
           }
-          const response = await fetch(`${backend}/v1/sponsor-placement`, {
+          const previous = cache.current?.locales[locale];
+          const response = await fetch(`${backend}/v1/sponsor-placement?locale=${locale}`, {
             headers: {
               Accept: "application/json",
               ...(previous?.etag ? { "If-None-Match": previous.etag } : {}),
@@ -166,35 +211,49 @@ export function useSponsorPlacement(enabled: boolean) {
           else {
             if (!response.ok) return;
             const settings = parsePlacement(await response.json());
-            next = { backend, etag: response.headers.get("ETag"), settings };
+            next = { etag: response.headers.get("ETag"), settings };
           }
           if (request !== controller) return;
 
           const paths = artworkPaths(next.settings);
-          const retained = previous ? artworkPaths(previous.settings) : [];
+          const retained = Object.values(cache.current?.locales ?? {}).flatMap(({ settings }) =>
+            artworkPaths(settings),
+          );
+          const switches = {
+            button: next.settings.button.enabled,
+            banner: next.settings.banner.enabled,
+          };
           const needsArtwork = paths.some(
             (path) => !retained.includes(path) || !cachedSponsorArtwork(backend, path),
           );
           if (!needsArtwork) {
-            if (!same(previous, next)) publish(next);
+            if (!same(previous, next) || !same(cache.current?.switches, switches)) {
+              publish(backend, next, switches);
+            }
             return;
           }
 
-          if (!same(previous?.settings.button, next.settings.button)) {
-            // The promotion switch applies even if the new artwork cannot load.
-            publish({
+          if (
+            !same(previous?.settings.button, next.settings.button) ||
+            !same(cache.current?.switches, switches)
+          ) {
+            // Switches and button text apply without waiting for replacement art.
+            publish(
               backend,
-              etag: null,
-              settings: {
-                button: next.settings.button,
-                banner: previous?.settings.banner ?? { ...next.settings.banner, slides: [] },
+              {
+                etag: null,
+                settings: {
+                  button: next.settings.button,
+                  banner: previous?.settings.banner ?? { ...next.settings.banner, slides: [] },
+                },
               },
-            });
+              switches,
+            );
           }
           clearTimeout(timeout);
           timeout = setTimeout(expire, ARTWORK_TIMEOUT_MS);
           await stageSponsorArtwork(backend, paths, retained, controller.signal);
-          if (request === controller) publish(next);
+          if (request === controller) publish(backend, next, switches);
         } catch {
           // Keep the last complete artwork and retry on the next refresh.
           if (request === controller) cancel();
@@ -215,7 +274,25 @@ export function useSponsorPlacement(enabled: boolean) {
         clearInterval(timer);
         cancel();
       };
-    }, [enabled, ready]),
+    }, [enabled, locale, ready]),
   );
+  const active = view.locales[locale];
+  const switches = view.switches;
+  const placement = useMemo(() => {
+    if (!active || !switches) return null;
+    const button =
+      active.button.enabled === switches.button
+        ? active.button
+        : { ...active.button, enabled: switches.button };
+    const banner =
+      active.banner.enabled === switches.banner
+        ? active.banner
+        : {
+            ...active.banner,
+            enabled: switches.banner,
+            slides: switches.banner ? active.banner.slides : [],
+          };
+    return button === active.button && banner === active.banner ? active : { button, banner };
+  }, [active, switches]);
   return { ready, placement: enabled ? placement : null };
 }

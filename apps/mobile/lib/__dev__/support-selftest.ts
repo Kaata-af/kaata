@@ -2,6 +2,7 @@
 // Never opens another app, sends a message, or accesses the network.
 import assert from "node:assert/strict";
 import { SUPPORT_SMS_E164, SUPPORT_WHATSAPP_E164 } from "../../constants/env";
+import type { LocaleCode } from "../i18n";
 import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 const language = compileUI("../i18n", {
@@ -152,6 +153,8 @@ function sponsorButtonFixture(
 async function sponsorPlacementChecks() {
   const firstPath = `/v1/sponsor-images/${"a".repeat(64)}`;
   const nextPath = `/v1/sponsor-images/${"b".repeat(64)}`;
+  const dariPath = `/v1/sponsor-images/${"c".repeat(64)}`;
+  const pashtoPath = `/v1/sponsor-images/${"d".repeat(64)}`;
   const destination = "https://example.invalid/?text=@shop";
   const cached = new Set<string>();
   const localArtwork = (path: string) => `file:///kaata/cache/${path.slice(-64)}.img`;
@@ -164,9 +167,11 @@ async function sponsorPlacementChecks() {
   let bannerEnabled = true;
   let unavailable = false;
   let waitForArtwork: Promise<void> | undefined;
+  let waitForDari: Promise<void> | undefined;
 
   function mountPlacement() {
     const hooks = uiHooks();
+    let locale: LocaleCode = "en";
     const intervals = new Set<() => void>();
     let onAppState = (_state: string) => {};
     const appState = {
@@ -197,12 +202,16 @@ async function sponsorPlacementChecks() {
           stageSponsorArtwork: async (
             _backend: string,
             images: string[],
-            _retained: string[],
+            retained: string[],
             signal: AbortSignal,
           ) => {
             downloads.push(images);
             await waitForArtwork;
-            if (!signal.aborted) images.forEach((image) => cached.add(image));
+            if (signal.aborted) return;
+            for (const image of cached) {
+              if (!images.includes(image) && !retained.includes(image)) cached.delete(image);
+            }
+            images.forEach((image) => cached.add(image));
           },
         },
       },
@@ -211,18 +220,29 @@ async function sponsorPlacementChecks() {
           const tag = options.headers["If-None-Match"];
           requests.push({ url, tag });
           if (unavailable) throw new Error("offline");
-          if (tag === etag) return { status: 304, ok: false };
+          const language = new URL(url).searchParams.get("locale");
+          if (language === "fa") await waitForDari;
+          const publicTag = language === "en" ? etag : `W/"${language}-${bannerEnabled}"`;
+          const image = language === "fa" ? dariPath : language === "ps" ? pashtoPath : path;
+          const label =
+            language === "fa"
+              ? "تبلیغ کنید"
+              : language === "ps"
+                ? "اعلان وکړئ"
+                : " Advertise here ";
+          const link = language === "en" ? destination : `https://example.invalid/${language}`;
+          if (tag === publicTag) return { status: 304, ok: false };
           return {
             status: 200,
             ok: true,
-            headers: { get: () => etag },
+            headers: { get: () => publicTag },
             json: async () => ({
-              button: { enabled: buttonEnabled, label: " Advertise here " },
+              button: { enabled: buttonEnabled, label },
               banner: {
                 enabled: bannerEnabled,
                 rotation_seconds: 8,
                 slides: [
-                  { image_url: path, destination_url: destination },
+                  { image_url: image, destination_url: link },
                   {
                     image_url: "https://tracker.example.invalid/pixel",
                     destination_url: destination,
@@ -243,7 +263,7 @@ async function sponsorPlacementChecks() {
     );
     type State = ReturnType<typeof import("../sponsor-placement").useSponsorPlacement>;
     const render = () =>
-      hooks.render(() => placementModule.useSponsorPlacement(true)) as unknown as State;
+      hooks.render(() => placementModule.useSponsorPlacement(locale, true)) as unknown as State;
     const poll = async () => {
       intervals.forEach((callback) => callback());
       await settleUI();
@@ -254,6 +274,10 @@ async function sponsorPlacementChecks() {
       poll,
       intervals,
       unmount: hooks.unmount,
+      selectLocale: (next: LocaleCode) => {
+        locale = next;
+        return render().placement;
+      },
       appState: (state: string) => {
         appState.currentState = state;
         onAppState(state);
@@ -276,7 +300,7 @@ async function sponsorPlacementChecks() {
     },
   });
   assert.deepEqual(requests, [
-    { url: "https://api.example.invalid/backend/v1/sponsor-placement", tag: undefined },
+    { url: "https://api.example.invalid/backend/v1/sponsor-placement?locale=en", tag: undefined },
   ]);
   assert.equal(await home.poll(), initial, "A 304 leaves the original placement untouched");
   assert.equal(requests.at(-1)?.tag, etag);
@@ -326,11 +350,53 @@ async function sponsorPlacementChecks() {
   assert.equal(reopened.render().placement?.banner.slides[0].image_url, localArtwork(nextPath));
   assert.deepEqual(downloads, [[firstPath], [firstPath], [nextPath]]);
 
+  const dariRequest = deferred<void>();
+  waitForDari = dariRequest.promise;
+  assert.equal(reopened.selectLocale("fa"), null, "An uncached locale never shows English artwork");
+  await settleUI();
+  assert.equal(reopened.selectLocale("ps"), null);
+  await settleUI();
+  const pashto = reopened.render().placement;
+  assert.equal(pashto?.button.label, "اعلان وکړئ");
+  assert.deepEqual(pashto?.banner.slides, [
+    { image_url: localArtwork(pashtoPath), destination_url: "https://example.invalid/ps" },
+  ]);
+  dariRequest.resolve();
+  await settleUI();
+  assert.equal(reopened.render().placement, pashto, "A late Dari response cannot replace Pashto");
+  assert.equal(
+    reopened.selectLocale("fa"),
+    null,
+    "An abandoned request must not publish its artwork",
+  );
+  await settleUI();
+  const dari = reopened.render().placement;
+  assert.equal(dari?.button.label, "تبلیغ کنید");
+  assert.deepEqual(dari?.banner.slides, [
+    { image_url: localArtwork(dariPath), destination_url: "https://example.invalid/fa" },
+  ]);
+  unavailable = true;
+  assert.equal(
+    reopened.selectLocale("ps"),
+    pashto,
+    "Cached Pashto artwork survives an offline switch",
+  );
+  assert.equal(reopened.selectLocale("en")?.banner.slides[0].image_url, localArtwork(nextPath));
+  assert.ok(cached.has(pashtoPath) && cached.has(dariPath) && cached.has(nextPath));
+  await settleUI();
+
+  unavailable = false;
   etag = 'W/"off"';
   bannerEnabled = false;
   const hidden = await reopened.poll();
   assert.deepEqual(hidden?.banner.slides, []);
-  assert.equal(saved && JSON.parse(saved).etag, etag);
+  assert.equal(saved && JSON.parse(saved).locales.en.etag, etag);
+  unavailable = true;
+  assert.deepEqual(
+    reopened.selectLocale("fa")?.banner.slides,
+    [],
+    "A confirmed global hide applies to offline language switches",
+  );
   reopened.unmount();
 }
 

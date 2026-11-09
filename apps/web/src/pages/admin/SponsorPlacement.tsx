@@ -3,6 +3,7 @@ import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { BACKEND_URL } from "../../env";
+import type { Lang } from "../../lib/language";
 import {
   ConflictError,
   saveSponsorPlacement,
@@ -12,18 +13,22 @@ import {
   useSponsorPlacement,
   validSponsorUrl,
   type SponsorPlacement as Placement,
+  type SponsorSlide,
 } from "./api";
 import { Card, ErrorCard, SkeletonCard } from "./ui";
 
 const MAX_SLIDES = 8;
+const LANGUAGES = { en: "English", fa: "Dari", ps: "Pashto" } satisfies Record<Lang, string>;
+const languageCodes = Object.keys(LANGUAGES) as Lang[];
 const fieldClass = "block min-w-0 space-y-1.5 text-sm font-medium text-brand-ink";
 
-type Editor = { kind: "button" | "banner"; placement: Placement };
+type Editor = { kind: "button" | "banner" | "rotation"; placement: Placement };
 
 export function SponsorPlacement() {
   const token = useAdminToken();
   const client = useQueryClient();
   const query = useSponsorPlacement();
+  const [language, setLanguage] = useState<Lang>("en");
   const [editor, setEditor] = useState<Editor | null>(null);
   const [notice, setNotice] = useState("");
   const save = useMutation({
@@ -37,10 +42,12 @@ export function SponsorPlacement() {
   });
   const placement = query.data;
 
-  if (!placement) {
-    return query.isError ? (
+  if (!placement?.locales) {
+    return query.isError || placement ? (
       <ErrorCard
-        message={`Couldn’t load the home placements. ${query.error.message}`}
+        message={
+          query.error?.message ?? "Language settings are unavailable. Refresh and try again."
+        }
         onRetry={() => void query.refetch()}
       />
     ) : (
@@ -48,7 +55,10 @@ export function SponsorPlacement() {
     );
   }
 
-  const { button, banner } = placement;
+  const { button, banner, locales } = placement;
+  const localized = locales[language];
+  const languageName = LANGUAGES[language];
+  const hasSlides = Object.values(locales).some((settings) => settings.slides.length > 0);
   const busy = save.isPending;
   const locked = busy || Boolean(editor) || query.isError;
 
@@ -90,97 +100,177 @@ export function SponsorPlacement() {
         </p>
       ) : null}
       <Card
+        title="All languages"
+        sub="Visibility and rotation apply across English, Dari, and Pashto."
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={locked}
+            onClick={() =>
+              publish({ ...placement, button: { ...button, enabled: !button.enabled } })
+            }
+          >
+            {button.enabled ? "Hide promotion button" : "Show promotion button"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={locked || (!banner.enabled && !hasSlides)}
+            onClick={() =>
+              publish({ ...placement, banner: { ...banner, enabled: !banner.enabled } })
+            }
+          >
+            {banner.enabled ? "Hide banner" : "Show banner"}
+          </Button>
+        </div>
+        {!banner.enabled && !hasSlides ? (
+          <p className="mt-2 text-sm text-brand-muted">
+            Add a slide in any language to turn on the banner.
+          </p>
+        ) : null}
+        {editor?.kind === "rotation" ? (
+          <RotationEditor
+            seconds={editor.placement.banner.rotation_seconds}
+            busy={busy}
+            onCancel={cancel}
+            onSave={(rotation_seconds) =>
+              publish({
+                ...editor.placement,
+                banner: { ...editor.placement.banner, rotation_seconds },
+              })
+            }
+          />
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-brand-muted">
+            <span>Rotate every {banner.rotation_seconds} seconds</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={locked}
+              onClick={() => edit("rotation")}
+            >
+              Change timing
+            </Button>
+          </div>
+        )}
+      </Card>
+      <div role="group" aria-label="App language" className="flex flex-wrap gap-2">
+        {languageCodes.map((code) => (
+          <Button
+            key={code}
+            type="button"
+            variant={language === code ? "default" : "outline"}
+            aria-pressed={language === code}
+            disabled={Boolean(editor) || busy}
+            onClick={() => {
+              setLanguage(code);
+              save.reset();
+              setNotice("");
+            }}
+          >
+            {LANGUAGES[code]}
+          </Button>
+        ))}
+      </div>
+      <Card
         title="Promotion button"
-        sub="Opens the promotion proposal form. Its visibility is independent of the banner."
+        sub={`Set the label for ${languageName}. The button opens the promotion proposal form.`}
       >
         {editor?.kind === "button" ? (
           <ButtonEditor
-            button={editor.placement.button}
+            label={editor.placement.locales[language].button_label}
+            language={language}
             busy={busy}
             onCancel={cancel}
-            onSave={(label) =>
-              publish({ ...editor.placement, button: { ...editor.placement.button, label } })
+            onSave={(button_label) =>
+              publish({
+                ...editor.placement,
+                locales: {
+                  ...editor.placement.locales,
+                  [language]: { ...editor.placement.locales[language], button_label },
+                },
+              })
             }
           />
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-brand-ink">
-                {button.enabled ? "Shown on home" : "Hidden"}
-              </p>
-              <p dir="auto" className="mt-1 text-sm text-brand-muted [overflow-wrap:anywhere]">
-                {button.label || "Default app label"}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={locked}
-                onClick={() => edit("button")}
-              >
-                Edit label
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={locked}
-                onClick={() =>
-                  publish({ ...placement, button: { ...button, enabled: !button.enabled } })
-                }
-              >
-                {button.enabled ? "Hide button" : "Show button"}
-              </Button>
-            </div>
+            <p
+              dir="auto"
+              lang={localized.button_label ? language : undefined}
+              className="min-w-0 text-sm text-brand-ink [overflow-wrap:anywhere]"
+            >
+              {localized.button_label || "Default app label"}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={locked}
+              onClick={() => edit("button")}
+            >
+              Edit label
+            </Button>
           </div>
         )}
       </Card>
       <Card
         title="Home ad banner"
-        sub="Mobile Leaderboard · 320 × 50. The image appears above the customers and opens its own link."
+        sub={`Images and links for ${languageName} · Mobile Leaderboard, 320 × 50.`}
       >
         {editor?.kind === "banner" ? (
           <BannerEditor
-            banner={editor.placement.banner}
+            artwork={editor.placement.locales[language].slides}
+            hidesBanner={
+              editor.placement.banner.enabled &&
+              languageCodes.every(
+                (code) => code === language || editor.placement.locales[code].slides.length === 0,
+              )
+            }
             busy={busy}
             onCancel={cancel}
-            onSave={(nextBanner) => publish({ ...editor.placement, banner: nextBanner })}
+            onSave={(slides) => {
+              const nextLocales = {
+                ...editor.placement.locales,
+                [language]: { ...editor.placement.locales[language], slides },
+              };
+              publish({
+                ...editor.placement,
+                banner: {
+                  ...editor.placement.banner,
+                  enabled:
+                    editor.placement.banner.enabled &&
+                    Object.values(nextLocales).some((settings) => settings.slides.length > 0),
+                },
+                locales: nextLocales,
+              });
+            }}
           />
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium text-brand-ink">
-                {banner.enabled ? "Shown on home" : "Hidden"}
+                {localized.slides.length === 0
+                  ? `No banner for ${languageName}`
+                  : `${localized.slides.length} ${localized.slides.length === 1 ? "image" : "images"}`}
               </p>
-              <p className="mt-1 text-sm text-brand-muted">
-                {banner.slides.length === 0
-                  ? "Save at least one slide to show the banner."
-                  : `${banner.slides.length} ${banner.slides.length === 1 ? "image" : "images"} · ${banner.rotation_seconds} seconds per slide`}
-              </p>
-              {banner.slides[0] ? (
-                <BannerPreview image={banner.slides[0].image_url} position={1} className="mt-3" />
+              {localized.slides[0] ? (
+                <BannerPreview
+                  image={localized.slides[0].image_url}
+                  position={1}
+                  className="mt-3"
+                />
               ) : null}
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={locked}
-                onClick={() => edit("banner")}
-              >
-                Edit carousel
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={locked || (!banner.enabled && banner.slides.length === 0)}
-                onClick={() =>
-                  publish({ ...placement, banner: { ...banner, enabled: !banner.enabled } })
-                }
-              >
-                {banner.enabled ? "Hide banner" : "Show banner"}
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={locked}
+              onClick={() => edit("banner")}
+            >
+              Edit carousel
+            </Button>
           </div>
         )}
       </Card>
@@ -188,13 +278,58 @@ export function SponsorPlacement() {
   );
 }
 
-function ButtonEditor({
-  button,
+function RotationEditor({
+  seconds,
   busy,
   onCancel,
   onSave,
 }: {
-  button: Placement["button"];
+  seconds: number;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (seconds: number) => void;
+}) {
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    onSave(Number(new FormData(event.currentTarget).get("rotation_seconds")));
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-4 flex flex-wrap items-end gap-2">
+      <label className={`${fieldClass} max-w-40`}>
+        <span>Seconds per slide</span>
+        <Input
+          name="rotation_seconds"
+          type="number"
+          min={3}
+          max={30}
+          step={1}
+          defaultValue={seconds}
+          required
+          disabled={busy}
+          autoFocus
+        />
+      </label>
+      <Button type="submit" disabled={busy}>
+        Save timing
+      </Button>
+      <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+        Cancel
+      </Button>
+    </form>
+  );
+}
+
+function ButtonEditor({
+  label,
+  language,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  label: string;
+  language: Lang;
   busy: boolean;
   onCancel: () => void;
   onSave: (label: string) => void;
@@ -217,9 +352,16 @@ function ButtonEditor({
     <form onSubmit={submit} className="space-y-4">
       <label className={`${fieldClass} max-w-sm`}>
         <span>Button label</span>
-        <Input name="label" defaultValue={button.label} dir="auto" disabled={busy} autoFocus />
+        <Input
+          name="label"
+          defaultValue={label}
+          dir="auto"
+          lang={language}
+          disabled={busy}
+          autoFocus
+        />
         <span className="block text-xs font-normal text-brand-muted">
-          Leave blank to use the app’s default label in each language.
+          Leave blank to use Kaata’s default {LANGUAGES[language]} label.
         </span>
       </label>
       {error ? (
@@ -240,20 +382,20 @@ function ButtonEditor({
 }
 
 function BannerEditor({
-  banner,
+  artwork,
+  hidesBanner,
   busy,
   onCancel,
   onSave,
 }: {
-  banner: Placement["banner"];
+  artwork: SponsorSlide[];
+  hidesBanner: boolean;
   busy: boolean;
   onCancel: () => void;
-  onSave: (banner: Placement["banner"]) => void;
+  onSave: (slides: SponsorSlide[]) => void;
 }) {
   const token = useAdminToken();
-  const [slides, setSlides] = useState(() =>
-    banner.slides.map((slide, key) => ({ ...slide, key })),
-  );
+  const [slides, setSlides] = useState(() => artwork.map((slide, key) => ({ ...slide, key })));
   const [error, setError] = useState("");
   const nextKey = useRef(slides.length);
   const upload = useMutation({
@@ -293,8 +435,6 @@ function BannerEditor({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (locked) return;
-    const form = new FormData(event.currentTarget);
-    const rotationSeconds = Number(form.get("rotation_seconds"));
     const cleaned = slides.map(({ image_url, destination_url }) => ({
       image_url,
       destination_url: destination_url.trim(),
@@ -304,28 +444,12 @@ function BannerEditor({
       return;
     }
     setError("");
-    onSave({
-      enabled: banner.enabled && cleaned.length > 0,
-      rotation_seconds: rotationSeconds,
-      slides: cleaned,
-    });
+    onSave(cleaned);
   }
 
   return (
     <form onSubmit={submit} className="space-y-4">
       <fieldset disabled={locked} className="space-y-4">
-        <label className={`${fieldClass} max-w-[13rem]`}>
-          <span>Seconds per slide</span>
-          <Input
-            name="rotation_seconds"
-            type="number"
-            min={3}
-            max={30}
-            step={1}
-            defaultValue={banner.rotation_seconds}
-            required
-          />
-        </label>
         {slides.length > 0 ? (
           <ol className="space-y-3">
             {slides.map((slide, position) => (
@@ -422,8 +546,12 @@ function BannerEditor({
           {error || upload.error?.message}
         </p>
       ) : null}
-      {banner.enabled && slides.length === 0 ? (
-        <p className="text-sm text-brand-muted">Saving an empty carousel hides the banner.</p>
+      {slides.length === 0 ? (
+        <p className="text-sm text-brand-muted">
+          {hidesBanner
+            ? "Saving will hide the banner in all languages because no slides will remain."
+            : "Users who choose this language won’t see a banner."}
+        </p>
       ) : null}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={locked}>
