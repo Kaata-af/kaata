@@ -52,7 +52,7 @@ export function SettledHistoryToggle({
     >
       <Ionicons
         accessible={false}
-        name="checkmark-done-outline"
+        name="checkmark"
         size={20}
         color={colors.textSubtle}
       />

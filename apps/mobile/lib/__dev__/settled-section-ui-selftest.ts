@@ -78,10 +78,8 @@ for (const locale of ["en", "fa", "ps"] as const) {
       "homepage inset is applied once on the control",
     );
     assert.ok(
-      nodes(collapsed).some(
-        (node) => node.type === "Icon" && node.props.name === "checkmark-done-outline",
-      ),
-      "settled history has a visual aid distinct from an active balance",
+      nodes(collapsed).some((node) => node.type === "Icon" && node.props.name === "checkmark"),
+      "settled history uses a single checkmark",
     );
     assert.ok(
       nodes(collapsed).some((node) => node.type === "Icon" && node.props.name === "chevron-down"),
