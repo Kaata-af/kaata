@@ -1347,18 +1347,30 @@ async function main() {
       enabled: true,
       rotation_seconds: 6,
       slides: [
-        { image_url: "https://api.example.invalid/ad", destination_url: "https://example.invalid" },
+        {
+          image_url: "https://api.example.invalid/ad",
+          destination_url: "https://example.invalid",
+          aspect_ratio: 6.4,
+        },
       ],
     },
   };
   render();
-  const customerNodes = nodes(homeSwipe());
+  const customerCard = homeNodes().find(
+    (node) => node.props.testID === "home-active-customer-rows",
+  )!;
+  const cardStyle = flattenStyle(customerCard.props.style);
+  assert.equal(cardStyle.borderWidth, 1);
+  assert.equal(cardStyle.overflow, "hidden");
+  const customerNodes = nodes(customerCard);
   const adPosition = customerNodes.findIndex((node) => node.type === "SponsorBanner");
   const firstCustomer = customerNodes.findIndex((node) => node.type === "PersonRow");
   assert.ok(
     adPosition >= 0 && adPosition < firstCustomer,
-    "The ad is the first customer-list slot",
+    "The ad and customers share the same bordered card, with the ad first",
   );
+  assert.equal(customerNodes[adPosition].props.separated, true);
+  assert.equal(nodes(homeSwipe()).filter((node) => node.type === "SponsorBanner").length, 1);
   assert.deepEqual(
     homeRows().map((row) => row.props.person.id),
     initialCustomers,

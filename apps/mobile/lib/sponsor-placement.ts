@@ -6,7 +6,7 @@ import { getAppMeta, setAppMeta } from "./db";
 import type { LocaleCode } from "./i18n";
 import { cachedSponsorArtwork, stageSponsorArtwork } from "./sponsor-artwork-cache";
 
-export type SponsorSlide = { image_url: string; destination_url: string };
+export type SponsorSlide = { image_url: string; destination_url: string; aspect_ratio: number };
 
 type SponsorPlacement = {
   button: { enabled: boolean; label: string };
@@ -24,6 +24,7 @@ type PlacementCache = {
 type PlacementView = { switches: PlacementSwitches | null; locales: Locales<SponsorPlacement> };
 
 const IMAGE_PATH = /^\/v1\/sponsor-images\/[a-f0-9]{64}$/;
+const ORIGINAL_ASPECT_RATIO = 320 / 50;
 const CACHE_KEY = "sponsor_placement_cache_v2";
 const LOCALES = ["en", "fa", "ps"] as const satisfies readonly LocaleCode[];
 const REFRESH_MS = 60_000;
@@ -56,7 +57,15 @@ function parsePlacement(data: unknown): SponsorPlacement {
           !isWebDestination(slide.destination_url)
         )
           return [];
-        return [{ image_url: slide.image_url, destination_url: slide.destination_url }];
+        const ratio = slide.aspect_ratio;
+        return [
+          {
+            image_url: slide.image_url,
+            destination_url: slide.destination_url,
+            aspect_ratio:
+              Number.isFinite(ratio) && ratio >= 2 && ratio <= 2048 ? ratio : ORIGINAL_ASPECT_RATIO,
+          },
+        ];
       })
     : [];
   const seconds = placement.banner.rotation_seconds;

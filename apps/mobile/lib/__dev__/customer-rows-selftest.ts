@@ -105,6 +105,19 @@ assert.deepEqual(ids(test.tree), ["a"], "A no-results filter preserves existing 
 assert.equal(rowFor(test.tree, "a").type, initialA.type);
 assert.equal((rowFor(test.tree, "a") as any).key, (initialA as any).key);
 assert.equal(hidden(test.tree), true, "No-results retains no visible card border or space");
+const bannerRow = jsx("SponsorBanner", {});
+test.render({ leadingRow: bannerRow });
+assert.equal(children(test.tree)[0], bannerRow, "A banner can be the only visible row");
+assert.equal(hidden(test.tree), false);
+assert.equal(
+  flattenStyle(test.tree.props.style).borderWidth,
+  0,
+  "An unavailable banner cannot leave an empty card outline",
+);
+assert.equal(test.tree.props.pointerEvents, "auto");
+assert.equal(hidden(rowFor(test.tree, "a")), true);
+test.render({ leadingRow: undefined });
+assert.equal(hidden(test.tree), true);
 const hiddenA = rowFor(test.tree, "a");
 assert.equal(hiddenA.props.pointerEvents, "none");
 assert.equal(hiddenA.props.accessibilityElementsHidden, true);

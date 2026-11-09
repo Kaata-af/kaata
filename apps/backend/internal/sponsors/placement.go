@@ -24,8 +24,9 @@ type promotionButton struct {
 }
 
 type placementSlide struct {
-	ImageURL       string `json:"image_url"`
-	DestinationURL string `json:"destination_url"`
+	ImageURL       string  `json:"image_url"`
+	DestinationURL string  `json:"destination_url"`
+	AspectRatio    float64 `json:"aspect_ratio"`
 }
 
 type leaderboard struct {
@@ -61,7 +62,22 @@ const placementColumns = "button_enabled, banner_enabled, rotation_seconds, loca
 var placementLocales = [...]string{"en", "fa", "ps"}
 
 func (p *savedPlacement) scan(row pgx.Row) error {
-	return row.Scan(&p.Button.Enabled, &p.Banner.Enabled, &p.Banner.RotationSeconds, &p.Locales, &p.UpdatedAt)
+	if err := row.Scan(&p.Button.Enabled, &p.Banner.Enabled, &p.Banner.RotationSeconds, &p.Locales, &p.UpdatedAt); err != nil {
+		return err
+	}
+	for _, content := range p.Locales {
+		fillLegacyAspectRatios(content.Slides)
+	}
+	return nil
+}
+
+// Prior placement JSON does not contain ratios. All of that artwork used 320 × 50 proportions.
+func fillLegacyAspectRatios(slides []placementSlide) {
+	for i := range slides {
+		if slides[i].AspectRatio == 0 {
+			slides[i].AspectRatio = legacyArtworkRatio
+		}
+	}
 }
 
 func (h *Handler) SponsorPlacement(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +98,7 @@ func (h *Handler) SponsorPlacement(w http.ResponseWriter, r *http.Request) {
 	}
 	public.Button.Label = content.ButtonLabel
 	if public.Banner.Enabled {
+		fillLegacyAspectRatios(content.Slides)
 		public.Banner.Slides = content.Slides
 	} else {
 		public.Banner.Slides = []placementSlide{}
@@ -200,15 +217,31 @@ func (h *Handler) SaveSponsorPlacement(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(digests) > 0 {
 		// Assets are immutable. An upload can be retried and does not publish a slide.
-		var count int
-		err := h.pool.QueryRow(r.Context(), `SELECT count(*) FROM sponsor_images WHERE digest = ANY($1)`, digests).Scan(&count)
+		rows, err := h.pool.Query(r.Context(), `SELECT digest, aspect_ratio FROM sponsor_images WHERE digest = ANY($1)`, digests)
 		if err != nil {
 			httpx.Error(w, http.StatusInternalServerError, "could not verify the banner images")
 			return
 		}
-		if count != len(digests) {
+		var digest string
+		var aspectRatio float64
+		ratios := make(map[string]float64, len(digests))
+		_, err = pgx.ForEachRow(rows, []any{&digest, &aspectRatio}, func() error {
+			ratios[digest] = aspectRatio
+			return nil
+		})
+		if err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "could not verify the banner images")
+			return
+		}
+		if len(ratios) != len(digests) {
 			httpx.Error(w, http.StatusBadRequest, "one or more banner images could not be found. Upload them again.")
 			return
+		}
+		for _, content := range input.Locales {
+			for i := range content.Slides {
+				slide := &content.Slides[i]
+				slide.AspectRatio = ratios[strings.TrimPrefix(slide.ImageURL, sponsorImagePath)]
+			}
 		}
 	}
 	var placement savedPlacement

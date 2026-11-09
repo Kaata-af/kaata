@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { colors } from "../lib/colors";
 import type { PersonWithBalance } from "../lib/types";
@@ -25,10 +25,12 @@ type RowLease = { scope: string; ids: string[]; alive: boolean };
  * Filtering can then reveal the existing native text views instead of creating
  * the whole list again. Hidden rows take no layout space or input. */
 export function CustomerRows({
+  leadingRow,
   retained,
   separated,
   ...props
 }: CustomerRowsProps & {
+  leadingRow?: ReactNode;
   separated?: boolean;
   /** Home passes the complete, current active-account set, before filtering. */
   retained?: { scope: string; people: readonly PersonWithBalance[] };
@@ -137,19 +139,22 @@ export function CustomerRows({
     press,
     longPress,
   ]);
+  const hidden = reuse && visiblePeople.size === 0 && !leadingRow;
+  const leadingRowOnly = visiblePeople.size === 0 && Boolean(leadingRow);
   return (
     <View
       testID={retained ? "home-active-customer-rows" : undefined}
       style={[
         styles.peopleCard,
         separated && styles.separatedPeopleCard,
-        reuse && visiblePeople.size === 0 && styles.hidden,
+        leadingRowOnly && styles.leadingRowOnly,
+        hidden && styles.hidden,
       ]}
-      pointerEvents={reuse && visiblePeople.size === 0 ? "none" : "auto"}
-      accessibilityElementsHidden={reuse && visiblePeople.size === 0}
-      importantForAccessibility={reuse && visiblePeople.size === 0 ? "no-hide-descendants" : "auto"}
+      pointerEvents={hidden ? "none" : "auto"}
+      accessibilityElementsHidden={hidden}
+      importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
     >
-      {content}
+      {leadingRow ? [leadingRow, ...content] : content}
     </View>
   );
 }
@@ -164,6 +169,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgDefault,
   },
   separatedPeopleCard: { marginTop: 16 },
+  leadingRowOnly: { borderWidth: 0 },
   divider: { height: 1, backgroundColor: colors.borderDefault },
   hidden: { display: "none" },
 });

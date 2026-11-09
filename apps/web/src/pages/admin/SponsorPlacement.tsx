@@ -12,6 +12,7 @@ import {
   useAdminToken,
   useSponsorPlacement,
   validSponsorUrl,
+  type SponsorArtwork,
   type SponsorPlacement as Placement,
   type SponsorSlide,
 } from "./api";
@@ -217,7 +218,7 @@ export function SponsorPlacement() {
       </Card>
       <Card
         title="Home ad banner"
-        sub={`Images and links for ${languageName} · Mobile Leaderboard, 320 × 50.`}
+        sub={`Images and links for ${languageName}. Artwork fills the width of the customer list and keeps its proportions.`}
       >
         {editor?.kind === "banner" ? (
           <BannerEditor
@@ -248,29 +249,27 @@ export function SponsorPlacement() {
             }}
           />
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-medium text-brand-ink">
                 {localized.slides.length === 0
                   ? `No banner for ${languageName}`
                   : `${localized.slides.length} ${localized.slides.length === 1 ? "image" : "images"}`}
               </p>
-              {localized.slides[0] ? (
-                <BannerPreview
-                  image={localized.slides[0].image_url}
-                  position={1}
-                  className="mt-3"
-                />
-              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={locked}
+                onClick={() => edit("banner")}
+              >
+                Edit carousel
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={locked}
-              onClick={() => edit("banner")}
-            >
-              Edit carousel
-            </Button>
+            {localized.slides[0] ? (
+              <div className="w-full max-w-lg overflow-hidden rounded-lg border border-brand-border">
+                <BannerPreview artwork={localized.slides[0]} position={1} />
+              </div>
+            ) : null}
           </div>
         )}
       </Card>
@@ -400,9 +399,9 @@ function BannerEditor({
   const nextKey = useRef(slides.length);
   const upload = useMutation({
     mutationFn: (file: File) => uploadSponsorImage(token, file),
-    onSuccess: ({ image_url }) => {
+    onSuccess: (artwork) => {
       const key = nextKey.current++;
-      setSlides((current) => [...current, { image_url, destination_url: "", key }]);
+      setSlides((current) => [...current, { ...artwork, destination_url: "", key }]);
     },
   });
   const locked = busy || upload.isPending;
@@ -435,8 +434,9 @@ function BannerEditor({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (locked) return;
-    const cleaned = slides.map(({ image_url, destination_url }) => ({
+    const cleaned = slides.map(({ image_url, aspect_ratio, destination_url }) => ({
       image_url,
+      aspect_ratio,
       destination_url: destination_url.trim(),
     }));
     if (cleaned.some((slide) => !validSponsorUrl(slide.destination_url))) {
@@ -455,13 +455,11 @@ function BannerEditor({
             {slides.map((slide, position) => (
               <li
                 key={slide.key}
-                className="grid min-w-0 gap-3 rounded-lg border border-brand-border p-3 lg:grid-cols-[minmax(0,320px)_1fr]"
+                className="w-full max-w-lg overflow-hidden rounded-lg border border-brand-border"
               >
-                <div className="min-w-0 space-y-2">
+                <BannerPreview artwork={slide} position={position + 1} />
+                <div className="min-w-0 space-y-2 border-t border-brand-border p-3">
                   <p className="text-sm font-medium text-brand-ink">Slide {position + 1}</p>
-                  <BannerPreview image={slide.image_url} position={position + 1} />
-                </div>
-                <div className="min-w-0 space-y-2">
                   <label className={fieldClass}>
                     <span>Destination link</span>
                     <Input
@@ -527,7 +525,8 @@ function BannerEditor({
             onChange={selectImage}
           />
           <span className="block text-xs font-normal text-brand-muted">
-            PNG or JPEG, up to 1 MB. Use 320 × 50, 640 × 100, or 960 × 150 pixels.
+            PNG or JPEG up to 1 MB. Use artwork at least twice as wide as it is tall, up to 2048 ×
+            1024 pixels.
           </span>
           {slides.length >= MAX_SLIDES ? (
             <span className="block text-xs font-normal text-brand-muted">
@@ -565,22 +564,13 @@ function BannerEditor({
   );
 }
 
-function BannerPreview({
-  image,
-  position,
-  className = "",
-}: {
-  image: string;
-  position: number;
-  className?: string;
-}) {
+function BannerPreview({ artwork, position }: { artwork: SponsorArtwork; position: number }) {
   return (
     <img
-      src={`${BACKEND_URL}${image}`}
+      src={`${BACKEND_URL}${artwork.image_url}`}
       alt={`Banner image for slide ${position}`}
-      width={320}
-      height={50}
-      className={`block h-auto max-w-full bg-brand-ivory ${className}`}
+      className="block h-auto w-full object-contain"
+      style={{ aspectRatio: artwork.aspect_ratio ?? 6.4 }}
     />
   );
 }

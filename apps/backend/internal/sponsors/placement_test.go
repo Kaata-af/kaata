@@ -25,16 +25,31 @@ func TestNormalizeArtwork(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw.WriteString(injected)
-	art, contentType, err := normalizeArtwork(raw.Bytes())
-	if err != nil || contentType != "image/jpeg" || bytes.Contains(art, []byte(injected)) {
-		t.Fatalf("JPEG validation or cleanup failed: %s, %v", contentType, err)
+	art, err := normalizeArtwork(raw.Bytes())
+	if err != nil || art.contentType != "image/jpeg" || art.aspectRatio != legacyArtworkRatio || bytes.Contains(art.data, []byte(injected)) {
+		t.Fatalf("JPEG validation or cleanup failed: %s, %v", art.contentType, err)
 	}
-	raw.Reset()
-	if err := png.Encode(&raw, image.NewRGBA(image.Rect(0, 0, 728, 90))); err != nil {
-		t.Fatal(err)
+	for _, size := range []image.Point{{X: 728, Y: 90}, {X: 640, Y: 250}, {X: 2048, Y: 1024}} {
+		raw.Reset()
+		if err := png.Encode(&raw, image.NewRGBA(image.Rectangle{Max: size})); err != nil {
+			t.Fatal(err)
+		}
+		art, err := normalizeArtwork(raw.Bytes())
+		if err != nil || art.contentType != "image/png" || art.aspectRatio != float64(size.X)/float64(size.Y) {
+			t.Fatalf("failed to normalize %s PNG: %v", size, err)
+		}
 	}
-	for _, invalid := range [][]byte{raw.Bytes(), []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), make([]byte, maxImageBytes+1)} {
-		if _, _, err := normalizeArtwork(invalid); err == nil {
+	for _, size := range []image.Point{{X: 640, Y: 321}, {X: 2049, Y: 120}, {X: 2048, Y: 1025}} {
+		raw.Reset()
+		if err := png.Encode(&raw, image.NewRGBA(image.Rectangle{Max: size})); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := normalizeArtwork(raw.Bytes()); err == nil {
+			t.Fatalf("accepted invalid artwork dimensions %s", size)
+		}
+	}
+	for _, invalid := range [][]byte{[]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), make([]byte, maxImageBytes+1)} {
+		if _, err := normalizeArtwork(invalid); err == nil {
 			t.Fatal("accepted invalid or oversized image")
 		}
 	}
@@ -130,9 +145,10 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 			return ""
 		}
 		var uploaded struct {
-			ImageURL string `json:"image_url"`
+			ImageURL    string  `json:"image_url"`
+			AspectRatio float64 `json:"aspect_ratio"`
 		}
-		if err := json.Unmarshal(res.Body.Bytes(), &uploaded); err != nil || !strings.HasPrefix(uploaded.ImageURL, sponsorImagePath) {
+		if err := json.Unmarshal(res.Body.Bytes(), &uploaded); err != nil || !strings.HasPrefix(uploaded.ImageURL, sponsorImagePath) || uploaded.AspectRatio != float64(width)/float64(height) {
 			t.Fatalf("invalid image response: %s (%v)", res.Body, err)
 		}
 		return uploaded.ImageURL
@@ -155,7 +171,7 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 
 	request(httptest.NewRequest(http.MethodGet, adminPath, nil), http.StatusUnauthorized)
 	upload(320, 50, "wrong-key", http.StatusUnauthorized)
-	upload(320, 51, key, http.StatusBadRequest)
+	upload(320, 161, key, http.StatusBadRequest)
 	initial := readPublic(publicPath)
 	if !initial.Button.Enabled || initial.Button.Label != "" || initial.Banner.Enabled || initial.Banner.RotationSeconds != 6 || initial.Banner.Slides == nil {
 		t.Fatalf("unexpected initial public settings: %+v", initial)
@@ -170,7 +186,7 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 	if retry := upload(320, 50, key, http.StatusCreated); retry != first {
 		t.Fatalf("duplicate upload changed its immutable URL: %s -> %s", first, retry)
 	}
-	second := upload(960, 150, key, http.StatusCreated)
+	second := upload(960, 300, key, http.StatusCreated)
 	imageResponse := request(httptest.NewRequest(http.MethodGet, first, nil), http.StatusOK)
 	art, format, err := image.DecodeConfig(bytes.NewReader(imageResponse.Body.Bytes()))
 	if err != nil || art.Width != 320 || art.Height != 50 || format != "png" || imageResponse.Header().Get("Content-Type") != "image/png" || imageResponse.Header().Get("X-Content-Type-Options") != "nosniff" {
@@ -192,7 +208,7 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 	edit.Locales["en"] = &localizedPlacement{
 		ButtonLabel: "  Work with Kaata  ",
 		Slides: []placementSlide{
-			{ImageURL: second, DestinationURL: " https://example.test/second "},
+			{ImageURL: second, DestinationURL: " https://example.test/second ", AspectRatio: 99},
 			{ImageURL: first, DestinationURL: "http://example.test/first"},
 		},
 	}
@@ -211,6 +227,17 @@ func TestSponsorPlacementLifecycle(t *testing.T) {
 	published := readPublic(publicPath)
 	if published.Button.Enabled || published.Button.Label != "Work with Kaata" || !published.Banner.Enabled || published.Banner.RotationSeconds != 8 || len(published.Banner.Slides) != 2 || published.Banner.Slides[0].ImageURL != second || published.Banner.Slides[0].DestinationURL != "https://example.test/second" || published.Banner.Slides[1].ImageURL != first {
 		t.Fatalf("expected independently enabled banner in admin order: %+v", published)
+	}
+	if published.Banner.Slides[0].AspectRatio != 3.2 || published.Banner.Slides[1].AspectRatio != legacyArtworkRatio || readAdmin().Locales["en"].Slides[0].AspectRatio != 3.2 {
+		t.Fatalf("expected aspect ratios from the hosted artwork, regardless of the input: %+v", published.Banner.Slides)
+	}
+	if _, err := pool.Exec(t.Context(), `
+		UPDATE sponsor_placement
+		SET locale_settings = jsonb_set(locale_settings, '{en,slides,1}', (locale_settings #> '{en,slides,1}') - 'aspect_ratio')`); err != nil {
+		t.Fatal(err)
+	}
+	if readPublic(publicPath).Banner.Slides[1].AspectRatio != legacyArtworkRatio || readAdmin().Locales["en"].Slides[1].AspectRatio != legacyArtworkRatio {
+		t.Fatal("expected prior slides without ratio metadata to retain the original proportions")
 	}
 	dari := readPublic(publicPath + "?locale=fa")
 	if dari.Button.Label != "همکاری با کاته" || len(dari.Banner.Slides) != 1 || dari.Banner.Slides[0].DestinationURL != "https://example.test/dari" {

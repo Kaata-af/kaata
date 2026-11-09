@@ -2154,14 +2154,17 @@ export default function HomeScreen() {
                     !!currencyFilter
                   }
                   controls={inlineControls}
-                  firstCustomerRow={
-                    showSponsorship && sponsorship?.banner.slides.length ? (
-                      <SponsorBanner
-                        key={JSON.stringify(sponsorship.banner.slides)}
-                        slides={sponsorship.banner.slides}
-                        rotationSeconds={sponsorship.banner.rotation_seconds}
-                      />
-                    ) : null
+                  renderFirstCustomerRow={
+                    showSponsorship && sponsorship?.banner.slides.length
+                      ? (hasFollowingRows) => (
+                          <SponsorBanner
+                            key={JSON.stringify(sponsorship.banner.slides)}
+                            slides={sponsorship.banner.slides}
+                            rotationSeconds={sponsorship.banner.rotation_seconds}
+                            separated={hasFollowingRows}
+                          />
+                        )
+                      : undefined
                   }
                   discoveryActive={peopleSearch.visible}
                   friendPersonIds={peopleSearch.visible ? peopleSearch.friendPersonIds : undefined}
@@ -2750,7 +2753,7 @@ function HomePage(
       onToggleSettled: () => void;
       filtered: boolean;
       controls: React.ReactNode;
-      firstCustomerRow?: React.ReactNode;
+      renderFirstCustomerRow?: (hasFollowingRows: boolean) => React.ReactNode;
       discovery?: React.ReactNode;
       discoveryActive?: boolean;
       selectionControls: React.ReactNode;
@@ -2774,6 +2777,11 @@ function HomePage(
     () => props.allPeople.filter((person) => !isSettledCustomer(person)),
     [props.allPeople],
   );
+  const firstRowInSettled =
+    props.people.length === 0 && props.settledExpanded && props.settledPeople.length > 0;
+  const activeLeadingRow = firstRowInSettled
+    ? undefined
+    : props.renderFirstCustomerRow?.(props.people.length > 0);
   const [selectionSize, setSelectionSize] = useState({ scope: props.scrollScope, height: 0 });
   const selectionLayout = useRef({
     scope: props.scrollScope,
@@ -2883,12 +2891,20 @@ function HomePage(
             ]}
           >
             {props.controls}
-            {props.firstCustomerRow}
             {props.discoveryActive &&
             (props.people.length > 0 || props.settledPeople.length > 0) ? (
               <Text style={[styles.localSearchLabel, textDir(isRTL)]}>
                 {t("peopleSearch.local")}
               </Text>
+            ) : null}
+            {Platform.OS === "android" || props.people.length > 0 || activeLeadingRow ? (
+              <CustomerRows
+                key="active"
+                {...props}
+                leadingRow={activeLeadingRow}
+                retained={{ scope: props.scrollScope, people: activePeople }}
+                showDirection
+              />
             ) : null}
             {props.people.length === 0 && props.settledPeople.length === 0 ? (
               props.discoveryActive ? (
@@ -2903,14 +2919,6 @@ function HomePage(
                 />
               )
             ) : null}
-            {Platform.OS === "android" || props.people.length > 0 ? (
-              <CustomerRows
-                key="active"
-                {...props}
-                retained={{ scope: props.scrollScope, people: activePeople }}
-                showDirection
-              />
-            ) : null}
             <SettledAccountsSection
               count={props.settledPeople.length}
               expanded={props.settledExpanded}
@@ -2921,6 +2929,7 @@ function HomePage(
                 key="settled"
                 {...props}
                 people={props.settledPeople}
+                leadingRow={firstRowInSettled ? props.renderFirstCustomerRow?.(true) : undefined}
                 showDirection
                 separated={props.people.length > 0}
               />

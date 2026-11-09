@@ -242,7 +242,11 @@ async function sponsorPlacementChecks() {
                 enabled: bannerEnabled,
                 rotation_seconds: 8,
                 slides: [
-                  { image_url: image, destination_url: link },
+                  {
+                    image_url: image,
+                    destination_url: link,
+                    ...(image !== firstPath ? { aspect_ratio: 2.5 } : {}),
+                  },
                   {
                     image_url: "https://tracker.example.invalid/pixel",
                     destination_url: destination,
@@ -296,7 +300,9 @@ async function sponsorPlacementChecks() {
     banner: {
       enabled: true,
       rotation_seconds: 8,
-      slides: [{ image_url: localArtwork(firstPath), destination_url: destination }],
+      slides: [
+        { image_url: localArtwork(firstPath), destination_url: destination, aspect_ratio: 6.4 },
+      ],
     },
   });
   assert.deepEqual(requests, [
@@ -348,6 +354,7 @@ async function sponsorPlacementChecks() {
   stage.resolve();
   await settleUI();
   assert.equal(reopened.render().placement?.banner.slides[0].image_url, localArtwork(nextPath));
+  assert.equal(reopened.render().placement?.banner.slides[0].aspect_ratio, 2.5);
   assert.deepEqual(downloads, [[firstPath], [firstPath], [nextPath]]);
 
   const dariRequest = deferred<void>();
@@ -359,7 +366,11 @@ async function sponsorPlacementChecks() {
   const pashto = reopened.render().placement;
   assert.equal(pashto?.button.label, "اعلان وکړئ");
   assert.deepEqual(pashto?.banner.slides, [
-    { image_url: localArtwork(pashtoPath), destination_url: "https://example.invalid/ps" },
+    {
+      image_url: localArtwork(pashtoPath),
+      destination_url: "https://example.invalid/ps",
+      aspect_ratio: 2.5,
+    },
   ]);
   dariRequest.resolve();
   await settleUI();
@@ -373,7 +384,11 @@ async function sponsorPlacementChecks() {
   const dari = reopened.render().placement;
   assert.equal(dari?.button.label, "تبلیغ کنید");
   assert.deepEqual(dari?.banner.slides, [
-    { image_url: localArtwork(dariPath), destination_url: "https://example.invalid/fa" },
+    {
+      image_url: localArtwork(dariPath),
+      destination_url: "https://example.invalid/fa",
+      aspect_ratio: 2.5,
+    },
   ]);
   unavailable = true;
   assert.equal(
@@ -415,10 +430,13 @@ async function sponsorCarouselChecks() {
           View: "Track",
           Value: class {
             setValue() {}
+            interpolate({ outputRange }: { outputRange: number[] }) {
+              return outputRange;
+            }
           },
           timing: (_offset: unknown, options: { toValue: number }) => ({
             start: (done: (state: { finished: boolean }) => void) => {
-              assert.equal(options.toValue, -320);
+              assert.equal(options.toValue, 1);
               done({ finished: true });
             },
             stop() {},
@@ -427,14 +445,13 @@ async function sponsorCarouselChecks() {
         AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
         Image: "Image",
         Linking: { openURL: async (url: string) => void urls.push(url) },
-        Platform: { OS: "ios" },
         Pressable: "Pressable",
-        StyleSheet: { create: (styles: unknown) => styles },
-        useWindowDimensions: () => ({ width: 390 }),
+        StyleSheet: { create: (styles: unknown) => styles, absoluteFill: { position: "absolute" } },
+        View: "View",
       },
+      "../lib/colors": compileUI("../colors", {}),
       "../lib/i18n": language,
       "../lib/reduced-motion": { useReducedMotion: () => false },
-      "../lib/tokens": tokens,
       "./Toast": { useToast: () => ({ push() {} }) },
     },
     {
@@ -446,31 +463,50 @@ async function sponsorCarouselChecks() {
       clearInterval: (fn: () => void) => intervals.delete(fn),
     },
   );
-  const slides = ["one", "two"].map((id) => ({
+  const slides = ["one", "two"].map((id, index) => ({
     image_url: `https://api.example.invalid/${id}`,
     destination_url: `https://example.invalid/${id}`,
+    aspect_ratio: index === 0 ? 6.4 : 2.5,
   }));
-  const tree = hooks.render(() => component.SponsorBanner({ slides, rotationSeconds: 6 }));
-  assert.equal(tree.props.disabled, true);
-  const initialFrame = flattenStyle(tree.props.style);
-  assert.deepEqual(
-    [initialFrame.width, initialFrame.height],
-    [320, 50],
-    "No layout shift on decode",
+  const tree = hooks.render(() =>
+    component.SponsorBanner({ slides, rotationSeconds: 6, separated: true }),
   );
+  const frame = (root: typeof tree) =>
+    nodes(root).find((node) => node.props.testID === "home-sponsor-banner-frame")!;
+  const link = (root: typeof tree) =>
+    nodes(root).find((node) => node.props.testID === "home-sponsor-banner")!;
+  assert.equal(link(tree).props.disabled, true);
+  assert.equal(flattenStyle(tree.props.style).borderBottomWidth, 1);
+  const initialFrame = flattenStyle(frame(tree).props.style);
+  assert.deepEqual(
+    [initialFrame.width, initialFrame.aspectRatio],
+    ["100%", 6.4],
+    "The image fills the card at its own ratio before it decodes",
+  );
+  assert.equal(initialFrame.marginBottom, undefined);
+  frame(tree).props.onLayout({ nativeEvent: { layout: { width: 352 } } });
   const images = nodes(tree).filter((node) => node.type === "Image");
   assert.equal(images.length, 2, "The next ad loads before rotation");
+  assert.deepEqual(
+    images.map((node) => node.props.style),
+    [
+      { width: "50%", aspectRatio: 6.4 },
+      { width: "50%", aspectRatio: 2.5 },
+    ],
+  );
   assert.equal(
     nodes(tree).some((node) => node.type === "Text"),
     false,
   );
   images.forEach((image) => image.props.onLoad());
   const ready = hooks.render();
-  const style = flattenStyle(ready.props.style);
-  assert.deepEqual([style.width, style.height], [320, 50]);
-  await ready.props.onPress();
+  const style = flattenStyle(frame(ready).props.style);
+  assert.deepEqual(style.height, [352 / 6.4, 352 / 2.5]);
+  await link(ready).props.onPress();
   intervals.forEach((rotate) => rotate());
-  await hooks.render().props.onPress();
+  const rotated = hooks.render();
+  assert.deepEqual(flattenStyle(frame(rotated).props.style).height, [352 / 2.5, 352 / 6.4]);
+  await link(rotated).props.onPress();
   assert.deepEqual(
     urls,
     slides.map((slide) => slide.destination_url),

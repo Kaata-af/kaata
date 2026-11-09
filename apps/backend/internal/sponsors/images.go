@@ -20,8 +20,11 @@ import (
 )
 
 const (
-	sponsorImagePath = "/v1/sponsor-images/"
-	maxImageBytes    = 1 << 20
+	sponsorImagePath   = "/v1/sponsor-images/"
+	maxImageBytes      = 1 << 20
+	maxArtworkWidth    = 2048
+	maxArtworkHeight   = 1024
+	legacyArtworkRatio = 6.4
 )
 
 func validImageDigest(digest string) bool {
@@ -32,22 +35,28 @@ func validImageDigest(digest string) bool {
 	return err == nil
 }
 
-func normalizeArtwork(raw []byte) ([]byte, string, error) {
+type normalizedArtwork struct {
+	data        []byte
+	contentType string
+	aspectRatio float64
+}
+
+func normalizeArtwork(raw []byte) (normalizedArtwork, error) {
 	if len(raw) > maxImageBytes {
-		return nil, "", errors.New("image must be at most 1 MiB")
+		return normalizedArtwork{}, errors.New("image must be at most 1 MiB")
 	}
 	config, format, err := image.DecodeConfig(bytes.NewReader(raw))
 	if err != nil || (format != "png" && format != "jpeg") {
-		return nil, "", errors.New("upload a valid PNG or JPEG image")
+		return normalizedArtwork{}, errors.New("upload a valid PNG or JPEG image")
 	}
 	// The dimensions are checked before decoding to bound work and memory even
 	// when a small compressed file claims huge dimensions.
-	if config.Height < 50 || config.Height > 150 || config.Height%50 != 0 || config.Width != 320*(config.Height/50) {
-		return nil, "", errors.New("image must be 320 × 50, 640 × 100, or 960 × 150 pixels")
+	if config.Width <= 0 || config.Height <= 0 || config.Width > maxArtworkWidth || config.Height > maxArtworkHeight || config.Width < 2*config.Height {
+		return normalizedArtwork{}, errors.New("image must be at least twice as wide as it is tall and no larger than 2048 × 1024 pixels")
 	}
 	art, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil || art.Bounds().Dx() != config.Width || art.Bounds().Dy() != config.Height {
-		return nil, "", errors.New("upload a valid PNG or JPEG image")
+		return normalizedArtwork{}, errors.New("upload a valid PNG or JPEG image")
 	}
 	// Re-encode so only decoded artwork is hosted on Kaata's public API origin.
 	// This strips metadata and any non-image bytes appended to the upload.
@@ -59,9 +68,11 @@ func normalizeArtwork(raw []byte) ([]byte, string, error) {
 		err = jpeg.Encode(&output, art, &jpeg.Options{Quality: 90})
 	}
 	if err != nil || output.Len() > maxImageBytes {
-		return nil, "", errors.New("image could not be saved within 1 MiB")
+		return normalizedArtwork{}, errors.New("image could not be saved within 1 MiB")
 	}
-	return output.Bytes(), contentType, nil
+	return normalizedArtwork{
+		data: output.Bytes(), contentType: contentType, aspectRatio: float64(config.Width) / float64(config.Height),
+	}, nil
 }
 
 func (h *Handler) UploadSponsorImage(w http.ResponseWriter, r *http.Request) {
@@ -90,23 +101,24 @@ func (h *Handler) UploadSponsorImage(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "upload one file in the image field")
 		return
 	}
-	artwork, contentType, err := normalizeArtwork(raw)
+	artwork, err := normalizeArtwork(raw)
 	if err != nil {
 		httpx.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	digest := sha256.Sum256(artwork)
+	digest := sha256.Sum256(artwork.data)
 	id := hex.EncodeToString(digest[:])
 	_, err = h.pool.Exec(r.Context(), `
-		INSERT INTO sponsor_images (digest, content_type, artwork) VALUES ($1, $2, $3)
-		ON CONFLICT (digest) DO NOTHING`, id, contentType, artwork)
+		INSERT INTO sponsor_images (digest, content_type, artwork, aspect_ratio) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (digest) DO NOTHING`, id, artwork.contentType, artwork.data, artwork.aspectRatio)
 	if err != nil {
 		httpx.Error(w, http.StatusInternalServerError, "could not save the banner image")
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, struct {
-		ImageURL string `json:"image_url"`
-	}{ImageURL: sponsorImagePath + id})
+		ImageURL    string  `json:"image_url"`
+		AspectRatio float64 `json:"aspect_ratio"`
+	}{ImageURL: sponsorImagePath + id, AspectRatio: artwork.aspectRatio})
 }
 
 func (h *Handler) ServeSponsorImage(w http.ResponseWriter, r *http.Request) {

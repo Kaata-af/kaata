@@ -318,7 +318,8 @@ async function fetchAdmin<T>(path: string, token: string): Promise<T> {
 export const AdminTokenContext = createContext("");
 export const useAdminToken = () => useContext(AdminTokenContext);
 
-export type SponsorSlide = { image_url: string; destination_url: string };
+export type SponsorArtwork = { image_url: string; aspect_ratio: number };
+export type SponsorSlide = SponsorArtwork & { destination_url: string };
 export type SponsorPlacement = {
   button: { enabled: boolean };
   banner: { enabled: boolean; rotation_seconds: number };
@@ -852,10 +853,19 @@ export async function saveSponsorPlacement(
   token: string,
   { button, banner, locales, updated_at }: SponsorPlacement,
 ): Promise<SponsorPlacement> {
+  const content = Object.fromEntries(
+    Object.entries(locales).map(([language, { button_label, slides }]) => [
+      language,
+      {
+        button_label,
+        slides: slides.map(({ image_url, destination_url }) => ({ image_url, destination_url })),
+      },
+    ]),
+  );
   const res = await writeAdminResponse(
     SPONSOR_PLACEMENT_PATH,
     token,
-    { button, banner, locales, expected_updated_at: updated_at },
+    { button, banner, locales: content, expected_updated_at: updated_at },
     "PUT",
   );
   if (res.status === 409) throw new ConflictError((await responseError(res)).message);
@@ -863,7 +873,7 @@ export async function saveSponsorPlacement(
   return readJson<SponsorPlacement>(res);
 }
 
-export function uploadSponsorImage(token: string, file: File): Promise<{ image_url: string }> {
+export function uploadSponsorImage(token: string, file: File): Promise<SponsorArtwork> {
   const form = new FormData();
   form.append("image", file);
   return postAdmin("/v1/admin/sponsor-images", token, form);
