@@ -39,7 +39,7 @@ const en = {
   "hero.title.line1": "Run your shop",
   "hero.title.line2": "on trust.",
   "hero.sub":
-    "Track what you gave and received. Share accounts with people you trust, follow updates in Kaata, and send reminders over WhatsApp.",
+    "Kaata is a digital ledger for shopkeepers. Track what you give and receive, share accounts with people you trust, and send payment reminders over WhatsApp.",
   "hero.cta": "Download Kaata",
   "hero.how": "See how it works ↓",
   "hero.pricing": "Free forever",
@@ -141,7 +141,7 @@ const en = {
   "feature.backup.eyebrow": "Automatic Backup",
   "feature.backup.title": "Phones get lost. Your kaata comes back.",
   "feature.backup.body":
-    "A broken or stolen phone used to take the whole book with it — every name, every amount people owed you. Sign in with Google or Apple and Kaata automatically keeps a backup. On a new phone, sign in and everything returns: every person, every entry, every balance.",
+    "Sign in to sync and restore your ledger with Kaata Cloud. You can also connect Google Drive in Backups to save a copy of eligible records in your own Drive and restore it on a new phone. Google sign-in and Drive backup are separate choices.",
 
   "extras.eyebrow": "For your everyday accounts",
   "extras.title": "More ways to keep your book in order.",
@@ -417,7 +417,7 @@ const fa: Record<keyof typeof en, string> = {
   "hero.title.line1": "دکان خود را",
   "hero.title.line2": "با اعتماد بچرخانید.",
   "hero.sub":
-    "آنچه دادید و گرفتید را ثبت کنید. با کسانی که به آنها اعتماد دارید حساب مشترک داشته باشید، تغییرات را در کاتا دنبال کنید و در واتساپ یادآوری بفرستید.",
+    "کاتا دفتر حساب دیجیتالی برای دکانداران است. داد و گرفت خود را ثبت کنید، با کسانی که به آن‌ها اعتماد دارید حساب مشترک داشته باشید و در واتساپ یادآوری پرداخت بفرستید.",
   "hero.cta": "دانلود کاتا",
   "hero.how": "ببینید چطور کار می‌کند ↓",
   "hero.pricing": "به همیشه رایگان",
@@ -519,7 +519,7 @@ const fa: Record<keyof typeof en, string> = {
   "feature.backup.eyebrow": "نسخۀ پشتیبان خودکار",
   "feature.backup.title": "تلفون گم می‌شود. کاتای شما برمی‌گردد.",
   "feature.backup.body":
-    "پیش‌تر، شکستن یا گم شدن تلفون یعنی از بین رفتن تمام کتاب — هر نام و هر مبلغی که مردم از شما قرضدار بودند. با گوگل یا اپل وارد شوید تا کاتا به‌صورت خودکار نسخهٔ پشتیبان نگه دارد. روی تلفون نو وارد شوید و همه‌چیز برمی‌گردد: هر شخص، هر ثبت و هر باقی‌مانده.",
+    "برای همگام‌سازی و بازیابی دفتر حساب خود با فضای ابری کاتا وارد حساب شوید. در بخش نسخه‌های پشتیبان می‌توانید گوگل درایو را هم وصل کنید تا یک نسخه از حساب‌های قابل پشتیبان‌گیری در درایو خودتان ذخیره و در تلفون نو بازیابی شود. ورود با گوگل و پشتیبان‌گیری در درایو دو گزینۀ جداگانه‌اند.",
 
   "extras.eyebrow": "برای حساب‌وکتاب هر روز",
   "extras.title": "امکانات بیشتر برای حساب‌وکتاب روزانه.",
@@ -790,7 +790,7 @@ const ps: Record<keyof typeof en, string> = {
   "hero.title.line1": "خپل دوکان وچلوئ",
   "hero.title.line2": "په باور.",
   "hero.sub":
-    "هغه څه ثبت کړئ چې مو ورکړي او ترلاسه کړي دي. له باوري خلکو سره ګډ حسابونه ولرئ، په کاټه کې بدلونونه تعقیب کړئ او د WhatsApp له لارې یادونې ولېږئ.",
+    "کاټه د دوکاندارانو لپاره د حساب ډیجیټلي کتاب دی. ورکړې او ترلاسه کړې ثبت کړئ، له باوري خلکو سره حسابونه شریک کړئ او په WhatsApp کې د پیسو یادونې ولېږئ.",
   "hero.cta": "کاټه ښکته کړئ",
   "hero.how": "وګورئ چې څنګه کار کوي ↓",
   "hero.pricing": "د تل لپاره وړیا",
@@ -891,7 +891,7 @@ const ps: Record<keyof typeof en, string> = {
   "feature.backup.eyebrow": "اتومات شاتړ",
   "feature.backup.title": "ټیلیفون ورکېږي. کاټه مو بېرته راځي.",
   "feature.backup.body":
-    "پخوا د ټیلیفون په ماتېدو یا غلا کېدو ټول حساب کتاب ورسره ورکېده — هر نوم او هره اندازه پیسې چې خلک مو پوروړي وو. له Google یا Apple سره ننوځئ او کاټه به په خپله شاتړ ساتي. په نوي ټیلیفون کې ننوځئ او هر څه بېرته راځي: هر کس، هره راکړه ورکړه او هر پاتې حساب.",
+    "خپل حساب ته ننوځئ څو د کاټه په کلاوډ کې خپل حسابونه همغږي او بېرته راواخلئ. د شاتړ په برخه کې Google Drive هم نښلولای شئ، څو د شاتړ وړ حسابونو کاپي په خپل ډرایو کې خوندي او په نوي ټیلیفون کې بېرته راواخلئ. له Google سره ننوتل او په ډرایو کې شاتړ جلا انتخابونه دي.",
   "extras.eyebrow": "د ورځني حساب کتاب لپاره",
   "extras.title": "د حساب کتاب نورې ګټورې اسانتیاوې.",
   "extras.currencies.title": "د پیسو هر واحد، خپل جلا حساب.",

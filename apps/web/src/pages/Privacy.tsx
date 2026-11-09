@@ -104,9 +104,15 @@ export function Privacy() {
           </p>
           <ul className="list-disc ps-5 space-y-1.5">
             <li>
-              With Google or Apple, we receive your{" "}
-              <strong>email address, name, and profile picture</strong> from them to create your
-              account. Sign in with Apple’s private-relay email is supported.
+              With Google, we use your <strong>Google account identifier and verified email</strong>{" "}
+              to create and authenticate your Kaata account. We receive your name and profile picture
+              to set up your Kaata profile. We keep these details with your Kaata account. The
+              discovery, sharing and deletion sections below explain who can see your profile and
+              how long the information is kept.
+            </li>
+            <li>
+              With Apple, we receive the identity information Apple provides to create or recognize
+              your Kaata account. Sign in with Apple’s private-relay email is supported.
             </li>
             <li>
               With a Kaata account, we keep your <strong>email address</strong> and your password
@@ -171,13 +177,25 @@ export function Privacy() {
             Your phone transfers those files directly to and from Google Drive over HTTPS. Kaata
             reads your Google account email and a Drive account identifier to display and confirm
             which Drive is connected. Kaata keeps the connection details on your device and uses its
-            secure storage for saved Drive authorization credentials. This connection is used for
-            backup and restore.
+            secure storage for saved Drive authorization credentials. The ZIP files stay in your
+            Google Drive until you delete them. They are readable backup files, so keep them private.
           </p>
           <p>
             Use <strong>Turn off automatic backup</strong> in Backups to remove the saved Drive
             connection on that device. You can revoke Kaata’s Drive access in your Google Account
-            settings. To remove existing backup copies, delete the ZIP files in Google Drive.
+            settings. Delete the ZIP files in Google Drive to remove existing copies, including
+            copies you kept after deleting your Kaata account.
+          </p>
+          <p>
+            Kaata limits its use and transfer of information received from Google APIs to the
+            user-facing features described in this policy and follows the{" "}
+            <a
+              href="https://developers.google.com/terms/api-services-user-data-policy"
+              className="font-semibold text-neutral-900 underline underline-offset-2"
+            >
+              Google API Services User Data Policy
+            </a>
+            , including its Limited Use requirements.
           </p>
         </Section>
 

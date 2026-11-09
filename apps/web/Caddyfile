@@ -79,9 +79,20 @@
 		}
 	}
 
-	# Everything else: the static SPA bundle with client-side routing fallback.
+	# Everything else: public HTML documents and the client-side routing fallback.
+	# The admin host and remaining routes still use the SPA shell.
 	handle {
 		root * /srv
+		@public_home {
+			host kaata.af www.kaata.af
+			path /
+		}
+		@public_privacy {
+			host kaata.af www.kaata.af
+			path /privacy /privacy/
+		}
+		rewrite @public_home /_public/home.html
+		rewrite @public_privacy /_public/privacy.html
 		try_files {path} /index.html
 		file_server
 
@@ -91,10 +102,10 @@
 			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://api.kaata.af/v1/sponsor-images/; font-src 'self'; connect-src 'self' https://api.kaata.af wss://api.kaata.af; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		}
 
-		# index.html must always be revalidated: a heuristically-cached stale
-		# shell would reference hashed chunks a later deploy has deleted and
+		# HTML must always be revalidated: a heuristically-cached stale page
+		# would reference hashed chunks a later deploy has deleted and
 		# white-screen until a hard refresh. Hashed assets stay immutable below.
-		@html path / /index.html
+		@html path / /index.html /privacy /privacy/ /_public/*
 		header @html Cache-Control "no-cache"
 
 		# Aggressive cache for hashed asset files (Vite emits content-hashed names).

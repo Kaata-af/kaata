@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && vite build --ssr src/prerender.tsx --outDir node_modules/.vite/kaata-prerender && bun node_modules/.vite/kaata-prerender/prerender.js",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
