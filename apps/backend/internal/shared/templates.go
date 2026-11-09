@@ -385,17 +385,19 @@ a{color:inherit;text-decoration:none;}
     .then(function(r){ if(!r.ok) throw 0; return r.json(); })
     .then(function(payload){
       var container = document.getElementById('entries');
-      var multi = payload && (payload.v === 2 || payload.v === 3);
-      var groups = multi ? payload.currencies : [payload];
+      var sectioned = payload && (payload.v === 2 || payload.v === 3);
+      var groups = sectioned ? payload.currencies : [payload];
       if(!Array.isArray(groups) || !groups.length) throw new Error('invalid bill');
       var expandAll = [], counts = [];
-      if(multi){ container.innerHTML = ''; container.className = ''; }
+      if(sectioned){ container.innerHTML = ''; container.className = ''; }
       groups.forEach(function(p, index){
         var el = container;
-        if(multi){
-          var heading = document.createElement('div'); heading.className = 'sectionhead';
-          heading.textContent = currencyLabel(p);
-          container.appendChild(heading);
+        if(sectioned){
+          if(groups.length > 1){
+            var heading = document.createElement('div'); heading.className = 'sectionhead';
+            heading.textContent = currencyLabel(p);
+            container.appendChild(heading);
+          }
           el = document.createElement('div'); el.className = 'rows'; container.appendChild(el);
         }
       var all = (p && p.entries) || [];

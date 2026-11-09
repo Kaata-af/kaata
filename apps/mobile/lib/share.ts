@@ -215,7 +215,7 @@ function currencyMessageLines(
       );
     else
       lines.push(
-        tIn(lang, "share.currencySettled", { currency: section.currency }),
+        tIn(lang, "share.billSettled"),
         "",
         tIn(lang, "share.settled.cta"),
       );

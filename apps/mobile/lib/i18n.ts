@@ -1235,6 +1235,7 @@ const en = {
   "share.footer": "— Sent via https://kaata.af",
   "share.fullLedger": "See the full ledger here:",
   "share.currencySettled": "🤝 {currency}: settled.",
+  "share.billSettled": "🤝 Settled.",
   "share.billUnavailable": "The full bill could not be attached. These are the balances only.",
   "share.askLang.title": "Send in which language?",
 
@@ -4038,6 +4039,7 @@ const fa: Partial<Record<Key, string>> = {
   "share.footer": "— فرستاده‌شده از طریق https://kaata.af",
   "share.fullLedger": "کاتای مکمل را اینجا ببینید:",
   "share.currencySettled": "🤝 {currency}: تصفیه شده.",
+  "share.billSettled": "🤝 تصفیه شد.",
   "share.billUnavailable": "کاتای مکمل ضمیمه نشد. این‌ها فقط بیلانس‌ها هستند.",
   "share.askLang.title": "پیام به کدام زبان فرستاده شود؟",
 
@@ -7604,6 +7606,7 @@ const ps: Record<Key, string> = {
   "share.footer": "— د https://kaata.af له لارې لېږل شوی",
   "share.fullLedger": "بشپړ حساب کتاب دلته وګورئ:",
   "share.currencySettled": "🤝 {currency}: تصفیه شوی.",
+  "share.billSettled": "🤝 تصفیه شو.",
   "share.billUnavailable": "بشپړ حساب کتاب ورسره ونه نښلول شو. دا یوازې بیلانسونه دي.",
   "share.askLang.title": "په کومه ژبه یې ولېږو؟",
   "brand.wordmark": "کاټه.",

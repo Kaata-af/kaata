@@ -229,6 +229,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		absBal = localizeNum(absBal)
 	}
 	currency := billCurrencyLabel(p.CurrencyCode, p.Currency)
+	billDate := billDateForLanguage(p.GeneratedAt, lang, calendar, qamariOffset)
 
 	data := viewData{
 		Token:        token,
@@ -245,7 +246,7 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 		ShareURL:     h.shareBaseURL + "/v/" + token,
 		APIBase:      h.apiBaseURL,
 		OGTitle:      ogTitle(p),
-		OGDesc:       ogDescForLanguage(absBal, currency, dir, lang, billDateForLanguage(p.GeneratedAt, lang, calendar, qamariOffset)),
+		OGDesc:       ogDescForLanguage(absBal, currency, dir, lang, billDate),
 		// Bills are permanent (paper rule), so the issue date is load-bearing:
 		// a two-year-old link must read as "bill dated X", never as the
 		// current balance. Formatted by the inline script's fmtDate (Afghan
@@ -258,21 +259,27 @@ func (h *Handler) View(w http.ResponseWriter, r *http.Request) {
 			path = "/v3/"
 		}
 		data.ShareURL = h.shareBaseURL + path + token
-		data.Currencies = currencyPreviews(p, lang)
-		data.Direction = "multi"
-		parts := make([]string, 0, len(data.Currencies))
-		for i, currency := range data.Currencies {
-			date := ""
-			if i == 0 {
-				date = billDateForLanguage(p.GeneratedAt, lang, calendar, qamariOffset)
+		sections := currencyPreviews(p, lang)
+		if len(sections) == 1 && sections[0].Direction == "settled" {
+			data.Direction = "settled"
+			data.OGDesc = ogDescForLanguage("", "", data.Direction, lang, billDate)
+		} else {
+			data.Currencies = sections
+			data.Direction = "multi"
+			parts := make([]string, 0, len(sections))
+			for i, currency := range sections {
+				date := ""
+				if i == 0 {
+					date = billDate
+				}
+				description := ogDescForLanguage(currency.AbsBalance, currency.Currency, currency.Direction, lang, date)
+				if currency.Direction == "settled" {
+					description += " (" + currency.Currency + ")"
+				}
+				parts = append(parts, description)
 			}
-			description := ogDescForLanguage(currency.AbsBalance, currency.Currency, currency.Direction, lang, date)
-			if currency.Direction == "settled" {
-				description += " (" + currency.Currency + ")"
-			}
-			parts = append(parts, description)
+			data.OGDesc = strings.Join(parts, "; ")
 		}
-		data.OGDesc = strings.Join(parts, "; ")
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300")

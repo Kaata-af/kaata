@@ -409,6 +409,7 @@ export function Ledger({ data }: { data: SharedLedger }) {
           header={index === 0}
           footer={index === data.currencies.length - 1}
           currencySection
+          showCurrencyHeading={data.currencies.length > 1}
           history={data.v === 3 ? section.history : undefined}
         />
       ))}
@@ -421,12 +422,14 @@ function SingleLedger({
   header = true,
   footer = true,
   currencySection = false,
+  showCurrencyHeading = false,
   history,
 }: {
   data: SingleCurrencyBill;
   header?: boolean;
   footer?: boolean;
   currencySection?: boolean;
+  showCurrencyHeading?: boolean;
   history?: readonly SharedHistoryGroup[] | null;
 }) {
   const lang = languageForLocale(d.locale) ?? "en";
@@ -532,7 +535,7 @@ function SingleLedger({
           </div>
         ) : null}
 
-        {currencySection ? (
+        {showCurrencyHeading ? (
           <p className="mt-3 text-center text-[13px] font-semibold" dir="ltr">
             {d.currency}
           </p>

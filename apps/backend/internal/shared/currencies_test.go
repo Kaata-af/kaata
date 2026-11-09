@@ -210,6 +210,24 @@ func TestBillHistoryHTTP(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "https://bill.kaata.af/v3/synthetic-token") || !strings.Contains(w.Body.String(), `class="cur">AFN</span>`) {
 		t.Fatal("history page/canonical balance unavailable")
 	}
+
+	// An AFN-only V3 bill still has its own URL and full history, but its
+	// settled first paint and link preview need no zero amount or currency.
+	p.Currencies = p.Currencies[:1]
+	settled := 0.0
+	p.Currencies[0].Balance = &settled
+	p.Currencies[0].Entries = p.Currencies[0].Entries[1:]
+	store.payload, _ = json.Marshal(p)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v3/synthetic-token", nil))
+	page := w.Body.String()
+	if w.Code != 200 || !strings.Contains(page, `class="cleartitle">All settled</div>`) || strings.Contains(page, `class="cur">AFN</span>`) {
+		t.Fatal("single-currency settled bill should show the existing settlement confirmation")
+	}
+	_, meta := previewHead(t, page)
+	if meta["og:url"] != "https://bill.kaata.af/v3/synthetic-token" || meta["og:description"] != "Bill dated 15 Nov 2023 — All settled — nothing owed." {
+		t.Fatalf("single-currency settled preview: %#v", meta)
+	}
 }
 
 func (s *memorySnapshotStore) Create(_ context.Context, p []byte) (string, error) {
@@ -379,7 +397,8 @@ async function run(payload){
  assert.deepEqual(clean.ids.entries.children.filter(child=>child.className==='sectionhead').map(child=>child.textContent),['AFN','USD','AUD']);
  assert.ok(!/AFN ؋|\$ USD|USD \$|AUD A\$/.test(clean.print()),'all rows and printed sections use one denomination');
  assert.equal(JSON.stringify(composite),frozenComposite);
- const historical=await run(` + string(historyPayload) + `);
+ const historyPayload=` + string(historyPayload) + `;
+ const historical=await run(historyPayload);
  assert.deepEqual(historical.groups.map(rows),[1,1,0],'historic books never alter current balance/coherence');
  assert.deepEqual(historical.histories.map(rows),[2,2],'pre-link and earlier shared books remain complete');
  assert.equal(historical.ids.txCount.textContent,'6','visible count includes history without adding its money');
@@ -388,6 +407,12 @@ async function run(payload){
  assert.equal((prior.match(/class="chline"/g)||[]).length,1,'duplicate adjacent anchors collapse');
  assert.match(prior,/Historical balance/);assert.match(prior,/40/);assert.match(prior,/<span class="rcur">AFN<\/span>/);
  const historyPrint=historical.print();assert.match(historyPrint,/Private pre-link tally/);assert.match(historyPrint,/Earlier shared tally/);assert.ok(!historyPrint.includes('NaN'));
+ const afn=historyPayload.currencies[0], single=await run({...historyPayload,currencies:[{...afn,balance:0,entries:afn.entries.slice(1)}]});
+ assert.deepEqual(single.groups.map(rows),[0],'the settled AFN chapter starts collapsed');
+ assert.deepEqual(single.histories.map(rows),[2,2],'a single section still renders both archived groups');
+ assert.ok(!single.ids.entries.children.some(child=>child.className==='sectionhead'&&child.textContent==='AFN'),'a sole denomination needs no standalone heading');
+ const singlePrint=single.print();assert.match(singlePrint,/afn old/);assert.match(singlePrint,/Private pre-link tally/);assert.match(singlePrint,/Earlier shared tally/);
+ assert.match(singlePrint,/<span class="rcur">AFN<\/span>/,'printed transaction amounts keep the denomination');
 })().catch(error=>{console.error(error);process.exitCode=1;});`
 	cmd := exec.Command(node, "--input-type=commonjs")
 	cmd.Stdin = strings.NewReader(program)

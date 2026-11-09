@@ -430,11 +430,10 @@ async function main() {
     [{ currency: "AUD", balance: 0, entries: audHistory }],
     "en",
   );
-  assert.match(
-    new URL(opens.at(-1)!).searchParams.get("text")!,
-    /share.currencySettled.*AUD/,
-    "even a single settled currency keeps its label",
-  );
+  const singleSettledText = new URL(opens.at(-1)!).searchParams.get("text")!;
+  assert.match(singleSettledText, /share.billSettled/, "a single settled bill has a plain status");
+  assert.doesNotMatch(singleSettledText, /AUD|share.currencySettled/);
+  assert.equal(snapshot!.currencies[0].currency_code, "AUD", "the bill retains its actual currency");
   const capacity = Array.from({ length: 5000 }, (_, i) => ({
     ...tally(`capacity-${i}`, "Complete maximum-size bill"),
     currency: "AFN",

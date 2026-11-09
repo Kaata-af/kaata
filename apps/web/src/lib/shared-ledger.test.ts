@@ -204,6 +204,13 @@ test("bill currency display uses one code while preserving legacy symbol-only sn
   assert.equal(billCurrencyLabel("USD", "$ USD"), "USD");
   assert.equal(billCurrencyLabel("AFN", "AFN ؋"), "AFN");
   assert.equal(billCurrencyLabel(undefined, "؋"), "؋");
+  const singleSettled = fixture();
+  singleSettled.currencies = singleSettled.currencies.filter(
+    ({ currency_code }) => currency_code === "AUD",
+  );
+  const settledHtml = render(singleSettled);
+  assert.match(settledHtml, /All settled/);
+  assert.doesNotMatch(settledHtml, />AUD<\/p>/, "a single currency needs no separate heading");
   const legacy = {
     v: 1 as const,
     shop: "Old shop",
