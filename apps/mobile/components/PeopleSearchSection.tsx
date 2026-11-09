@@ -95,7 +95,10 @@ export function PeopleSearchSection(props: {
                 person.name,
                 person.username ? `@${person.username}` : null,
                 person.is_friend ? t("peopleSearch.friend") : null,
-                props.actionLabel ?? t(existingId(person) ? "peopleSearch.existing" : "peopleSearch.add"),
+                search.requiresSignIn
+                  ? t("peopleProfile.signIn")
+                  : (props.actionLabel ??
+                    t(existingId(person) ? "peopleSearch.existing" : "peopleSearch.add")),
               ]
                 .filter(Boolean)
                 .join(", ")}
@@ -134,11 +137,13 @@ export function PeopleSearchSection(props: {
               </View>
               <Ionicons
                 name={
-                  props.opensProfile || existingId(person)
-                    ? rtl
-                      ? "chevron-back"
-                      : "chevron-forward"
-                    : "person-add-outline"
+                  search.requiresSignIn
+                    ? "lock-closed-outline"
+                    : props.opensProfile || existingId(person)
+                      ? rtl
+                        ? "chevron-back"
+                        : "chevron-forward"
+                      : "person-add-outline"
                 }
                 size={20}
                 color={colors.textSubtle}

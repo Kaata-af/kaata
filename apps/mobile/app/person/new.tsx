@@ -240,9 +240,9 @@ export default function PersonAddOrFindScreen() {
     ? nameQuery.length > 0 || phoneFilter.length > 0
     : findQuery.trim().length > 0;
   const peopleSearch = usePeopleSearch(
-    canCreate ? phone.trim() || nameQuery : findQuery,
+    canCreate ? (account && phone.trim()) || nameQuery : findQuery,
     !busy && !noteVisible,
-    countryCode,
+    { country: countryCode, allowPreview: true },
   );
 
   // Defer the values the (potentially large) phone-book filter runs on, so each

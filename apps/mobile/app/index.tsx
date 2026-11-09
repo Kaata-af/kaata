@@ -882,7 +882,9 @@ export default function HomeScreen() {
   );
   const canSelect = canEditPerson && currentPeopleScope;
   const selecting = selectionMode && canSelect;
-  const peopleSearch = usePeopleSearch(customerQuery, currentPeopleScope && !selecting);
+  const peopleSearch = usePeopleSearch(customerQuery, currentPeopleScope && !selecting, {
+    allowPreview: true,
+  });
   const canSelectRef = useRef(canSelect);
   canSelectRef.current = canSelect;
   const selectedIds = useMemo(() => {

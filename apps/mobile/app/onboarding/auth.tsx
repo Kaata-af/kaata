@@ -156,11 +156,23 @@ class AccountRecoveryUnavailableError extends Error {
   }
 }
 
+/** A fixed profile route can be resumed only with a valid account identifier. */
+export function parseProfileSignInAccountId(value: unknown): string | undefined {
+  if (
+    typeof value !== "string" ||
+    !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value) ||
+    value === "00000000-0000-0000-0000-000000000000"
+  )
+    return undefined;
+  return value;
+}
+
 export function AuthScreen({
   redirected = false,
   initialMode = "providers",
   emailRoute = false,
   providerReady = true,
+  profileAccountId,
 }: {
   redirected?: boolean;
   /** "email": open straight on the email flow (/sign-in?mode=email). */
@@ -169,6 +181,8 @@ export function AuthScreen({
   emailRoute?: boolean;
   /** Direct/cold entry rebuilds the selector beneath the email route first. */
   providerReady?: boolean;
+  /** Profile selected before the signed-out viewer opened sign-in. */
+  profileAccountId?: string;
 }) {
   const router = useRouter();
   const isFocused = useIsFocused();
@@ -201,7 +215,12 @@ export function AuthScreen({
   const [error, setError] = useState<string | null>(null);
   // The last failure was a retired install: offer "Reset this phone".
   const [retired, setRetired] = useState(false);
-  const providerRoute = redirected ? "/sign-in" : "/onboarding/auth";
+  const profileTarget = redirected ? parseProfileSignInAccountId(profileAccountId) : undefined;
+  const providerRoute: Href = profileTarget
+    ? { pathname: "/sign-in", params: { profileAccountId: profileTarget } }
+    : redirected
+      ? "/sign-in"
+      : "/onboarding/auth";
   const inEmailMode = emailRoute;
   // Native swipe is available at the first form. Deeper steps use the flow's
   // Back handler, which also cancels a pending code when leaving its step.
@@ -273,7 +292,13 @@ export function AuthScreen({
     emailOpenedRef.current = true;
     setError(null);
     setRetired(false);
-    router.push({ pathname: "/auth/email", params: { redirected: redirected ? "1" : "0" } });
+    router.push({
+      pathname: "/auth/email",
+      params: {
+        redirected: redirected ? "1" : "0",
+        ...(profileTarget ? { profileAccountId: profileTarget } : {}),
+      },
+    });
   }
 
   // Back to the provider choices. Only ever from a first step: Back leaves a
@@ -402,6 +427,7 @@ export function AuthScreen({
         const pendingPerson = await getAppMeta("pending_tab_person");
         const pendingTab = await getAppMeta("pending_tab_token");
         const pendingInvite = await getAppMeta("pending_invite_token");
+        if (!focusedRef.current) return;
         if (pendingPerson) {
           await setAppMeta("pending_tab_person", "");
           replaceAuthRoute({ pathname: "/person/[id]", params: { id: pendingPerson } });
@@ -410,6 +436,12 @@ export function AuthScreen({
         } else if (pendingInvite) {
           await setAppMeta("pending_invite_token", "");
           replaceAuthRoute({ pathname: "/invite/[token]", params: { token: pendingInvite } });
+        } else if (profileTarget) {
+          if (emailRoute) router.dismissTo(providerRoute);
+          router.dismissTo({
+            pathname: "/people/[accountId]",
+            params: { accountId: profileTarget },
+          });
         } else {
           // Back DOWN to the home screen this sign-in was opened from (the
           // profile sheet pushes /sign-in over it); replace would stack a

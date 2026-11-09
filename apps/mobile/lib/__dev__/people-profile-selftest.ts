@@ -409,6 +409,24 @@ async function qrScreens() {
 
 async function main() {
   await qrScreens();
+  {
+    const f = fixture();
+    f.identity(null);
+    f.render();
+    await f.flush();
+    assert.ok(f.text("peopleProfile.signIn"));
+    assert.equal(f.calls.length, 0, "the sign-in gate does not fetch a signed-out profile");
+    const signIn = f.button("peopleProfile.signInAction");
+    signIn.props.onPress();
+    assert.deepEqual(f.routes, [{ pathname: "/sign-in", params: { profileAccountId: john } }]);
+    f.identity(me);
+    signIn.props.onPress();
+    await f.flush();
+    assert.equal(f.routes.length, 1, "a retained sign-in tap cannot reopen auth after signing in");
+    assert.equal(f.calls[0]?.action, "get");
+    assert.equal(f.calls[0]?.target, john);
+    f.unmount();
+  }
   for (const offline of [false, true]) {
     const f = fixture("none", true);
     const pending = deferred<any>();

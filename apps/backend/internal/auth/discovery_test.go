@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -163,5 +164,101 @@ func TestPeopleSearchExistingRelationshipIsVaultScoped(t *testing.T) {
 	}
 	if _, err := svc.SearchPeople(t.Context(), other.AccountID, "john", vault); !errors.Is(err, errPeopleVault) {
 		t.Fatalf("outsider relation %v", err)
+	}
+}
+
+func TestPeoplePreviewOnlyReturnsDiscoverableIdentity(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	svc := NewService(pool, "", emailTestSecret)
+	handler := NewHandler(svc)
+	seed := func(name, handle, phone, state string) string {
+		t.Helper()
+		id := seedGoogleAccount(t, pool, uuid.NewString()+"@example.test", uuid.NewString())
+		if _, err := pool.Exec(t.Context(), `UPDATE accounts SET display_name=$2,username=NULLIF($3,''),phone_e164=$4,
+ discovery_enabled=($5<>'private'),picture_url='https://example.test/photo',
+ disabled_at=CASE WHEN $5='disabled' THEN NOW() END,
+ pending_delete_at=CASE WHEN $5='deleting' THEN NOW() END WHERE id=$1::uuid`, id, name, handle, phone, state); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	john := seed("John Smith", "john_smith", "+93700000001", "public")
+	seed("John Private", "john_private", "+93700000002", "private")
+	seed("John Disabled", "john_disabled", "+93700000003", "disabled")
+	seed("John Deleting", "john_deleting", "+93700000004", "deleting")
+	li := seed("Li", "li_identity", "", "public")
+	seed("Liam", "liam_identity", "", "public")
+	ali := seed("علی کریمی", "ali_karimi", "", "public")
+
+	search := func(q string) PeopleSearchPage {
+		t.Helper()
+		path := "/v1/people/search/preview?q=" + url.QueryEscape(q) + "&vault_id=" + uuid.NewString() + "&include_friends=1"
+		w := httptest.NewRecorder()
+		handler.SearchPeoplePreview(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%q => %d %s", q, w.Code, w.Body)
+		}
+		var raw struct {
+			People []map[string]json.RawMessage `json:"people"`
+		}
+		var result PeopleSearchPage
+		if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if raw.People == nil {
+			t.Fatal("expected a people array")
+		}
+		for _, person := range raw.People {
+			if len(person) != 4 || person["account_id"] == nil || person["name"] == nil ||
+				person["username"] == nil || person["picture_url"] == nil {
+				t.Fatalf("unexpected preview fields: %s", w.Body)
+			}
+		}
+		return result
+	}
+	for query, want := range map[string]string{
+		"john": john, "smi": john, "@john_s": john, "li": li, "علي كري": ali,
+	} {
+		page := search(query)
+		if len(page.People) != 1 || page.People[0].AccountID != want || page.People[0].PictureURL == "" {
+			t.Fatalf("%q => %+v", query, page)
+		}
+	}
+	for _, query := range []string{"jo", "@jo", "j!!!", "j j j", "+93700000001", "۰۷۰۰ ۰۰۰ ۰۰۱"} {
+		if page := search(query); len(page.People) != 0 || page.HasMore {
+			t.Fatalf("%q exposed an unintended match: %+v", query, page)
+		}
+	}
+	if err := svc.SetDiscovery(t.Context(), john, false); err != nil {
+		t.Fatal(err)
+	}
+	if page := search("john"); len(page.People) != 0 {
+		t.Fatalf("preview ignored opt-out: %+v", page)
+	}
+	for i := 0; i < peoplePreviewLimit+3; i++ {
+		seed(fmt.Sprintf("Alex Person %02d", i), fmt.Sprintf("alex%d", i), "", "public")
+	}
+	if page := search("alex"); len(page.People) != peoplePreviewLimit || !page.HasMore {
+		t.Fatalf("unbounded preview: %+v", page)
+	}
+
+	w := httptest.NewRecorder()
+	handler.PeopleProfile(w, httptest.NewRequest("GET", "/v1/people/profiles/"+li, nil))
+	if w.Code != 401 {
+		t.Fatalf("profile opened without a session: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestPeoplePreviewRejectsUnboundedQueries(t *testing.T) {
+	handler := NewHandler(NewService(nil, "", emailTestSecret))
+	for _, query := range []string{"", "a", "@ا", strings.Repeat("ک", 81)} {
+		w := httptest.NewRecorder()
+		handler.SearchPeoplePreview(w, httptest.NewRequest("GET", "/v1/people/search/preview?q="+url.QueryEscape(query), nil))
+		if w.Code != 400 || !strings.Contains(w.Body.String(), "invalid_search") {
+			t.Fatalf("%q => %d %s", query, w.Code, w.Body)
+		}
 	}
 }

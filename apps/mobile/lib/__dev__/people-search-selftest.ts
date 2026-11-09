@@ -36,8 +36,10 @@ function advance(ms: number) {
 const pending: Array<{
   url: string;
   signal: AbortSignal;
+  headers: Record<string, string>;
   reply: ReturnType<typeof deferred<Response>>;
 }> = [];
+let localLookups = 0;
 const hooks = uiHooks();
 let appStateListener: (state: string) => void = () => {};
 const identityListeners = new Set<() => void>();
@@ -100,16 +102,19 @@ const api = compileUI(
     "./digits": require("../digits"),
     "./phone": phone,
     "./people-connections": {
-      getDiscoveredPersonIds: async () => ({ [accountB]: "local-john" }),
+      getDiscoveredPersonIds: async () => {
+        localLookups++;
+        return { [accountB]: "local-john" };
+      },
       discoveredPersonId: (_vaultId: string, accountId: string) => `stable-${accountId}`,
     },
   },
   {
     setTimeout: setTimer,
     clearTimeout: (id: number) => timers.delete(id),
-    fetch: (url: string, options: { signal: AbortSignal }) => {
+    fetch: (url: string, options: { signal: AbortSignal; headers: Record<string, string> }) => {
       const reply = deferred<Response>();
-      pending.push({ url, signal: options.signal, reply });
+      pending.push({ url, signal: options.signal, headers: options.headers, reply });
       return reply.promise;
     },
   },
@@ -133,9 +138,12 @@ async function main() {
 
   let query = "John";
   let enabled = true;
+  let allowPreview = false;
   const render = () =>
-    hooks.render(() => ({ type: "result", props: api.usePeopleSearch(query, enabled) }))
-      .props as ReturnType<typeof api.usePeopleSearch>;
+    hooks.render(() => ({
+      type: "result",
+      props: api.usePeopleSearch(query, enabled, { allowPreview }),
+    })).props as ReturnType<typeof api.usePeopleSearch>;
   let result = render();
   assert.equal(result.loading, true);
   advance(349);
@@ -278,6 +286,7 @@ async function main() {
   await settleUI();
   pending.at(-1)!.reply.resolve(response([{ ...person, is_friend: "true" }]));
   await settleUI();
+  await settleUI();
   result = render();
   assert.equal(result.people.length, 1);
   assert.equal(result.people[0].is_friend, undefined, "a non-boolean flag cannot mark someone as a friend");
@@ -286,6 +295,51 @@ async function main() {
   identityListeners.forEach((notify) => notify());
   result = render();
   assert.equal(result.visible, false, "cached account identity cannot enable signed-out discovery");
+  allowPreview = true;
+  vault = "ninja-vault";
+  const lookupsBeforePreview = localLookups;
+  result = render();
+  assert.equal(result.visible, true);
+  assert.equal(result.requiresSignIn, true);
+  advance(350);
+  await settleUI();
+  const guest = pending.at(-1)!;
+  assert.equal(guest.url, "https://fixture.invalid/v1/people/search/preview?q=Joh");
+  assert.deepEqual(guest.headers, { Accept: "application/json" });
+  guest.reply.resolve(response([{ ...linkedPerson, phone_e164: "+93700123456" }]));
+  await settleUI();
+  await settleUI();
+  const previewPage = render();
+  assert.deepEqual(previewPage.people, [person], "a preview only exposes public identity");
+  assert.deepEqual(previewPage.existingPersonIds, {});
+  assert.equal(previewPage.friendPersonIds, undefined);
+  assert.equal(previewPage.vaultId, null);
+  assert.equal(localLookups, lookupsBeforePreview, "preview does not resolve financial contacts");
+
+  const requestsBeforePhone = pending.length;
+  query = "+93700123456";
+  assert.equal(render().visible, false);
+  advance(350);
+  await settleUI();
+  assert.equal(pending.length, requestsBeforePhone, "Ninja mode does not send phone lookups");
+
+  query = "@john";
+  render();
+  advance(350);
+  await settleUI();
+  const stalePreview = pending.at(-1)!;
+  account = accountA;
+  identityListeners.forEach((notify) => notify());
+  assert.deepEqual(render().people, []);
+  assert.equal(stalePreview.signal.aborted, true);
+  stalePreview.reply.resolve(response([person]));
+  await settleUI();
+  assert.deepEqual(render().people, [], "a late guest reply cannot populate a signed-in search");
+  advance(350);
+  await settleUI();
+  const signedInAgain = pending.at(-1)!;
+  assert.ok(signedInAgain.url.includes("/v1/people/search?q=%40john&include_friends=1"));
+  assert.equal(signedInAgain.headers.Authorization, "Bearer fixture-session");
   hooks.unmount();
   for (const request of pending) request.reply.resolve(response([person]));
   await settleUI();
@@ -372,6 +426,24 @@ async function main() {
     "matching names never collapse separate identities",
   );
   assert.ok(!unmappedNodes.some((node) => node.type === "Text" && node.props.children === "peopleSearch.friend"));
+  const selectedPreview: DiscoveredPerson[] = [];
+  const guestNodes = nodes(
+    section.PeopleSearchSection({
+      search: previewPage,
+      localPeople: [known],
+      visiblePeople: [known],
+      opensProfile: true,
+      actionLabel: "peopleProfile.view",
+      onSelect: (chosen) => selectedPreview.push(chosen),
+    }),
+  );
+  assert.ok(
+    guestNodes.some((node) => node.type === "Icon" && node.props.name === "lock-closed-outline"),
+  );
+  const guestRow = guestNodes.find((node) => node.type === "Pressable")!;
+  assert.match(guestRow.props.accessibilityLabel, /peopleProfile\.signIn/);
+  guestRow.props.onPress();
+  assert.deepEqual(selectedPreview, [person]);
   const photoUrl = "https://photos.example.test/john.jpg";
   const picturedPerson = { ...person, picture_url: photoUrl };
   const selected: DiscoveredPerson[] = [];

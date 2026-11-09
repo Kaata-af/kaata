@@ -33,6 +33,14 @@ type PeopleSearchPage struct {
 var errInvalidPeopleQuery = errors.New("search must contain 2 to 80 characters")
 var errPeopleVault = errors.New("kaata not found")
 
+func discoveryWords(query string) []string {
+	return strings.FieldsFunc(query, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+}
+
+func escapeDiscoveryLike(query string) string {
+	return strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(query)
+}
+
 func discoveryQuery(raw string) (query, prefix, phone string, err error) {
 	query = strings.TrimSpace(foldDigits(raw))
 	query = strings.TrimPrefix(query, "@")
@@ -56,7 +64,7 @@ func discoveryQuery(raw string) (query, prefix, phone string, err error) {
 		return query, "", phone, nil
 	}
 	query = strings.ToLower(strings.NewReplacer("ي", "ی", "ى", "ی", "ك", "ک").Replace(query))
-	words := strings.FieldsFunc(query, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+	words := discoveryWords(query)
 	parts := make([]string, 0, len(words))
 	for _, word := range words {
 		parts = append(parts, word+":*")
@@ -99,7 +107,7 @@ func (s *Service) SearchPeopleWithFriends(ctx context.Context, accountID, raw, v
 			return page, errPeopleVault
 		}
 	}
-	like := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(query) + "%"
+	like := escapeDiscoveryLike(query) + "%"
 	rows, err := s.pool.Query(ctx, `SELECT a.id::text, COALESCE(NULLIF(a.display_name,''),a.name,''),COALESCE(a.username,''),COALESCE(a.picture_url,''),
  COALESCE((SELECT CASE WHEN g.a_vault_id=NULLIF($6,'')::uuid THEN g.a_relationship_id ELSE g.b_relationship_id END::text
  FROM tab_groups g LEFT JOIN people_requests r ON r.group_id=g.id
@@ -134,6 +142,77 @@ func (s *Service) SearchPeopleWithFriends(ctx context.Context, accountID, raw, v
 		page.HasMore = true
 	}
 	return page, nil
+}
+
+const peoplePreviewLimit = 10
+
+// SearchPeoplePreview is the public directory preview for local-only installs.
+// Only opted-in active accounts can match. Phone lookup and viewer-scoped
+// details require an authenticated search.
+func (s *Service) SearchPeoplePreview(ctx context.Context, raw string) (PeopleSearchPage, error) {
+	page := PeopleSearchPage{People: []DiscoverablePerson{}}
+	query, prefix, phone, err := discoveryQuery(raw)
+	if err != nil {
+		return page, err
+	}
+	if prefix == "" || phone != "" {
+		return page, nil
+	}
+	like := escapeDiscoveryLike(query)
+	if utf8.RuneCountInString(query) >= 3 {
+		like += "%"
+	}
+	// Short words can match exact display names. Require a real three-character
+	// term for prefix matching so punctuation cannot turn "a!!" into "a:*".
+	namePrefix := false
+	for _, word := range discoveryWords(query) {
+		if utf8.RuneCountInString(word) >= 3 {
+			namePrefix = true
+			break
+		}
+	}
+	rows, err := s.pool.Query(ctx, `SELECT a.id::text,COALESCE(NULLIF(a.display_name,''),a.name,''),
+ COALESCE(a.username,''),COALESCE(a.picture_url,'')
+ FROM accounts a WHERE a.discovery_enabled AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL
+ AND (people_search_text(COALESCE(a.username,'')) LIKE $2 OR (
+   to_tsvector('simple',people_search_text(COALESCE(NULLIF(a.display_name,''),a.name,''))) @@ to_tsquery('simple',$3)
+   AND ($4 OR people_search_text(COALESCE(NULLIF(a.display_name,''),a.name,''))=$1)))
+ ORDER BY CASE WHEN people_search_text(a.username)=$1 THEN 0
+ WHEN people_search_text(COALESCE(NULLIF(a.display_name,''),a.name,''))=$1 THEN 1 ELSE 2 END,
+ people_search_text(COALESCE(NULLIF(a.display_name,''),a.name,'')),a.id LIMIT $5`, query, like, prefix, namePrefix, peoplePreviewLimit+1)
+	if err != nil {
+		return page, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var person DiscoverablePerson
+		if err := rows.Scan(&person.AccountID, &person.Name, &person.Username, &person.PictureURL); err != nil {
+			return page, err
+		}
+		page.People = append(page.People, person)
+	}
+	if err := rows.Err(); err != nil {
+		return page, err
+	}
+	if len(page.People) > peoplePreviewLimit {
+		page.People = page.People[:peoplePreviewLimit]
+		page.HasMore = true
+	}
+	return page, nil
+}
+
+func (h *Handler) SearchPeoplePreview(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	page, err := h.svc.SearchPeoplePreview(r.Context(), r.URL.Query().Get("q"))
+	if errors.Is(err, errInvalidPeopleQuery) {
+		httpx.ErrorCode(w, 400, "invalid_search", err.Error())
+		return
+	}
+	if err != nil {
+		httpx.Error(w, 500, "people search unavailable")
+		return
+	}
+	httpx.JSON(w, 200, page)
 }
 
 func (h *Handler) SearchPeople(w http.ResponseWriter, r *http.Request) {

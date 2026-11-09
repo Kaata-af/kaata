@@ -210,7 +210,14 @@ export default function PeopleProfileScreen() {
             <Text style={[styles.hint, textDir(rtl)]}>{t("peopleProfile.signIn")}</Text>
             <Button
               label={t("peopleProfile.signInAction")}
-              onPress={() => router.push("/sign-in")}
+              onPress={() => {
+                if (!current()) return;
+                router.push(
+                  accountId
+                    ? { pathname: "/sign-in", params: { profileAccountId: accountId } }
+                    : "/sign-in",
+                );
+              }}
             />
           </View>
         ) : !accountId || view?.error === "unavailable" ? (

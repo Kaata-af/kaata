@@ -65,52 +65,78 @@ export async function searchPeopleDirectory(
     scoped = false;
     response = await fetch(path, options);
   }
+  const page = await readPeoplePage(response, session.accountId, scoped);
+  return applyForCurrentSession(session, async () => page);
+}
+
+async function searchPeoplePreview(
+  query: string,
+  signal: AbortSignal,
+  isCurrent: () => boolean,
+): Promise<PeopleSearchPage> {
+  const base = await getBackendUrl();
+  if (signal.aborted || !isCurrent()) throw new SessionChangedError();
+  const response = await fetch(`${base}/v1/people/search/preview?q=${encodeURIComponent(query)}`, {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return readPeoplePage(response, null, false);
+}
+
+async function readPeoplePage(
+  response: Response,
+  accountId: string | null,
+  scoped: boolean,
+): Promise<PeopleSearchPage> {
   if (!response.ok) throw new Error("people_search_failed");
   const data: unknown = await response.json();
   if (!data || typeof data !== "object" || !Array.isArray((data as PeopleSearchPage).people))
     throw new Error("people_search_invalid");
   const seen = new Set<string>();
-  const people = (data as PeopleSearchPage).people.slice(0, 20).flatMap((person) => {
-    if (
-      !person ||
-      typeof person.account_id !== "string" ||
-      !UUID.test(person.account_id) ||
-      person.account_id === session.accountId ||
-      seen.has(person.account_id) ||
-      typeof person.name !== "string" ||
-      !person.name.trim()
-    )
-      return [];
-    seen.add(person.account_id);
-    return [
-      {
-        account_id: person.account_id,
-        name: person.name.trim(),
-        ...(typeof person.username === "string" && person.username
-          ? { username: person.username }
-          : {}),
-        ...(typeof person.picture_url === "string" &&
-        person.picture_url.startsWith("https://") &&
-        person.picture_url.length <= 2048
-          ? { picture_url: person.picture_url }
-          : {}),
-        ...(scoped &&
-        typeof person.existing_relationship_id === "string" &&
-        UUID.test(person.existing_relationship_id)
-          ? { existing_relationship_id: person.existing_relationship_id }
-          : {}),
-        ...(person.is_friend === true ? { is_friend: true } : {}),
-      },
-    ];
-  });
-  return applyForCurrentSession(session, async () => ({
-    people,
-    has_more: (data as PeopleSearchPage).has_more === true,
-  }));
+  const people = (data as PeopleSearchPage).people
+    .slice(0, accountId ? 20 : 10)
+    .flatMap((person) => {
+      if (
+        !person ||
+        typeof person.account_id !== "string" ||
+        !UUID.test(person.account_id) ||
+        person.account_id === accountId ||
+        seen.has(person.account_id) ||
+        typeof person.name !== "string" ||
+        !person.name.trim()
+      )
+        return [];
+      seen.add(person.account_id);
+      return [
+        {
+          account_id: person.account_id,
+          name: person.name.trim(),
+          ...(typeof person.username === "string" && person.username
+            ? { username: person.username }
+            : {}),
+          ...(typeof person.picture_url === "string" &&
+          person.picture_url.startsWith("https://") &&
+          person.picture_url.length <= 2048
+            ? { picture_url: person.picture_url }
+            : {}),
+          ...(scoped &&
+          typeof person.existing_relationship_id === "string" &&
+          UUID.test(person.existing_relationship_id)
+            ? { existing_relationship_id: person.existing_relationship_id }
+            : {}),
+          ...(accountId && person.is_friend === true ? { is_friend: true } : {}),
+        },
+      ];
+    });
+  return { people, has_more: (data as PeopleSearchPage).has_more === true };
 }
 
 /** No persistent directory cache: clearing search, leaving, or switching accounts discards it. */
-export function usePeopleSearch(input: string, enabled: boolean, country?: string) {
+export function usePeopleSearch(
+  input: string,
+  enabled: boolean,
+  { country, allowPreview = false }: { country?: string; allowPreview?: boolean } = {},
+) {
   const revision = useRef(0);
   const subscribe = useCallback(
     (notify: () => void) =>
@@ -131,8 +157,14 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
   const [foreground, setForeground] = useState(AppState.currentState === "active");
   const [attempt, setAttempt] = useState(0);
   const query = peopleSearchQuery(input, country);
-  const visible = enabled && focused && foreground && !!query && !!account;
-  const scope = JSON.stringify([visible, query, identity, vault, attempt]);
+  const preview = allowPreview && !account;
+  const visible =
+    enabled &&
+    focused &&
+    foreground &&
+    !!query &&
+    (!!account || (preview && !/^\+\d+$/.test(query)));
+  const scope = JSON.stringify([visible, query, identity, vault, attempt, preview]);
   const latestScope = useRef(scope);
   latestScope.current = scope;
   const [state, setState] = useState<{
@@ -174,8 +206,10 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
     const debounce = setTimeout(() => {
       timeout = setTimeout(() => controller.abort(), 15_000);
       void Promise.all([
-        searchPeopleDirectory(query, controller.signal, vault),
-        vault ? getDiscoveredPersonIds(vault).catch(() => ({})) : Promise.resolve({}),
+        preview
+          ? searchPeoplePreview(query, controller.signal, current)
+          : searchPeopleDirectory(query, controller.signal, vault),
+        vault && !preview ? getDiscoveredPersonIds(vault).catch(() => ({})) : Promise.resolve({}),
       ])
         .then(async ([page, localIdentities]) => {
           const existingPersonIds: Record<string, string> = { ...localIdentities };
@@ -234,7 +268,7 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
       if (timeout) clearTimeout(timeout);
       controller.abort();
     };
-  }, [visible, scope, query, identity, vault]);
+  }, [visible, scope, query, identity, vault, preview]);
   const current = visible && state?.scope === scope ? state : null;
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
   return {
@@ -242,7 +276,8 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
     people: current?.people ?? EMPTY,
     existingPersonIds: current?.existingPersonIds ?? {},
     ...(current?.friendPersonIds?.size ? { friendPersonIds: current.friendPersonIds } : {}),
-    vaultId: vault,
+    ...(preview ? { requiresSignIn: true as const } : {}),
+    vaultId: preview ? null : vault,
     loading: visible && (current?.loading ?? true),
     error: current?.error ?? false,
     hasMore: current?.hasMore ?? false,

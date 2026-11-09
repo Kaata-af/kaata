@@ -5,6 +5,15 @@ import { AuthScreen } from "./onboarding/auth";
  * Settings opens the provider choices; `?mode=email` still opens straight on
  * the email flow, including a code step resumed after a cold launch. */
 export default function RedirectSignInScreen() {
-  const { mode } = useLocalSearchParams<{ mode?: string }>();
-  return <AuthScreen redirected initialMode={mode === "email" ? "email" : "providers"} />;
+  const { mode, profileAccountId } = useLocalSearchParams<{
+    mode?: string;
+    profileAccountId?: string;
+  }>();
+  return (
+    <AuthScreen
+      redirected
+      initialMode={mode === "email" ? "email" : "providers"}
+      profileAccountId={profileAccountId}
+    />
+  );
 }

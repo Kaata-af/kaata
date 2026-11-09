@@ -155,14 +155,14 @@ new Function(
 function nodes(n: any): any[] {
   return Array.isArray(n) ? n.flatMap(nodes) : n?.props ? [n, ...nodes(n.props.children)] : [];
 }
-function render(redirected = true, emailRoute = false) {
+function render(redirected = true, emailRoute = false, profileAccountId?: string) {
   cursor = 0;
-  return out.AuthScreen({ redirected, emailRoute });
+  return out.AuthScreen({ redirected, emailRoute, profileAccountId });
 }
-async function renderEmail(redirected: boolean) {
-  render(redirected, true);
+async function renderEmail(redirected: boolean, profileAccountId?: string) {
+  render(redirected, true, profileAccountId);
   await Promise.resolve();
-  return render(redirected, true);
+  return render(redirected, true, profileAccountId);
 }
 function reset() {
   slots = [];
@@ -298,10 +298,10 @@ function settingsSignIn() {
     "PASS: one settings Sign in row in EN/FA on Android/iOS; single native replacement to provider page",
   );
 }
-async function signIn() {
-  const tree = render();
+async function signIn(profileAccountId?: string, provider = "google") {
+  const tree = render(true, false, profileAccountId);
   await nodes(tree)
-    .find((n) => n.props.accessibilityLabel === "onboardingMode.google.title")
+    .find((n) => n.props.accessibilityLabel === `onboardingMode.${provider}.title`)
     .props.onPress();
 }
 async function ninjaMode() {
@@ -431,7 +431,14 @@ async function main() {
     },
   };
   const stackOptions = {
-    routeNames: ["index", "sign-in", "onboarding/auth", "auth/email", "person/[id]"],
+    routeNames: [
+      "index",
+      "sign-in",
+      "onboarding/auth",
+      "auth/email",
+      "person/[id]",
+      "people/[accountId]",
+    ],
     routeParamList: {},
     routeGetIdList: {},
   };
@@ -473,6 +480,7 @@ async function main() {
   }
   let wrapperState: any;
   let wrapperRedirected = "1";
+  let wrapperProfileAccountId: string | undefined;
   const emailRouteModule: any = {};
   new Function(
     "require",
@@ -481,12 +489,19 @@ async function main() {
       compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
     }).outputText,
   )((name: string) => {
-    if (name === "../onboarding/auth") return { AuthScreen: "AuthScreen" };
+    if (name === "../onboarding/auth")
+      return {
+        AuthScreen: "AuthScreen",
+        parseProfileSignInAccountId: out.parseProfileSignInAccountId,
+      };
     if (name === "react") return { ...mocks.react, useEffect: (run: () => void) => run() };
     if (name === "expo-router")
       return {
         ...mocks[name],
-        useLocalSearchParams: () => ({ redirected: wrapperRedirected }),
+        useLocalSearchParams: () => ({
+          redirected: wrapperRedirected,
+          profileAccountId: wrapperProfileAccountId,
+        }),
         // The real hook returns expo-router's outer slot navigator, whose only
         // route is "__root" with the root Stack nested inside it. Faking the
         // Stack here once hid that the swipe could never be enabled.
@@ -556,6 +571,76 @@ async function main() {
       assert.equal(wrapperState.routes[wrapperState.index].name, provider);
     }
   }
+  const profileAccountId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const profileSignIn = { pathname: "/sign-in", params: { profileAccountId } };
+  const profileEmail = {
+    pathname: "/auth/email",
+    params: { redirected: "1", profileAccountId },
+  };
+  const profile = { pathname: "/people/[accountId]", params: { accountId: profileAccountId } };
+  reset();
+  wrapperRedirected = "1";
+  wrapperProfileAccountId = profileAccountId;
+  wrapperState = stackRouter.getStateForAction(
+    stackRouter.getInitialState(stackOptions),
+    { type: "PUSH", payload: { name: "auth/email" } },
+    stackOptions,
+  );
+  assert.equal(emailRouteModule.default().props.profileAccountId, profileAccountId);
+  assert.deepEqual(
+    routes,
+    [profileSignIn, profileEmail],
+    "the repaired email stack keeps the target",
+  );
+
+  for (const provider of ["google", "apple"]) {
+    reset();
+    await signIn(profileAccountId, provider);
+    assert.deepEqual(routes, [{ dismissTo: profile }]);
+    assert.equal(meta.get("onboarding_step"), "done");
+  }
+  reset();
+  nodes(render(true, false, profileAccountId))
+    .find((node) => node.props.accessibilityLabel === "onboardingMode.email.title")
+    .props.onPress();
+  assert.deepEqual(routes, [profileEmail]);
+  reset();
+  nodes(await renderEmail(true, profileAccountId))
+    .find((node) => node.props.accessibilityLabel === "common.back")
+    .props.onPress();
+  assert.deepEqual(routes, [{ dismissTo: profileSignIn }], "email back keeps the profile target");
+  reset();
+  await nodes(await renderEmail(true, profileAccountId))
+    .find((node) => node.type === "EmailAuthFlow")
+    .props.onSignedIn({ email: "test@example.com" });
+  assert.deepEqual(routes, [{ dismissTo: profileSignIn }, { dismissTo: profile }]);
+  let profileStack = stackRouter.getInitialState(stackOptions);
+  for (const href of [profile, profileSignIn, profileEmail]) {
+    profileStack = stackRouter.getStateForAction(
+      profileStack,
+      { type: "PUSH", payload: { name: href.pathname.slice(1), params: href.params } },
+      stackOptions,
+    );
+  }
+  for (const { dismissTo } of routes) {
+    profileStack = stackRouter.getStateForAction(
+      profileStack,
+      { type: "POP_TO", payload: { name: dismissTo.pathname.slice(1), params: dismissTo.params } },
+      stackOptions,
+    );
+  }
+  assert.deepEqual(
+    profileStack.routes.map((route: { name: string }) => route.name),
+    ["index", "people/[accountId]"],
+  );
+  reset();
+  await signIn("/vault/members");
+  assert.deepEqual(routes, [{ dismissTo: "/" }], "arbitrary paths cannot become a return target");
+  reset();
+  meta.set("pending_invite_token", "member");
+  await signIn(profileAccountId);
+  assert.deepEqual(routes, [{ pathname: "/invite/[token]", params: { token: "member" } }]);
+
   // A successful email sign-in removes both auth pages before handing off an
   // existing action, exactly as the single provider route previously did.
   for (const [key, destination] of [

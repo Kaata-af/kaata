@@ -362,6 +362,8 @@ func main() {
 	})
 	r.With(httpx.RateLimitPerIP(visitLimit, visitWindow)).
 		Post("/v1/visit", visitH.Visit)
+	r.With(httpx.RateLimitPerIP(60, time.Minute)).
+		Get("/v1/people/search/preview", authH.SearchPeoplePreview)
 	r.With(httpx.RateLimitPerIP(sponsorProposalLimit, sponsorProposalWindow)).
 		Post("/v1/sponsor-proposals", sponsorH.SubmitProposal)
 	r.Get("/v1/download", visitH.Download)
