@@ -34,6 +34,7 @@ export type PersonalBackupErrorCode =
   | "invalid"
   | "empty"
   | "unsupported"
+  | "saveUnavailable"
   | "tooLarge"
   | "sessionChanged"
   | "busy";
@@ -461,7 +462,10 @@ function matchSession(
 async function selectBackupVaults(
   db: DB,
   accountId: string | null,
-  cloud?: ReadonlyMap<string, CloudVault>,
+  {
+    cloud,
+    skipKnownNonOwners = false,
+  }: { cloud?: ReadonlyMap<string, CloudVault>; skipKnownNonOwners?: boolean } = {},
 ) {
   const values = await meta(db);
   const publicKeys = [values.get("mesh_device_ed25519_pubkey")];
@@ -515,15 +519,18 @@ async function selectBackupVaults(
       effective.revoked_at === null;
     const foreign = vault.account_id !== null && vault.account_id !== accountId;
     // A confirmed member seat (including a removed seat) is safe to exclude.
-    // An otherwise owner book with ambiguous ownership must stop the upload
-    // rather than replace the last good copy with an incomplete one.
+    // Ambiguous ownership still stops the snapshot. An imported candidate
+    // must contain only owned books and cannot skip untrusted rows.
     const cloudRole = cloud?.get(vault.id)?.role;
     const knownNonOwner =
       !mine &&
       (foreign ||
         effective?.revoked_at != null ||
         (effective?.accepted_at != null && MEMBER_ROLES.has(effective.role)));
-    if (cloud && (cloudRole === undefined ? knownNonOwner : MEMBER_ROLES.has(cloudRole))) {
+    if (
+      skipKnownNonOwners &&
+      (cloudRole === undefined ? knownNonOwner : MEMBER_ROLES.has(cloudRole))
+    ) {
       skipped.push(vault);
       continue;
     }
@@ -932,7 +939,11 @@ function validBytes(bytes: Uint8Array): void {
 }
 export async function createPersonalBackupSnapshot(
   includeReadableTables = false,
-  { requireData = false } = {},
+  {
+    requireData = false,
+    localOnly = false,
+    expectedSession,
+  }: { requireData?: boolean; localOnly?: boolean; expectedSession?: SessionSnapshot } = {},
 ): Promise<{
   file: File;
   readableTables: Awaited<ReturnType<typeof readDriveBackupTables>>;
@@ -940,7 +951,8 @@ export async function createPersonalBackupSnapshot(
   dispose: () => void;
 }> {
   return exclusive(async () => {
-    const session = await captureCurrentSession();
+    const session = expectedSession ?? (await captureCurrentSession());
+    if (expectedSession) await applyForUnchangedLocalSession(session, async () => {});
     const live = await getDb();
     removeDatabase(EXPORT);
     // A dedicated reader cannot accidentally join a transaction begun on the
@@ -953,15 +965,20 @@ export async function createPersonalBackupSnapshot(
       // scope again before copying, then authorize the exact resulting copy.
       const initialValues = await meta(source),
         initialAccount = matchSession(initialValues, session);
-      const initialCloud = await listCloudVaults(session, initialValues, initialAccount);
-      const initialScope = await selectBackupVaults(source, initialAccount, initialCloud);
+      // Manual copies use the live local membership mirror without a network request.
+      // Cloud backups still require fresh ownership verification.
+      const initialCloud = localOnly
+        ? undefined
+        : await listCloudVaults(session, initialValues, initialAccount);
+      const selection = { cloud: initialCloud, skipKnownNonOwners: true };
+      const initialScope = await selectBackupVaults(source, initialAccount, selection);
       await assertLedgerScope(source, initialAccount);
-      assertCloudOwnership(initialScope.owned, initialCloud);
+      if (initialCloud) assertCloudOwnership(initialScope.owned, initialCloud);
       const coverage = await applyForUnchangedLocalSession(session, async () => {
         if (await live.isInTransactionAsync()) fail("busy");
         const values = await meta(source),
           accountId = matchSession(values, session);
-        const currentScope = await selectBackupVaults(source, accountId, initialCloud);
+        const currentScope = await selectBackupVaults(source, accountId, selection);
         if (JSON.stringify(currentScope) !== JSON.stringify(initialScope)) fail("sessionChanged");
         const before =
           (await count(source, "event_log")) +
@@ -978,7 +995,7 @@ export async function createPersonalBackupSnapshot(
         )
           fail("invalid");
         matchSession(await meta(copy!), session);
-        const copyScope = await selectBackupVaults(copy!, accountId, initialCloud);
+        const copyScope = await selectBackupVaults(copy!, accountId, selection);
         if (JSON.stringify(copyScope) !== JSON.stringify(initialScope)) fail("sessionChanged");
         await assertLedgerScope(copy!, accountId);
         const coverage = await pruneJoinedVaults(copy!, copyScope);
@@ -1003,12 +1020,18 @@ export async function createPersonalBackupSnapshot(
         return coverage;
       });
       const copyVaults = await ownedVaults(copy, initialAccount);
-      const latestCloud = await listCloudVaults(session, initialValues, initialAccount);
-      assertCloudOwnership(copyVaults, latestCloud);
-      if (initialScope.skipped.some(({ id }) => latestCloud.get(id)?.role === "owner"))
-        fail("sessionChanged");
+      if (!localOnly) {
+        const latestCloud = await listCloudVaults(session, initialValues, initialAccount);
+        assertCloudOwnership(copyVaults, latestCloud);
+        if (initialScope.skipped.some(({ id }) => latestCloud.get(id)?.role === "owner"))
+          fail("sessionChanged");
+      }
       await applyForUnchangedLocalSession(session, async () => {
         matchSession(await meta(source), session, initialAccount);
+        if (localOnly) {
+          const latestScope = await selectBackupVaults(source, initialAccount, selection);
+          if (JSON.stringify(latestScope) !== JSON.stringify(initialScope)) fail("sessionChanged");
+        }
       });
       if (file(EXPORT).size > BACKUP_DATABASE_LIMIT) fail("tooLarge");
       const readableTables = includeReadableTables ? await readDriveBackupTables(copy) : {};

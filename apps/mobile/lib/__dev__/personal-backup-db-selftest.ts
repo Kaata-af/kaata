@@ -15,6 +15,7 @@ import {
 import path from "node:path";
 import Database from "better-sqlite3";
 import { sha256 } from "@noble/hashes/sha256";
+import { createDriveBackup, openDriveBackup } from "../drive-backup";
 import { compileUI } from "./ui-fixture";
 const temporaryParent = path.resolve(__dirname, "../../../../build");
 const temporaryRoot = path.resolve(
@@ -305,6 +306,9 @@ CREATE INDEX idx_tally_notes_relationship ON tally_notes(vault_id,relationship_i
     denyCloud: () => {
       cloudAllowed = false;
     },
+    allowCloud: () => {
+      cloudAllowed = true;
+    },
     read: (name: string) => new Uint8Array(readFileSync(path.join(dir, name))),
     exists: (name: string) => existsSync(path.join(dir, name)),
   };
@@ -319,8 +323,8 @@ async function errorCode(work: () => Promise<unknown>, code: string) {
   checks++;
   assert.equal(caught?.code, code);
 }
-async function exported(f: ReturnType<typeof fixture>) {
-  const result = await f.module.createPersonalBackupSnapshot();
+async function exported(f: ReturnType<typeof fixture>, { localOnly = false } = {}) {
+  const result = await f.module.createPersonalBackupSnapshot(false, { localOnly });
   try {
     return result.file.bytesSync() as Uint8Array;
   } finally {
@@ -341,7 +345,8 @@ async function main() {
   );
   source.sql("INSERT INTO tab_entries VALUES('shared-tally','shared','Shared history')");
   source.sql("INSERT INTO tally_notes VALUES('note-1',?,'person','Review this','12.500')", VAULT);
-  const bytes = await exported(source);
+  const bytes = await exported(source, { localOnly: true });
+  assert.equal(source.fetchCount, 0, "a Ninja file export makes no request");
   for (const secret of [
     "PAIR_SECRET_123",
     "JOIN_SECRET_456",
@@ -433,6 +438,69 @@ async function main() {
   signed.seed();
   const signedBytes = await exported(signed);
   ok(signed.fetchCount === 2, "export verifies current server ownership before and after snapshot");
+  const offlineSource = fixture("signed-offline-file-source", ACCOUNT);
+  offlineSource.seed();
+  offlineSource.denyCloud();
+  offlineSource.sql("INSERT INTO vaults VALUES(?,?,?,?,0,NULL)", TARGET, OTHER, 1, PUB);
+  offlineSource.sql("INSERT INTO vault_members_mirror VALUES(?,?,'editor',1,NULL)", TARGET, ACCOUNT);
+  offlineSource.sql("INSERT INTO entries VALUES('joined',?,'PRIVATE_JOINED_OFFLINE')", TARGET);
+  offlineSource.sql(
+    "INSERT INTO event_log VALUES('joined-pending',?,'entry_created','{}',NULL,NULL)",
+    TARGET,
+  );
+  offlineSource.sql(
+    "INSERT INTO event_log VALUES('owned-pending',?,'entry_created','{}',NULL,NULL)",
+    VAULT,
+  );
+  const offline = await offlineSource.module.createPersonalBackupSnapshot(false, {
+    localOnly: true,
+    requireData: true,
+  });
+  let offlineBytes: Uint8Array;
+  try {
+    assert.deepEqual(offline.coverage, { included: 1, skipped: 1, skippedPending: 1 });
+    offlineBytes = openDriveBackup(createDriveBackup(offline.file.bytesSync(), {}));
+  } finally {
+    offline.dispose();
+  }
+  ok(offlineSource.fetchCount === 0, "signed local export never calls Kaata Cloud");
+  ok(
+    !Buffer.from(offlineBytes).includes("PRIVATE_JOINED_OFFLINE") &&
+      offlineSource.rows("SELECT * FROM entries WHERE id='joined'").length === 1,
+    "skipped data is absent from the ZIP and retained on the phone",
+  );
+  const offlineTarget = fixture("signed-offline-file-target", ACCOUNT);
+  offlineTarget.denyCloud();
+  await errorCode(
+    () => offlineTarget.module.stagePersonalBackupRestore(offlineBytes),
+    "ownershipUnavailable",
+  );
+  assert(!offlineTarget.exists("kaata.personal.restore.json"));
+  offlineTarget.allowCloud();
+  await offlineTarget.module.stagePersonalBackupRestore(offlineBytes);
+  await offlineTarget.boot();
+  assert.deepEqual(offlineTarget.rows("SELECT id FROM vaults"), [{ id: VAULT }]);
+  assert.deepEqual(offlineTarget.rows("SELECT id FROM entries"), [{ id: "tally" }]);
+  ok(
+    offlineTarget.rows(
+      "SELECT * FROM event_log WHERE event_id='owned-pending' AND server_acked_at IS NULL",
+    ).length === 1,
+    "the offline ZIP restores to the same account with pending changes intact",
+  );
+  await errorCode(
+    () =>
+      offlineSource.module.createPersonalBackupSnapshot(false, {
+        localOnly: true,
+        expectedSession: { bindingVersion: -1, jwt: jwt(ACCOUNT), accountId: ACCOUNT },
+      }),
+    "sessionChanged",
+  );
+  offlineSource.sql("INSERT INTO vaults VALUES(?,?,?,?,0,NULL)", OTHER, ACCOUNT, 1, PUB);
+  await errorCode(
+    () => offlineSource.module.createPersonalBackupSnapshot(false, { localOnly: true }),
+    "ownership",
+  );
+  assert.equal(offlineSource.fetchCount, 0, "an ambiguous local book fails without using the network");
   const staleOwner = fixture("stale-export-owner", ACCOUNT);
   staleOwner.seed();
   staleOwner.remote[0].role = "editor";

@@ -60,6 +60,9 @@ const en = {
   "backups.restoreLatestTitle": "Restore from {destination}?",
   "backups.restoreLatestBody":
     "Kaata will look for your latest personal backup in {destination} and restart after restoring it. This requires an empty installation.",
+  "backups.saveFile": "Save backup to phone",
+  "backups.saveFileHint": "Save a readable Kaata ZIP offline. Keep the file private.",
+  "backups.savedFile": "Backup saved as {name}",
   "backups.restoreFile": "Restore from a file",
   "backups.restoreFileHint": "Choose a Kaata ZIP backup",
   "backups.readableBackup": "Backups are readable ZIP files. Keep the backup folder private.",
@@ -74,7 +77,7 @@ const en = {
   "backups.statusUnknown": "Backup status unavailable",
   "backups.restorePersonal": "Restore a personal backup",
   "backups.restoreRestriction":
-    "Personal restore requires an empty installation. Signed-in copies need the same Kaata account; Ninja copies restore in Ninja mode. Existing Kaatas will not be replaced.",
+    "Personal restore requires an empty installation. Signed-in copies need the same Kaata account and an internet connection. Ninja copies can be restored offline in Ninja mode.",
   "backups.restoring": "Backup restored. Restarting Kaata…",
   "backups.onDevice": "On this phone",
   "backups.localSaved": "Recovery copy: {when}",
@@ -92,6 +95,8 @@ const en = {
   "backups.error.empty": "There is no data to back up yet.",
   "backups.error.unsupported":
     "Personal backups are not available in this version of the app. Update Kaata and try again.",
+  "backups.error.saveUnavailable":
+    "Saving a backup to your phone is available in the installed Kaata app.",
   "backups.error.tooLarge": "This backup is too large to save or restore on this phone.",
   "backups.error.sessionChanged": "Your account changed. Open Backups again before continuing.",
   "backups.error.busy": "Another backup operation is running. Try again in a moment.",
@@ -2885,6 +2890,10 @@ const fa: Partial<Record<Key, string>> = {
   "backups.restoreLatestTitle": "از {destination} بازیابی شود؟",
   "backups.restoreLatestBody":
     "کاته آخرین نسخۀ پشتیبان شخصی را در {destination} پیدا می‌کند و پس از بازیابی دوباره باز می‌شود. برای بازیابی، نصب برنامه باید خالی باشد.",
+  "backups.saveFile": "ذخیرۀ نسخۀ پشتیبان در گوشی",
+  "backups.saveFileHint":
+    "فایل ZIP قابل خواندن کاته را بدون اینترنت ذخیره کنید. فایل را خصوصی نگه دارید.",
+  "backups.savedFile": "نسخۀ پشتیبان با نام {name} ذخیره شد.",
   "backups.restoreFile": "بازیابی از فایل",
   "backups.restoreFileHint": "یک نسخۀ پشتیبان ZIP کاته را انتخاب کنید",
   "backups.readableBackup":
@@ -2898,7 +2907,7 @@ const fa: Partial<Record<Key, string>> = {
   "backups.statusUnknown": "وضعیت نسخۀ پشتیبان در دسترس نیست",
   "backups.restorePersonal": "بازیابی نسخۀ پشتیبان شخصی",
   "backups.restoreRestriction":
-    "بازیابی شخصی به نصب خالی نیاز دارد. کاپی حساب‌دار به همان حساب کاته و کاپی نینجا به حالت نینجا نیاز دارد. کاته‌های موجود جایگزین نمی‌شود.",
+    "بازیابی شخصی به نصب خالی نیاز دارد. نسخۀ حساب‌دار به همان حساب کاته و اینترنت نیاز دارد. نسخۀ نینجا را می‌توان بدون اینترنت در حالت نینجا بازیابی کرد.",
   "backups.restoring": "نسخۀ پشتیبان بازیابی شد. کاته دوباره باز می‌شود…",
   "backups.onDevice": "در این گوشی",
   "backups.localSaved": "کاپی بازیابی: {when}",
@@ -2916,6 +2925,8 @@ const fa: Partial<Record<Key, string>> = {
   "backups.error.empty": "هنوز اطلاعاتی برای پشتیبان‌گیری نیست.",
   "backups.error.unsupported":
     "نسخۀ پشتیبان شخصی در این نسخۀ برنامه در دسترس نیست. کاته را به‌روز کرده دوباره تلاش کنید.",
+  "backups.error.saveUnavailable":
+    "ذخیرۀ نسخۀ پشتیبان در گوشی در برنامۀ نصب‌شدۀ کاته در دسترس است.",
   "backups.error.tooLarge": "این نسخه برای ذخیره یا بازیابی در این گوشی بیش از حد بزرگ است.",
   "backups.error.sessionChanged":
     "حساب شما تغییر کرد. پیش از ادامه، صفحۀ نسخه‌های پشتیبان را دوباره باز کنید.",
@@ -5426,6 +5437,9 @@ const ps: Record<Key, string> = {
   "backups.restoreLatestTitle": "له {destination} څخه شاتړ بېرته راوړئ؟",
   "backups.restoreLatestBody":
     "کاته به په {destination} کې ستاسو وروستی شخصي شاتړ ولټوي او له بېرته راوستلو وروسته به بیا چالان شي. دا کار تش نصب ته اړتیا لري.",
+  "backups.saveFile": "شاتړ په موبایل کې خوندي کړئ",
+  "backups.saveFileHint": "د کاته د لوستلو وړ ZIP فایل له انټرنېټ پرته خوندي کړئ. فایل شخصي وساتئ.",
+  "backups.savedFile": "شاتړ د {name} په نوم خوندي شو.",
   "backups.restoreFile": "له فایل څخه شاتړ بېرته راوستل",
   "backups.restoreFileHint": "د کاته یو ZIP شاتړ غوره کړئ",
   "backups.readableBackup": "شاتړونه د لوستلو وړ ZIP فایلونه دي. د شاتړ فولډر شخصي وساتئ.",
@@ -5437,7 +5451,7 @@ const ps: Record<Key, string> = {
   "backups.statusUnknown": "د شاتړ حالت نه دی معلوم",
   "backups.restorePersonal": "شخصي شاتړ بېرته راوستل",
   "backups.restoreRestriction":
-    "د شخصي شاتړ راوستل تش نصب ته اړتیا لري. د حساب کاپۍ هماغه کاته حساب او د نینجا کاپۍ نینجا حالت ته اړتیا لري. شته کاتې نه بدلېږي.",
+    "د شخصي شاتړ بېرته راوستل تش نصب ته اړتیا لري. د حساب شاتړ هماغه کاته حساب او انټرنېټ ته اړتیا لري. د نینجا شاتړ له انټرنېټ پرته په نینجا حالت کې بېرته راوستل کېدای شي.",
   "backups.restoring": "شاتړ بېرته راوستل شو. کاته بیا چالانېږي…",
   "backups.onDevice": "په دې موبایل کې",
   "backups.localSaved": "د بېرته راوستلو کاپي: {when}",
@@ -5454,6 +5468,7 @@ const ps: Record<Key, string> = {
   "backups.error.invalid": "دا فایل د کاته معتبر شاتړ نه دی، یا خراب شوی دی.",
   "backups.error.empty": "لا د شاتړ لپاره معلومات نشته.",
   "backups.error.unsupported": "د اپ په دې نسخه کې شخصي شاتړ نشته. کاته تازه کړئ او بیا هڅه وکړئ.",
+  "backups.error.saveUnavailable": "په موبایل کې د شاتړ خوندي کول په نصب شوي کاته اپ کې شوني دي.",
   "backups.error.tooLarge": "دا شاتړ په دې موبایل کې د ساتلو یا بېرته راوستلو لپاره ډېر لوی دی.",
   "backups.error.sessionChanged": "ستاسو حساب بدل شو. له دوام مخکې د شاتړونو پاڼه بیا خلاصه کړئ.",
   "backups.error.busy": "د شاتړ بل کار روان دی. لږ وروسته بیا هڅه وکړئ.",

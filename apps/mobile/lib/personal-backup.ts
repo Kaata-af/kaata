@@ -1,5 +1,11 @@
-import { reloadAppAsync } from "expo";
+import { isRunningInExpoGo, reloadAppAsync } from "expo";
 import { Directory, File, FileMode, Paths } from "expo-file-system";
+import {
+  SAVE_FILE_ERR,
+  saveFileToLocation,
+  saveFileToPhone,
+  type SaveFileResult,
+} from "kaata-save-file";
 import { Platform } from "react-native";
 import {
   applyForUnchangedLocalSession,
@@ -104,12 +110,15 @@ async function readBounded(file: File, max: number): Promise<Uint8Array> {
   }
 }
 
-async function withTemporaryArchive<T>(work: (file: File) => Promise<T>): Promise<T> {
+async function withTemporaryArchive<T>(
+  work: (file: File) => Promise<T>,
+  fileName = "Kaata-backup.zip",
+): Promise<T> {
   const temporary = exportCache();
   if (temporary.exists) temporary.delete();
   temporary.create();
   try {
-    return await work(new File(temporary, "Kaata-backup.zip"));
+    return await work(new File(temporary, fileName));
   } finally {
     try {
       if (temporary.exists) temporary.delete();
@@ -122,10 +131,15 @@ async function withTemporaryArchive<T>(work: (file: File) => Promise<T>): Promis
 export function withReadablePersonalBackup<T>(
   session: SessionSnapshot,
   useArchive: (file: File, coverage: PersonalBackupCoverage) => Promise<T>,
+  { localOnly = false } = {},
 ): Promise<T> {
   return runExclusive(async () => {
     await withPersonalBackupSession(session, async () => {});
-    const snapshot = await createPersonalBackupSnapshot(true, { requireData: true });
+    const snapshot = await createPersonalBackupSnapshot(true, {
+      requireData: true,
+      localOnly,
+      expectedSession: session,
+    });
     let database: Uint8Array | undefined;
     let archive: Uint8Array;
     try {
@@ -143,17 +157,49 @@ export function withReadablePersonalBackup<T>(
       for (const table of Object.values(snapshot.readableTables)) table.fill(0);
     }
     try {
+      const fileName = localOnly
+        ? `Kaata-backup-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.zip`
+        : undefined;
       return await withTemporaryArchive(async (file) => {
         file.create();
         await file.write(archive);
         archive.fill(0);
         await withPersonalBackupSession(session, async () => {});
         return useArchive(file, snapshot.coverage);
-      });
+      }, fileName);
     } finally {
       archive.fill(0);
     }
   });
+}
+
+export async function savePersonalBackupToPhone(): Promise<{
+  displayName: string;
+  coverage: PersonalBackupCoverage;
+} | null> {
+  if (isRunningInExpoGo()) throw new PersonalBackupError("saveUnavailable");
+  const session = await captureCurrentSession();
+  return withReadablePersonalBackup(
+    session,
+    async (file, coverage) => {
+      const mimeType = "application/zip";
+      let saved: SaveFileResult | null;
+      try {
+        saved = await saveFileToPhone(file.uri, file.name, mimeType);
+      } catch (error) {
+        // Older Android versions use a single-file picker instead of MediaStore Downloads.
+        if (
+          Platform.OS !== "android" ||
+          (error as { code?: unknown } | null)?.code !== SAVE_FILE_ERR.UNSUPPORTED
+        )
+          throw error;
+        await withPersonalBackupSession(session, async () => {});
+        saved = await saveFileToLocation(file.uri, file.name, mimeType);
+      }
+      return saved ? { displayName: saved.displayName, coverage } : null;
+    },
+    { localOnly: true },
+  );
 }
 
 async function restoreFile(session: SessionSnapshot, input: File): Promise<boolean> {

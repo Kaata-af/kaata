@@ -7,7 +7,16 @@ async function main() {
   let chooseFile = false;
   let invalidArchive = false;
   let fileSize = 3;
+  let cacheExists = true;
+  let expoGo = false;
+  let unsupportedDownloads = false;
+  let cancelSave = false;
+  let onSave: (() => void) | undefined;
+  const platform = { OS: "ios" };
   const events: string[] = [];
+  const nativeSaves: string[] = [];
+  const snapshotOptions: Record<string, unknown>[] = [];
+  const coverage = { included: 1, skipped: 1, skippedPending: 0 };
   class PersonalBackupError extends Error {
     constructor(readonly code: string) {
       super(code);
@@ -17,8 +26,14 @@ async function main() {
   class MockFile {
     static pickFileAsync = async () =>
       chooseFile ? { canceled: false, result: new MockFile() } : { canceled: true };
+    constructor(
+      _directory?: unknown,
+      readonly name = "Kaata-backup.zip",
+    ) {}
     size = fileSize;
-    uri = "file:///mock/kaata-backup";
+    get uri() {
+      return `file:///mock/${this.name}`;
+    }
     create() {}
     async write(bytes: Uint8Array) {
       assert.equal(bytes[0], 81);
@@ -37,19 +52,50 @@ async function main() {
     }
   }
   class MockDirectory {
-    exists = true;
-    create() {}
-    delete() {}
+    get exists() {
+      return cacheExists;
+    }
+    create() {
+      cacheExists = true;
+    }
+    delete() {
+      cacheExists = false;
+    }
   }
+  function assertNativeSource(uri: string, name: string, mimeType: string) {
+    assert(cacheExists, "the archive must exist while the OS is saving it");
+    assert.equal(uri, `file:///mock/${name}`);
+    assert.match(name, /^Kaata-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.zip$/);
+    assert.equal(mimeType, "application/zip");
+  }
+  const saved = { displayName: "Kaata-backup (1).zip", uri: "content://backup" };
   const backup = compileUI("../personal-backup", {
-    expo: { reloadAppAsync: async () => events.push("reload") },
+    expo: {
+      reloadAppAsync: async () => events.push("reload"),
+      isRunningInExpoGo: () => expoGo,
+    },
     "expo-file-system": {
       Directory: MockDirectory,
       File: MockFile,
       FileMode: { ReadOnly: "r" },
       Paths: { cache: {} },
     },
-    "react-native": { Platform: { OS: "ios" } },
+    "react-native": { Platform: platform },
+    "kaata-save-file": {
+      SAVE_FILE_ERR: { UNSUPPORTED: "E_UNSUPPORTED" },
+      saveFileToPhone: async (...args: Parameters<typeof assertNativeSource>) => {
+        assertNativeSource(...args);
+        nativeSaves.push("phone");
+        onSave?.();
+        if (unsupportedDownloads) throw Object.assign(new Error(), { code: "E_UNSUPPORTED" });
+        return cancelSave ? null : saved;
+      },
+      saveFileToLocation: async (...args: Parameters<typeof assertNativeSource>) => {
+        assertNativeSource(...args);
+        nativeSaves.push("location");
+        return cancelSave ? null : saved;
+      },
+    },
     "./auth": {
       captureCurrentSession: async () => ({ accountId: account, bindingVersion: revision }),
       applyForUnchangedLocalSession: async (
@@ -74,17 +120,27 @@ async function main() {
     },
     "./personal-backup-db": {
       PersonalBackupError,
-      createPersonalBackupSnapshot: async () => ({
-        file: new MockFile(),
-        readableTables: {},
-        dispose: () => events.push("plain copy disposed"),
-      }),
+      createPersonalBackupSnapshot: async (readable: boolean, options: Record<string, unknown>) => {
+        assert.equal(readable, true);
+        snapshotOptions.push(options);
+        return {
+          file: new MockFile(),
+          readableTables: {},
+          dispose: () => events.push("plain copy disposed"),
+          coverage,
+        };
+      },
       stagePersonalBackupRestore: async () => events.push("staged"),
     },
   });
   const session = { accountId: account, bindingVersion: revision };
   await backup.withReadablePersonalBackup(session, async () => events.push("uploaded"));
   assert.deepEqual(events, ["plain copy disposed", "zip", "uploaded"]);
+  assert.deepEqual(snapshotOptions[0], {
+    requireData: true,
+    localOnly: false,
+    expectedSession: session,
+  });
   await assert.rejects(backup.restoreDownloadedPersonalBackup(session, async () => {
     account = "account-b";
     revision++;
@@ -108,8 +164,41 @@ async function main() {
   fileSize = 3;
   assert.equal(await backup.restorePersonalBackup(), true);
   assert.deepEqual(events.slice(-2), ["staged", "reload"]);
+
+  assert.deepEqual(await backup.savePersonalBackupToPhone(), {
+    displayName: saved.displayName,
+    coverage,
+  });
+  assert.deepEqual(snapshotOptions.at(-1), {
+    requireData: true,
+    localOnly: true,
+    expectedSession: { accountId: account, bindingVersion: revision },
+  });
+  assert.deepEqual(nativeSaves, ["phone"]);
+  assert.equal(cacheExists, false);
+
+  platform.OS = "android";
+  unsupportedDownloads = true;
+  cancelSave = true;
+  assert.equal(await backup.savePersonalBackupToPhone(), null);
+  assert.deepEqual(nativeSaves.slice(-2), ["phone", "location"]);
+  assert.equal(cacheExists, false, "cancelled save removes the staging ZIP");
+
+  onSave = () => revision++;
+  await assert.rejects(backup.savePersonalBackupToPhone(), { code: "sessionChanged" });
+  assert.deepEqual(
+    nativeSaves.slice(-2),
+    ["location", "phone"],
+    "a stale session cannot open the fallback picker",
+  );
+  assert.equal(cacheExists, false);
+
+  const snapshotsBeforeExpoGo = snapshotOptions.length;
+  expoGo = true;
+  await assert.rejects(backup.savePersonalBackupToPhone(), { code: "saveUnavailable" });
+  assert.equal(snapshotOptions.length, snapshotsBeforeExpoGo);
   console.log(
-    "PASS personal backup files: cloud ZIP, account binding, file restore, and invalid/oversized archives",
+    "PASS personal backup files: cloud ZIP, offline phone save, picker fallback, account binding, file restore, and invalid/oversized archives",
   );
 }
 

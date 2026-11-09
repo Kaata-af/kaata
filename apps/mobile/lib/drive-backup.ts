@@ -10,7 +10,7 @@ export const DRIVE_BACKUP_FILE_LIMIT = BACKUP_DATABASE_LIMIT + CSV_LIMIT + 4096;
 
 const DATABASE = "Kaata.sqlite3";
 const MANIFEST = "Kaata-backup-v1.sha256";
-const README = `Kaata Google Drive backup
+const README = `Kaata personal backup
 
 This ZIP is unencrypted. Keep it private.
 

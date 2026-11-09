@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { PersonalBackupCoverage } from "../personal-backup-db";
 import type { PersonalCloudProviderId, PersonalCloudStatus } from "../personal-cloud-backup";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
@@ -10,6 +11,7 @@ class PersonalBackupError extends Error {
 class PersonalCloudProviderError extends PersonalBackupError {}
 
 type BackupChoice = { name: string; createdAt: number };
+type SavedFile = { displayName: string; coverage: PersonalBackupCoverage };
 
 function fixture({ signedIn = true, platform = "android", directRestore = false } = {}) {
   const hooks = uiHooks();
@@ -33,6 +35,9 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
   let findResult: BackupChoice | null | undefined | Promise<BackupChoice | null | undefined>;
   let findError: Error | null = null;
   let fileError: Error | null = null;
+  let fileSaveError: Error | null = null;
+  let fileSaveResult: SavedFile | null | Promise<SavedFile | null> = null;
+  let fileSaves = 0;
   const fileRestores: unknown[][] = [];
   const operations: [string, PersonalCloudProviderId][] = [];
   const cloudRestores: BackupChoice[] = [];
@@ -138,6 +143,11 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
       },
       "../lib/personal-backup": {
         PersonalBackupError,
+        savePersonalBackupToPhone: async () => {
+          fileSaves++;
+          if (fileSaveError) throw fileSaveError;
+          return fileSaveResult;
+        },
         restorePersonalBackup: async (...args: unknown[]) => {
           fileRestores.push(args);
           if (fileError) throw fileError;
@@ -235,6 +245,9 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
     get syncs() {
       return syncs;
     },
+    get fileSaves() {
+      return fileSaves;
+    },
     statusGate: (gate: Promise<any> | null) => {
       statusGate = gate;
     },
@@ -255,6 +268,12 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
     },
     fileError: (error: Error | null) => {
       fileError = error;
+    },
+    fileSaveError: (error: Error | null) => {
+      fileSaveError = error;
+    },
+    fileSaveValue: (value: typeof fileSaveResult) => {
+      fileSaveResult = value;
     },
     setOffline: (value: boolean) => {
       offline = value;
@@ -289,6 +308,7 @@ async function main() {
     assert.equal(f.find("backups.googleDrive")!.props.hint, "backups.automaticOff");
     assert.equal(f.find("backups.googleDrive")!.props.hintLines, 0);
     assert.equal(Boolean(f.find("backups.icloudDrive")), platform === "ios");
+    assert.equal(f.find("backups.saveFile")!.props.disabled, false);
     f.press("backups.syncNow");
     await f.flush();
     assert.equal(f.find("backups.cloudUpToDate")!.props.variant, "success");
@@ -347,6 +367,7 @@ async function main() {
   await restore.flush();
   assert.equal(restore.find("backups.syncNow"), undefined);
   assert.equal(restore.find("backups.connect"), undefined);
+  assert.equal(restore.find("backups.saveFile"), undefined);
   const remote = { name: "personal-copy.zip", createdAt: 1234 };
   restore.findValue(remote);
   restore.press("backups.googleDrive");
@@ -395,6 +416,48 @@ async function main() {
   assert.equal(restore.fileRestores.length, 2);
   assert.ok(restore.text().includes("backups.error.invalid"));
   restore.hooks.unmount();
+
+  const localSave = fixture();
+  localSave.setOffline(true);
+  await localSave.flush();
+  assert.equal(localSave.find("backups.saveFile")!.props.disabled, false);
+  const saveGate = deferred<SavedFile>();
+  localSave.fileSaveValue(saveGate.promise);
+  const save = localSave.find("backups.saveFile")!.props.onPress;
+  save();
+  save();
+  localSave.render();
+  assert.equal(localSave.fileSaves, 1);
+  assert.equal(localSave.find("backups.restoreFile")!.props.disabled, true);
+  assert.equal([...localSave.backHandlers][0](), true);
+  const saved = {
+    displayName: "Kaata-backup.zip",
+    coverage: { included: 1, skipped: 2, skippedPending: 1 },
+  };
+  saveGate.resolve(saved);
+  await localSave.flush();
+  assert.ok(localSave.text().includes('backups.savedFile{"name":"Kaata-backup.zip"}'));
+  assert.ok(localSave.text().includes('backups.coverage{"included":1,"skipped":2}'));
+  assert.ok(localSave.text().includes("backups.skippedPending"));
+  assert.deepEqual(localSave.operations, [], "phone save works without a connected provider");
+  localSave.fileSaveValue(null);
+  localSave.press("backups.saveFile");
+  await localSave.flush();
+  assert.ok(!localSave.text().includes("backups.savedFile"), "cancelling does not claim success");
+  localSave.fileSaveError(new PersonalBackupError("saveUnavailable"));
+  localSave.press("backups.saveFile");
+  await localSave.flush();
+  assert.ok(localSave.text().includes("backups.error.saveUnavailable"));
+  localSave.fileSaveError(null);
+  const staleSave = deferred<SavedFile>();
+  localSave.fileSaveValue(staleSave.promise);
+  localSave.press("backups.saveFile");
+  localSave.identity("account-b");
+  localSave.render();
+  staleSave.resolve(saved);
+  await localSave.flush();
+  assert.ok(!localSave.text().includes("Kaata-backup.zip"), "hide a prior account’s save result");
+  localSave.hooks.unmount();
 
   for (const stale of ["account", "aba", "focus", "unmount"] as const) {
     const f = fixture();

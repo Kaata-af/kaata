@@ -21,7 +21,11 @@ import { getAccountIdSync, getSessionAccountIdSync, onAccountIdentityChanged } f
 import { ltrIsolate, textDir, useIsRTL } from "../lib/direction";
 import { formatTimestamp } from "../lib/format";
 import { t } from "../lib/i18n";
-import { PersonalBackupError, restorePersonalBackup } from "../lib/personal-backup";
+import {
+  PersonalBackupError,
+  restorePersonalBackup,
+  savePersonalBackupToPhone,
+} from "../lib/personal-backup";
 import {
   backUpToPersonalCloudNow,
   disablePersonalCloudBackup,
@@ -42,7 +46,15 @@ type BackupView = {
   kaata: Awaited<ReturnType<typeof readBackupStatus>> | null;
   personal: Awaited<ReturnType<typeof readPersonalCloudBackupStatuses>> | null;
 };
-type Busy = "sync" | "connect" | "disable" | "backup" | "find" | "restoreCloud" | "restoreFile";
+type Busy =
+  | "sync"
+  | "connect"
+  | "disable"
+  | "backup"
+  | "find"
+  | "restoreCloud"
+  | "restoreFile"
+  | "saveFile";
 type Notice = {
   scope: string;
   message: string;
@@ -78,6 +90,8 @@ function backupError(code: string | undefined, destination?: PersonalCloudProvid
       return t("backups.noOwnedVaults");
     case "unsupported":
       return t("backups.error.unsupported");
+    case "saveUnavailable":
+      return t("backups.error.saveUnavailable");
     case "tooLarge":
       return t("backups.error.tooLarge");
     case "sessionChanged":
@@ -95,6 +109,15 @@ function backupError(code: string | undefined, destination?: PersonalCloudProvid
   }
 }
 
+function coverageHints(coverage: PersonalCloudStatus["coverage"]) {
+  return [
+    coverage?.skipped
+      ? t("backups.coverage", { included: coverage.included, skipped: coverage.skipped })
+      : null,
+    coverage?.skippedPending ? t("backups.skippedPending") : null,
+  ];
+}
+
 function providerHint(destination: PersonalCloudProviderId, status?: PersonalCloudStatus) {
   if (!status) return t("backups.automaticOff");
   return [
@@ -109,12 +132,7 @@ function providerHint(destination: PersonalCloudProviderId, status?: PersonalClo
         : t("backups.noBackupYet"),
     status.running ? t("backups.backingUp") : null,
     status.error ? backupError(status.error, destination) : null,
-    status.coverage?.skipped
-      ? t("backups.coverage", { included: status.coverage.included, skipped: status.coverage.skipped })
-      : null,
-    status.coverage?.skippedPending
-      ? t("backups.skippedPending")
-      : null,
+    ...coverageHints(status.coverage),
   ]
     .filter(Boolean)
     .join("\n");
@@ -334,6 +352,22 @@ export default function BackupsScreen() {
       }
     });
   }
+  function saveFile() {
+    if (restoreOnly || !canAct() || pendingRestore.current) return;
+    return run("saveFile", async () => {
+      setForm(null);
+      const saved = await savePersonalBackupToPhone();
+      if (!saved) return;
+      showNotice(
+        [
+          t("backups.savedFile", { name: ltrIsolate(saved.displayName) }),
+          ...coverageHints(saved.coverage),
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+    });
+  }
 
   const locked = Boolean(busy || currentCandidate);
   const destinations: PersonalCloudProviderId[] =
@@ -503,6 +537,21 @@ export default function BackupsScreen() {
               </View>
             );
           })}
+          {!restoreOnly ? (
+            <NavRow
+              icon="download-outline"
+              label={t("backups.saveFile")}
+              hint={t("backups.saveFileHint")}
+              hintLines={0}
+              accessibilityHint={t("backups.saveFileHint")}
+              trailing={
+                busy === "saveFile" ? <ActivityIndicator color={colors.textSubtle} /> : undefined
+              }
+              onPress={() => void saveFile()}
+              disabled={locked}
+              isRTL={rtl}
+            />
+          ) : null}
           <NavRow
             icon="folder-open-outline"
             label={t("backups.restoreFile")}
