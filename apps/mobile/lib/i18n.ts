@@ -78,7 +78,8 @@ const en = {
   "backups.restorePersonal": "Restore a personal backup",
   "backups.restoreRestriction":
     "Personal restore requires an empty installation. Signed-in copies need the same Kaata account and an internet connection. Ninja copies can be restored offline in Ninja mode.",
-  "backups.restoring": "Backup restored. Restarting Kaata…",
+  "backups.restoring": "Backup ready to restore. Restarting Kaata…",
+  "backups.restored": "Backup restored",
   "backups.onDevice": "On this phone",
   "backups.localSaved": "Recovery copy: {when}",
   "backups.localNone": "No recovery copy on this phone yet",
@@ -2908,7 +2909,8 @@ const fa: Partial<Record<Key, string>> = {
   "backups.restorePersonal": "بازیابی نسخۀ پشتیبان شخصی",
   "backups.restoreRestriction":
     "بازیابی شخصی به نصب خالی نیاز دارد. نسخۀ حساب‌دار به همان حساب کاته و اینترنت نیاز دارد. نسخۀ نینجا را می‌توان بدون اینترنت در حالت نینجا بازیابی کرد.",
-  "backups.restoring": "نسخۀ پشتیبان بازیابی شد. کاته دوباره باز می‌شود…",
+  "backups.restoring": "نسخۀ پشتیبان آمادۀ بازیابی است. کاته دوباره باز می‌شود…",
+  "backups.restored": "نسخۀ پشتیبان بازیابی شد",
   "backups.onDevice": "در این گوشی",
   "backups.localSaved": "کاپی بازیابی: {when}",
   "backups.localNone": "هنوز کاپی بازیابی در این گوشی نیست",
@@ -5452,7 +5454,8 @@ const ps: Record<Key, string> = {
   "backups.restorePersonal": "شخصي شاتړ بېرته راوستل",
   "backups.restoreRestriction":
     "د شخصي شاتړ بېرته راوستل تش نصب ته اړتیا لري. د حساب شاتړ هماغه کاته حساب او انټرنېټ ته اړتیا لري. د نینجا شاتړ له انټرنېټ پرته په نینجا حالت کې بېرته راوستل کېدای شي.",
-  "backups.restoring": "شاتړ بېرته راوستل شو. کاته بیا چالانېږي…",
+  "backups.restoring": "شاتړ بېرته راوستلو ته چمتو دی. کاته بیا چالانېږي…",
+  "backups.restored": "شاتړ بېرته راوستل شو",
   "backups.onDevice": "په دې موبایل کې",
   "backups.localSaved": "د بېرته راوستلو کاپي: {when}",
   "backups.localNone": "په دې موبایل کې لا د بېرته راوستلو کاپي نشته",

@@ -21,7 +21,7 @@ import * as Network from "expo-network";
 import { router, Stack, useRootNavigationState } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { setStatusBarStyle, StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -42,7 +42,7 @@ import { ReminderCoordinator } from "../components/ReminderCoordinator";
 import { MeshController } from "../components/MeshController";
 import { ProjectionConflictsListener } from "../components/ProjectionConflictsListener";
 import { PendingEmailFlowResume } from "../components/PendingEmailFlowResume";
-import { ToastProvider } from "../components/Toast";
+import { queuePendingToast, ToastProvider } from "../components/Toast";
 import { SheetBlurProvider } from "../components/SheetBackdrop";
 import { MotionStack } from "../components/MotionStack";
 import { AppLockGate } from "../components/AppLockGate";
@@ -308,6 +308,7 @@ function RootLayoutContent() {
   // start that isn't re-derived here, and the user doesn't have to go find the
   // app and reopen it.
   const [bootNonce, setBootNonce] = useState(0);
+  const personalBackupRestored = useRef(false);
   const retryBoot = useCallback(() => {
     setBootError(null);
     setDbCorrupt(null);
@@ -393,7 +394,7 @@ function RootLayoutContent() {
         const { finishInterruptedRestore } = await import("../lib/db-backup");
         finishInterruptedRestore();
         const { finishPendingPersonalBackupRestore } = await import("../lib/personal-backup-db");
-        await finishPendingPersonalBackupRestore();
+        if (await finishPendingPersonalBackupRestore()) personalBackupRestored.current = true;
         const { clearInterruptedPersonalBackupExport } = await import("../lib/personal-backup");
         clearInterruptedPersonalBackupExport();
       } catch (err) {
@@ -858,15 +859,18 @@ function RootLayoutContent() {
   // until the first touch — the "blank white until I swipe" bug, where even the
   // status + nav bars showed the bare white window.
   useEffect(() => {
-    const showsRealSurface =
-      bootError !== null || dbReady === false || (appReady && fontsReady && dbReady === true);
-    if (!showsRealSurface) return;
+    const booted = !bootError && appReady && fontsReady && dbReady === true;
+    if (!bootError && dbReady !== false && !booted) return;
     // Double rAF: let the just-mounted tree commit + lay out a frame before we
     // pull the splash, so what's revealed underneath is already drawn.
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
         SplashScreen.hideAsync().catch(() => {});
+        if (booted && personalBackupRestored.current) {
+          personalBackupRestored.current = false;
+          queuePendingToast(t("backups.restored"), "success");
+        }
       });
     });
     return () => {

@@ -39,6 +39,7 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
   let fileSaveResult: SavedFile | null | Promise<SavedFile | null> = null;
   let fileSaves = 0;
   const fileRestores: unknown[][] = [];
+  const toasts: [string, string][] = [];
   const operations: [string, PersonalCloudProviderId][] = [];
   const cloudRestores: BackupChoice[] = [];
   const status = {
@@ -105,6 +106,9 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
       "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
       "../components/Button": { Button: "Button" },
       "../components/ConfirmDialog": { ConfirmDialog: "ConfirmDialog" },
+      "../components/Toast": {
+        useToast: () => ({ push: (message: string, kind: string) => toasts.push([message, kind]) }),
+      },
       "../components/SettingsScreen": {
         NavRow: "NavRow",
         ScreenHeader: "ScreenHeader",
@@ -233,6 +237,7 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
     operations,
     cloudRestores,
     fileRestores,
+    toasts,
     routes,
     status,
     providers,
@@ -436,6 +441,8 @@ async function main() {
   };
   saveGate.resolve(saved);
   await localSave.flush();
+  assert.deepEqual(localSave.toasts, [["backups.backupSaved", "success"]]);
+  assert.equal(localSave.find("backups.saveFile")!.props.icon, "checkmark-circle-outline");
   assert.ok(localSave.text().includes('backups.savedFile{"name":"Kaata-backup.zip"}'));
   assert.ok(localSave.text().includes('backups.coverage{"included":1,"skipped":2}'));
   assert.ok(localSave.text().includes("backups.skippedPending"));
@@ -457,6 +464,7 @@ async function main() {
   staleSave.resolve(saved);
   await localSave.flush();
   assert.ok(!localSave.text().includes("Kaata-backup.zip"), "hide a prior account’s save result");
+  assert.equal(localSave.toasts.length, 1, "cancelled, failed and stale saves never show success");
   localSave.hooks.unmount();
 
   for (const stale of ["account", "aba", "focus", "unmount"] as const) {

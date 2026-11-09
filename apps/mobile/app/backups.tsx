@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { NavRow, ScreenHeader, SectionGap, SectionHeader } from "../components/SettingsScreen";
+import { useToast } from "../components/Toast";
 import { readBackupStatus, syncBackupNow } from "../lib/backup-status";
 import { colors } from "../lib/colors";
 import { getAccountIdSync, getSessionAccountIdSync, onAccountIdentityChanged } from "../lib/db-tx";
@@ -59,7 +60,7 @@ type Notice = {
   scope: string;
   message: string;
   error: boolean;
-  destination?: PersonalCloudProviderId | "kaata";
+  destination?: PersonalCloudProviderId | "kaata" | "phone";
 };
 type RestoreCandidate = {
   scope: string;
@@ -141,6 +142,7 @@ function providerHint(destination: PersonalCloudProviderId, status?: PersonalClo
 /** Backup destinations live together inside Settings, including for Ninja users. */
 export default function BackupsScreen() {
   const router = useRouter();
+  const { push: pushToast } = useToast();
   const rtl = useIsRTL();
   const { restore } = useLocalSearchParams<{ restore?: string }>();
   const restoreOnly = restore === "1";
@@ -295,7 +297,7 @@ export default function BackupsScreen() {
       showNotice(
         kind === "sync" ? t("backups.syncFailed") : backupError(code, destination),
         true,
-        kind === "sync" ? "kaata" : destination,
+        kind === "sync" ? "kaata" : kind === "saveFile" ? "phone" : destination,
       );
     } finally {
       operation.current = false;
@@ -357,7 +359,8 @@ export default function BackupsScreen() {
     return run("saveFile", async () => {
       setForm(null);
       const saved = await savePersonalBackupToPhone();
-      if (!saved) return;
+      if (!saved || !current()) return;
+      pushToast(t("backups.backupSaved"), "success");
       showNotice(
         [
           t("backups.savedFile", { name: ltrIsolate(saved.displayName) }),
@@ -365,6 +368,8 @@ export default function BackupsScreen() {
         ]
           .filter(Boolean)
           .join("\n"),
+        false,
+        "phone",
       );
     });
   }
@@ -538,19 +543,26 @@ export default function BackupsScreen() {
             );
           })}
           {!restoreOnly ? (
-            <NavRow
-              icon="download-outline"
-              label={t("backups.saveFile")}
-              hint={t("backups.saveFileHint")}
-              hintLines={0}
-              accessibilityHint={t("backups.saveFileHint")}
-              trailing={
-                busy === "saveFile" ? <ActivityIndicator color={colors.textSubtle} /> : undefined
-              }
-              onPress={() => void saveFile()}
-              disabled={locked}
-              isRTL={rtl}
-            />
+            <>
+              <NavRow
+                icon={
+                  currentNotice?.destination === "phone" && !currentNotice.error
+                    ? "checkmark-circle-outline"
+                    : "download-outline"
+                }
+                label={t("backups.saveFile")}
+                hint={t("backups.saveFileHint")}
+                hintLines={0}
+                accessibilityHint={t("backups.saveFileHint")}
+                trailing={
+                  busy === "saveFile" ? <ActivityIndicator color={colors.textSubtle} /> : undefined
+                }
+                onPress={() => void saveFile()}
+                disabled={locked}
+                isRTL={rtl}
+              />
+              {currentNotice?.destination === "phone" ? statusMessage : null}
+            </>
           ) : null}
           <NavRow
             icon="folder-open-outline"

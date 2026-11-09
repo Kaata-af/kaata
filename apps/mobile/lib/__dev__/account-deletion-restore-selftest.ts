@@ -9,6 +9,7 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
     ["account_deletion_cancelled", marker],
   ]);
   const routes: any[] = [],
+    toasts: { message: string; kind: string }[] = [],
     writes: [string, string][] = [];
   const backHandlers = new Set<() => boolean>();
   let recoveries = 0,
@@ -67,6 +68,9 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
         RestoreProgress: "Progress",
         restoreProgressLabel: () => "normal-progress",
       },
+      "../../components/Toast": {
+        queuePendingToast: (message: string, kind: string) => toasts.push({ message, kind }),
+      },
       "../../lib/checkin-trigger": { requestImmediateCheckIn: () => {} },
       "../../lib/colors": { colors: {} },
       "../../lib/db": {
@@ -99,7 +103,10 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
         trackingSafe: () => ({}),
       },
       "../../lib/fonts": { fonts: {}, sansLineHeight: (_: number, height: number) => height },
-      "../../lib/i18n": { t: (key: string) => key },
+      "../../lib/i18n": {
+        t: (key: string, vars?: { count?: string }) =>
+          key === "restore.toast.successVaults" ? `${key} ${vars?.count}` : key,
+      },
       "../../lib/recovery": {
         recoverAllVaults: async ({ onProgress, requireComplete, includeArchived }: any) => {
           recoveries++;
@@ -136,6 +143,7 @@ function restoreFixture(marker = "account-a", options: { expiredSession?: boolea
     hooks,
     meta,
     routes,
+    toasts,
     writes,
     backHandlers,
     render,
@@ -202,6 +210,7 @@ async function main() {
   await busyBack.props.onPress();
   assert.equal([...normal.backHandlers][0](), true);
   assert.deepEqual(normal.routes, [], "Neither Back path interrupts recovery");
+  assert.deepEqual(normal.toasts, [], "Restoring does not announce success while still running");
   assert.equal(
     normal.meta.get("account_deletion_cancelled"),
     "account-a",
@@ -210,6 +219,7 @@ async function main() {
   finished.resolve({ recovered: ["kaata-a", "kaata-b"], failed: [] });
   await normal.flush();
   assert.deepEqual(normal.routes, ["/"]);
+  assert.deepEqual(normal.toasts, [{ message: "restore.toast.successVaults 2", kind: "success" }]);
   assert.equal(normal.meta.get("onboarding_step"), "done");
   assert.equal(normal.meta.get("account_deletion_cancelled"), "");
 
@@ -222,6 +232,7 @@ async function main() {
     [],
     "partly restored deletion recovery stays on an actionable error",
   );
+  assert.deepEqual(partial.toasts, [], "An incomplete deletion restore does not announce success");
   assert.equal(partial.meta.get("account_deletion_cancelled"), "account-a");
   assert.ok(button(partial, "onboardingRestore.tryAgain"));
   partial.result({ recovered: ["kaata-a", "kaata-b"], failed: [] });

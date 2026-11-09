@@ -1167,14 +1167,14 @@ function rollbackParked(): void {
   remove(RECEIPT);
 }
 /** Called before the singleton DB is opened, including headless boot. No getDb. */
-export async function finishPendingPersonalBackupRestore(): Promise<void> {
+export async function finishPendingPersonalBackupRestore(): Promise<boolean> {
   return exclusive(async () => {
     removeDatabase(EXPORT);
     if (!file(RECEIPT).exists) {
       if (file(PARKED).exists) rollbackParked();
       else removeDatabase(STAGE);
       remove(RECEIPT_SCRATCH);
-      return;
+      return false;
     }
     let receipt: Receipt;
     try {
@@ -1194,18 +1194,18 @@ export async function finishPendingPersonalBackupRestore(): Promise<void> {
       if (!file(DB_NAME).exists) {
         rollbackParked();
         removeDatabase(STAGE);
-        return;
+        return false;
       }
       if (hashFile(DB_NAME) !== receipt.hash) {
         rollbackParked();
         fail("invalid");
       }
       finishFiles();
-      return;
+      return true;
     }
     if (!file(STAGE).exists && file(DB_NAME).exists && hashFile(DB_NAME) === receipt.hash) {
       finishFiles();
-      return;
+      return true;
     }
     let live: DB | null = null,
       candidate: DB | null = null;
@@ -1259,6 +1259,7 @@ export async function finishPendingPersonalBackupRestore(): Promise<void> {
         }
         finishFiles();
       });
+      return true;
     } catch (error) {
       if (candidate) await candidate.closeAsync();
       if (live) await live.closeAsync();

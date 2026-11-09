@@ -372,7 +372,8 @@ async function main() {
   target.metadata("installed_at_unix_ms", "5678");
   await target.module.stagePersonalBackupRestore(bytes);
   ok(target.rows("SELECT * FROM entries").length === 0, "staging never changes live ledger");
-  await target.boot();
+  assert.equal(await target.boot(), true, "reports a successfully installed backup");
+  assert.equal(await target.boot(), false, "does not repeat the success on the next boot");
   ok(
     (target.rows("SELECT note FROM entries")[0] as any).note === "Keep this tally",
     "Ninja restore retains data",
@@ -663,7 +664,7 @@ async function main() {
     path.join(parked.dir, "kaata.db"),
     path.join(parked.dir, "kaata.personal.original.db"),
   );
-  await parked.boot();
+  assert.equal(await parked.boot(), false, "rolling back an interrupted restore is not success");
   ok(parked.rows("SELECT * FROM entries").length === 0, "interrupted parking rolls original back");
   const landed = fixture("crash-after-landing");
   await landed.module.stagePersonalBackupRestore(bytes);
@@ -673,7 +674,7 @@ async function main() {
     path.join(landed.dir, "kaata.personal.original.db"),
   );
   renameSync(path.join(landed.dir, "kaata.personal.restore.db"), path.join(landed.dir, "kaata.db"));
-  await landed.boot();
+  assert.equal(await landed.boot(), true, "reports an installed backup after interrupted cleanup");
   ok(landed.rows("SELECT * FROM entries").length === 1, "completed landing survives interruption");
   const malformed = fixture("malformed");
   await errorCode(

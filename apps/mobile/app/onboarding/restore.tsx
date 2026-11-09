@@ -40,6 +40,7 @@ import {
   onboardingStyles,
 } from "../../components/Onboarding";
 import { RestoreProgress, restoreProgressLabel } from "../../components/RestoreProgress";
+import { queuePendingToast } from "../../components/Toast";
 import { requestImmediateCheckIn } from "../../lib/checkin-trigger";
 import { colors } from "../../lib/colors";
 import { getAppMeta, setAppMeta } from "../../lib/db";
@@ -231,7 +232,13 @@ export default function OnboardingRestoreScreen() {
           // witness-pin check-in with no identity fields.) Best-effort; offline
           // no-ops and self-heals on the next online check-in.
           requestImmediateCheckIn();
-          if (mounted.current && focused.current) router.replace("/");
+          if (mounted.current && focused.current) {
+            queuePendingToast(
+              t("restore.toast.successVaults", { count: String(result.recovered.length) }),
+              "success",
+            );
+            router.replace("/");
+          }
         });
         return;
       }
