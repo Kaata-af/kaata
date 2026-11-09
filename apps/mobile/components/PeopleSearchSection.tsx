@@ -91,7 +91,14 @@ export function PeopleSearchSection(props: {
               onPress={() => props.onSelect(person)}
               disabled={props.disabled}
               accessibilityRole="button"
-              accessibilityLabel={`${person.name}${person.username ? `, @${person.username}` : ""}, ${props.actionLabel ?? t(existingId(person) ? "peopleSearch.existing" : "peopleSearch.add")}`}
+              accessibilityLabel={[
+                person.name,
+                person.username ? `@${person.username}` : null,
+                person.is_friend ? t("peopleSearch.friend") : null,
+                props.actionLabel ?? t(existingId(person) ? "peopleSearch.existing" : "peopleSearch.add"),
+              ]
+                .filter(Boolean)
+                .join(", ")}
               accessibilityState={{ disabled: props.disabled }}
               style={({ pressed }) => [
                 styles.row,
@@ -109,10 +116,17 @@ export function PeopleSearchSection(props: {
                 <Text style={[styles.name, textDir(rtl)]} numberOfLines={1}>
                   {person.name}
                 </Text>
-                {person.username ? (
-                  <Text style={[styles.hint, textDir(rtl)]} numberOfLines={1}>
-                    {ltrIsolate(`@${person.username}`)}
-                  </Text>
+                {person.username || person.is_friend ? (
+                  <View style={[styles.subtitle, rowDir(rtl)]}>
+                    {person.username ? (
+                      <Text style={[styles.hint, textDir(rtl)]} numberOfLines={1}>
+                        {ltrIsolate(`@${person.username}`)}
+                      </Text>
+                    ) : null}
+                    {person.is_friend ? (
+                      <Text style={[styles.friend, textDir(rtl)]}>{t("peopleSearch.friend")}</Text>
+                    ) : null}
+                  </View>
                 ) : null}
                 {existingId(person) ? (
                   <Text style={[styles.hint, textDir(rtl)]}>{t("peopleSearch.existing")}</Text>
@@ -168,7 +182,17 @@ const styles = StyleSheet.create({
   photo: { position: "absolute", top: 0, left: 0, width: AVATAR_SIZE, height: AVATAR_SIZE },
   identity: { flex: 1, minWidth: 0 },
   name: { ...typography.labelBold, color: colors.textEmphasis },
+  subtitle: { alignItems: "center", flexWrap: "wrap", gap: 6 },
   hint: { ...typography.bodySm, color: colors.textSubtle, flexShrink: 1 },
+  friend: {
+    ...typography.bodySm,
+    color: colors.textDefault,
+    backgroundColor: colors.bgMuted,
+    borderRadius: radius.pill,
+    overflow: "hidden",
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+  },
   status: { minHeight: TOUCH_MIN, alignItems: "center", gap: 8, paddingVertical: 8 },
   empty: { ...typography.bodySm, color: colors.textSubtle, paddingVertical: 8 },
 });

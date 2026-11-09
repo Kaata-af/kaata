@@ -99,7 +99,10 @@ const api = compileUI(
     },
     "./digits": require("../digits"),
     "./phone": phone,
-    "./people-connections": { getDiscoveredPersonIds: async () => ({ [accountB]: "local-john" }) },
+    "./people-connections": {
+      getDiscoveredPersonIds: async () => ({ [accountB]: "local-john" }),
+      discoveredPersonId: (_vaultId: string, accountId: string) => `stable-${accountId}`,
+    },
   },
   {
     setTimeout: setTimer,
@@ -154,6 +157,7 @@ async function main() {
   const linkedPerson = {
     ...person,
     existing_relationship_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    is_friend: true,
   };
   pending[1].reply.resolve(
     response(
@@ -176,6 +180,7 @@ async function main() {
     "duplicate, self, malformed and unnamed profiles are excluded",
   );
   assert.equal(result.hasMore, true);
+  assert.deepEqual([...(result.friendPersonIds ?? [])], ["server-linked-john"]);
   assert.equal(
     result.existingPersonIds[accountB],
     "server-linked-john",
@@ -189,6 +194,7 @@ async function main() {
   await settleUI();
   vault = "vault-b";
   render();
+  assert.equal(render().friendPersonIds, undefined, "a different Kaata cannot see an old friend marker");
   pending[2].reply.resolve(response([person]));
   await settleUI();
   assert.equal(render().people.length, 0, "previous book replies are discarded");
@@ -270,10 +276,11 @@ async function main() {
   assert.equal(render().people.length, 0, "batched identity changes cannot revive old search rows");
   advance(350);
   await settleUI();
-  pending.at(-1)!.reply.resolve(response([person]));
+  pending.at(-1)!.reply.resolve(response([{ ...person, is_friend: "true" }]));
   await settleUI();
   result = render();
   assert.equal(result.people.length, 1);
+  assert.equal(result.people[0].is_friend, undefined, "a non-boolean flag cannot mark someone as a friend");
   assert.deepEqual(result.existingPersonIds, {}, "no book means no financial contact associations");
   account = null;
   identityListeners.forEach((notify) => notify());
@@ -335,7 +342,7 @@ async function main() {
   );
   const resultNodes = nodes(
     section.PeopleSearchSection({
-      search,
+      search: { ...search, people: [linkedPerson] },
       localPeople: [known],
       visiblePeople: [],
       onSelect: () => {},
@@ -346,6 +353,11 @@ async function main() {
       (node) => node.type === "Text" && node.props.children === "peopleSearch.existing",
     ),
     "a username match can still open an existing contact when local name search missed it",
+  );
+  assert.ok(resultNodes.some((node) => node.type === "Text" && node.props.children === "peopleSearch.friend"));
+  assert.match(
+    resultNodes.find((node) => node.type === "Pressable")!.props.accessibilityLabel,
+    /peopleSearch\.friend/,
   );
   const unmappedNodes = nodes(
     section.PeopleSearchSection({
@@ -359,6 +371,7 @@ async function main() {
     unmappedNodes.some((node) => node.type === "Pressable"),
     "matching names never collapse separate identities",
   );
+  assert.ok(!unmappedNodes.some((node) => node.type === "Text" && node.props.children === "peopleSearch.friend"));
   const photoUrl = "https://photos.example.test/john.jpg";
   const picturedPerson = { ...person, picture_url: photoUrl };
   const selected: DiscoveredPerson[] = [];
@@ -488,8 +501,8 @@ async function main() {
   const newBookResults = await newBookSearch;
   assert.deepEqual(
     newBookResults.people,
-    [{ ...person, account_id: accountA }],
-    "a new local book can discover people without trusting unscoped relationship metadata",
+    [{ ...person, account_id: accountA, is_friend: true }],
+    "unscoped results preserve friendship while stripping book-specific relationships",
   );
   const pictureSources = [
     photoUrl,

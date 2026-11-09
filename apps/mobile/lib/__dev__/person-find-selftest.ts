@@ -93,6 +93,7 @@ let roleReadFails = false,
   focusEpoch = 0;
 let homeOwnerFocused = true;
 let directoryPeople: import("../people-search").DiscoveredPerson[] = [];
+let directoryFriendPersonIds: ReadonlySet<string> | undefined;
 let directoryQuery = "";
 // app_meta.account_id survives sign-out; the in-memory cache does not.
 let persistedAccountId: string | null = null,
@@ -483,6 +484,7 @@ const libMocks: Record<string, any> = {
       return {
         visible: enabled && !!cachedAccountId && query.trim().length >= 2,
         people: directoryPeople,
+        friendPersonIds: directoryFriendPersonIds,
         existingPersonIds: {},
         vaultId,
         loading: false,
@@ -821,6 +823,7 @@ function fixture(
   homeReadScopes.length = 0;
   contactReadRequests.length = 0;
   directoryPeople = [];
+  directoryFriendPersonIds = undefined;
   directoryQuery = "";
   dirty = true;
 }
@@ -3807,13 +3810,22 @@ async function main() {
   fixture(home, "owner");
   cachedAccountId = persistedAccountId = "account-a";
   directoryPeople = [remotePerson];
+  directoryFriendPersonIds = new Set(["ahmad"]);
   await flush();
+  const homeAhmad = () =>
+    homeRenderedNodes().find((node) => node.type === "PersonRow" && node.props.person.id === "ahmad");
+  assert.equal(homeAhmad()!.props.isFriend, undefined, "regular Home rows have no friend label");
   homeInput().props.onChangeText("Ahmad");
   await flush();
   let remoteSection = find("PeopleSearchSection")!;
   assert.equal(remoteSection.props.search.visible, true);
   assert.equal(directoryQuery, "Ahmad");
   assert.equal(remoteSection.props.visiblePeople.length, 1);
+  assert.equal(
+    homeAhmad()?.props.isFriend,
+    true,
+    "the linked Home search row keeps the friend label",
+  );
   let ordered = homeRenderedNodes();
   assert.ok(
     ordered.findIndex((node) => node.type === "PersonRow") <
@@ -3846,6 +3858,7 @@ async function main() {
   fixture(addOrFind, "owner");
   cachedAccountId = persistedAccountId = "account-a";
   directoryPeople = [remotePerson];
+  directoryFriendPersonIds = new Set(["ahmad"]);
   deviceContacts.push({
     id: "another-ahmad",
     name: "Ahmad Phone",
@@ -3854,8 +3867,18 @@ async function main() {
     phone: "+93777111111",
   });
   await flush();
+  assert.doesNotMatch(
+    text(tree),
+    /peopleSearch\.friend/,
+    "the contact list shows no friend label before searching",
+  );
   byLabel("personEdit.firstName.label")!.props.onChangeText("Ahmad");
   await flush();
+  assert.match(
+    text(tree),
+    /peopleSearch\.friend/,
+    "the linked Add contact result keeps the friend label",
+  );
   ordered = nodes(tree);
   const localIndex = ordered.findIndex(
     (node) => node.type === "Text" && node.props.children === "Ahmad Karimi",

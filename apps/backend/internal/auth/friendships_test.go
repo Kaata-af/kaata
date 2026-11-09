@@ -70,6 +70,14 @@ func (f *friendFixture) accepted(t *testing.T, a, b string) FriendshipState {
 
 func TestFriendshipExplicitMutualLifecycle(t *testing.T) {
 	f := newFriendFixture(t)
+	f.exec(t, `UPDATE accounts SET username='friend_search_target' WHERE id=$1::uuid`, f.b)
+	assertSearchFriend := func(viewer string, want bool) {
+		t.Helper()
+		page, err := f.svc.SearchPeopleWithFriends(t.Context(), viewer, "@friend_search_target", "", true)
+		if err != nil || len(page.People) != 1 || page.People[0].AccountID != f.b || page.People[0].IsFriend != want {
+			t.Fatalf("search friend = %t: %+v %v", want, page, err)
+		}
+	}
 	r := f.send(t, f.a, f.b)
 	if r.State != "outgoing" || r.ID == "" {
 		t.Fatalf("send %+v", r)
@@ -83,6 +91,7 @@ func TestFriendshipExplicitMutualLifecycle(t *testing.T) {
 	if list, err := f.svc.Friends(t.Context(), f.a, ""); err != nil || len(list.Friends) != 0 {
 		t.Fatalf("pending granted friendship: %+v %v", list, err)
 	}
+	assertSearchFriend(f.a, false)
 	if list, err := f.svc.FriendRequests(t.Context(), f.b); err != nil || len(list) != 1 || list[0].ID != r.ID || list[0].From.AccountID != f.a {
 		t.Fatalf("inbox: %+v %v", list, err)
 	}
@@ -101,6 +110,8 @@ func TestFriendshipExplicitMutualLifecycle(t *testing.T) {
 	if retry, err := f.svc.AcceptFriendRequest(t.Context(), f.b, r.ID); err != nil || retry != accepted {
 		t.Fatalf("accept retry: %+v %v", retry, err)
 	}
+	assertSearchFriend(f.a, true)
+	assertSearchFriend(f.c, false)
 	for _, actor := range []string{f.a, f.b} {
 		list, err := f.svc.Friends(t.Context(), actor, "")
 		if err != nil || len(list.Friends) != 1 {
@@ -119,6 +130,7 @@ func TestFriendshipExplicitMutualLifecycle(t *testing.T) {
 	if err := f.svc.RemoveFriend(t.Context(), f.a, r.ID); err != nil {
 		t.Fatal(err)
 	}
+	assertSearchFriend(f.a, false)
 	if err := f.svc.RemoveFriend(t.Context(), f.a, r.ID); err != nil {
 		t.Fatalf("remove retry: %v", err)
 	}
@@ -172,7 +184,7 @@ func TestFriendshipProfileAndSearchPrivacy(t *testing.T) {
 		if page, err := f.svc.SearchPeople(t.Context(), f.a, q); err != nil || len(page.People) != 0 {
 			t.Fatalf("legacy search broadened: %+v %v", page, err)
 		}
-		if page, err := f.svc.SearchPeopleWithFriends(t.Context(), f.a, q, "", true); err != nil || len(page.People) != 1 || page.People[0].AccountID != f.b {
+		if page, err := f.svc.SearchPeopleWithFriends(t.Context(), f.a, q, "", true); err != nil || len(page.People) != 1 || page.People[0].AccountID != f.b || !page.People[0].IsFriend {
 			t.Fatalf("friend search: %+v %v", page, err)
 		}
 		if page, err := f.svc.SearchPeopleWithFriends(t.Context(), f.c, q, "", true); err != nil || len(page.People) != 0 {

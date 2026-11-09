@@ -1653,6 +1653,7 @@ const en = {
   "peopleSearch.signIn": "Sign in to find people on Kaata",
   "peopleSearch.local": "In your kaata",
   "peopleSearch.existing": "In your kaata",
+  "peopleSearch.friend": "Friend",
   "peopleSearch.connectTitle": "Add {name} on Kaata",
   "peopleSearch.connectHint":
     "They will receive an invitation in Kaata and can choose whether to connect.",
@@ -4312,6 +4313,7 @@ const fa: Partial<Record<Key, string>> = {
   "peopleSearch.signIn": "برای پیدا کردن افراد در کاتا وارد شوید",
   "peopleSearch.local": "در کاتای شما",
   "peopleSearch.existing": "در کاتای شما",
+  "peopleSearch.friend": "دوست",
   "peopleSearch.connectTitle": "افزودن {name} در کاتا",
   "peopleSearch.connectHint":
     "این شخص در کاتا دعوت دریافت می‌کند و خودش تصمیم می‌گیرد که وصل شود یا نه.",
@@ -5977,6 +5979,7 @@ const ps: Record<Key, string> = {
   "peopleSearch.signIn": "په کاټا کې د خلکو موندلو لپاره ننوځئ",
   "peopleSearch.local": "ستاسو په کاټا کې",
   "peopleSearch.existing": "ستاسو په کاټا کې",
+  "peopleSearch.friend": "ملګری",
   "peopleSearch.connectTitle": "په کاټا کې {name} زیات کړئ",
   "peopleSearch.connectHint":
     "دا کس به په کاټا کې بلنه ترلاسه کړي او خپله به پرېکړه وکړي چې وصل شي که نه.",

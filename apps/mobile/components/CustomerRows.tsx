@@ -10,6 +10,7 @@ export type CustomerRowsProps = {
   people: PersonWithBalance[];
   creditByPerson: Record<string, CreditStatus>;
   sharedStatusByPerson: Record<string, ReturnType<typeof personSharedAccountStatus>>;
+  friendPersonIds?: ReadonlySet<string>;
   onPersonPress: (person: PersonWithBalance) => void;
   onPersonLongPress?: (person: PersonWithBalance) => void;
   selecting?: boolean;
@@ -108,6 +109,7 @@ export function CustomerRows({
             person={person}
             creditStatus={props.creditByPerson[person.id] ?? "none"}
             sharedStatus={props.sharedStatusByPerson[person.id]}
+            isFriend={props.friendPersonIds?.has(person.id) || undefined}
             onPress={reuse ? press : props.onPersonPress}
             onLongPress={
               props.onPersonLongPress ? (reuse ? longPress : props.onPersonLongPress) : undefined
@@ -124,6 +126,7 @@ export function CustomerRows({
     rows,
     props.creditByPerson,
     props.sharedStatusByPerson,
+    props.friendPersonIds,
     props.onPersonPress,
     props.onPersonLongPress,
     props.selecting,

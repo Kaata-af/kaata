@@ -13,7 +13,7 @@ import (
 	"github.com/matee/kaata-backend/internal/httpx"
 )
 
-// DiscoverablePerson contains only the identity of a discoverable account.
+// DiscoverablePerson contains public identity fields and viewer-scoped search hints.
 // Discovery defaults on for accounts; owners can turn it off in settings.
 // Phone numbers and emails never appear in discovery responses.
 type DiscoverablePerson struct {
@@ -22,6 +22,7 @@ type DiscoverablePerson struct {
 	Username               string `json:"username"`
 	PictureURL             string `json:"picture_url"`
 	ExistingRelationshipID string `json:"existing_relationship_id,omitempty"`
+	IsFriend               bool   `json:"is_friend,omitempty"`
 }
 
 type PeopleSearchPage struct {
@@ -104,7 +105,7 @@ func (s *Service) SearchPeopleWithFriends(ctx context.Context, accountID, raw, v
  FROM tab_groups g LEFT JOIN people_requests r ON r.group_id=g.id
  WHERE (g.a_vault_id=NULLIF($6,'')::uuid AND (g.b_account_id=a.id OR (g.b_account_id IS NULL AND r.recipient_account_id=a.id)))
  OR (g.b_vault_id=NULLIF($6,'')::uuid AND g.a_account_id=a.id)
- ORDER BY (g.closed_at IS NULL) DESC,g.created_at DESC,g.id DESC LIMIT 1),'')
+ ORDER BY (g.closed_at IS NULL) DESC,g.created_at DESC,g.id DESC LIMIT 1),''), f.id IS NOT NULL
  FROM accounts a LEFT JOIN account_friendships f ON f.account_low_id=LEAST(a.id,$1::uuid) AND f.account_high_id=GREATEST(a.id,$1::uuid) AND f.status='accepted'
  WHERE (a.discovery_enabled OR ($7 AND $4='' AND f.id IS NOT NULL)) AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL AND a.id<>$1::uuid
  AND EXISTS(SELECT 1 FROM accounts viewer WHERE viewer.id=$1::uuid AND viewer.disabled_at IS NULL AND viewer.pending_delete_at IS NULL)
@@ -120,7 +121,7 @@ func (s *Service) SearchPeopleWithFriends(ctx context.Context, accountID, raw, v
 	defer rows.Close()
 	for rows.Next() {
 		var person DiscoverablePerson
-		if err := rows.Scan(&person.AccountID, &person.Name, &person.Username, &person.PictureURL, &person.ExistingRelationshipID); err != nil {
+		if err := rows.Scan(&person.AccountID, &person.Name, &person.Username, &person.PictureURL, &person.ExistingRelationshipID, &person.IsFriend); err != nil {
 			return page, err
 		}
 		page.People = append(page.People, person)

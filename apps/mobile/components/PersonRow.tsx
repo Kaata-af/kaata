@@ -31,6 +31,7 @@ export const PersonRow = memo(function PersonRow(props: {
   onLongPress?: (person: PersonWithBalance) => void;
   creditStatus?: CreditStatus;
   sharedStatus?: ReturnType<typeof personSharedAccountStatus>;
+  isFriend?: boolean;
   showDirection?: boolean;
   selecting?: boolean;
   selected?: boolean;
@@ -144,7 +145,7 @@ export const PersonRow = memo(function PersonRow(props: {
           ) : null}
         </View>
         <Text style={[styles.sub, textDir(isRTL)]} numberOfLines={1}>
-          {subtitle}
+          {props.isFriend ? `${t("peopleSearch.friend")} · ${subtitle}` : subtitle}
         </Text>
       </View>
       <View style={{ alignItems: isRTL ? "flex-start" : "flex-end" }}>

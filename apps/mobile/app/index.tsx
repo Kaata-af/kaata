@@ -2144,6 +2144,7 @@ export default function HomeScreen() {
                   }
                   controls={inlineControls}
                   discoveryActive={peopleSearch.visible}
+                  friendPersonIds={peopleSearch.visible ? peopleSearch.friendPersonIds : undefined}
                   discovery={
                     <PeopleSearchSection
                       search={peopleSearch}

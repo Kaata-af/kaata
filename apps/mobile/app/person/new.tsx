@@ -423,6 +423,8 @@ export default function PersonAddOrFindScreen() {
       const p = item.person;
       const sharedStatus = personSharedAccountStatus(p);
       const amountPerson = p.currency_balances?.find((row) => row.currency === p.currency) ?? p;
+      const isFriend = peopleSearch.visible && peopleSearch.friendPersonIds?.has(p.id);
+      const phoneLabel = p.phone ? ltrIsolate(p.phone) : t("contacts.noPhone");
       return (
         <Pressable
           onPress={() => openPerson(p.id)}
@@ -439,7 +441,7 @@ export default function PersonAddOrFindScreen() {
               ) : null}
             </View>
             <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
-              {p.phone ? ltrIsolate(p.phone) : t("contacts.noPhone")}
+              {isFriend ? `${t("peopleSearch.friend")} · ${phoneLabel}` : phoneLabel}
             </Text>
             {sharedStatus === "waiting" ? (
               <Text style={[styles.rowSub, textDir(isRTL)]}>{t("tab.chip.waiting")}</Text>

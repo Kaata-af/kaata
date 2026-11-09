@@ -11,7 +11,7 @@ import {
 } from "./db-tx";
 import { toAsciiDigits } from "./digits";
 import { getCurrentDefaultCountryCode, normalizePhone } from "./phone";
-import { getDiscoveredPersonIds } from "./people-connections";
+import { discoveredPersonId, getDiscoveredPersonIds } from "./people-connections";
 
 export type DiscoveredPerson = {
   account_id: string;
@@ -19,6 +19,7 @@ export type DiscoveredPerson = {
   username?: string;
   picture_url?: string;
   existing_relationship_id?: string;
+  is_friend?: boolean;
 };
 export type PeopleSearchPage = { people: DiscoveredPerson[]; has_more: boolean };
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
@@ -98,6 +99,7 @@ export async function searchPeopleDirectory(
         UUID.test(person.existing_relationship_id)
           ? { existing_relationship_id: person.existing_relationship_id }
           : {}),
+        ...(person.is_friend === true ? { is_friend: true } : {}),
       },
     ];
   });
@@ -137,6 +139,7 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
     scope: string;
     people: DiscoveredPerson[];
     existingPersonIds: Record<string, string>;
+    friendPersonIds?: ReadonlySet<string>;
     hasMore: boolean;
     loading: boolean;
     error: boolean;
@@ -189,15 +192,26 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
               if (row) existingPersonIds[person.account_id] = row.id;
             }
           }
-          if (current())
+          if (current()) {
+            const friendPersonIds = vault
+              ? new Set(
+                  page.people
+                    .filter((person) => person.is_friend === true)
+                    .map((person) =>
+                      existingPersonIds[person.account_id] ?? discoveredPersonId(vault, person.account_id),
+                    ),
+                )
+              : undefined;
             setState({
               scope,
               people: page.people,
               existingPersonIds,
+              friendPersonIds,
               hasMore: page.has_more,
               loading: false,
               error: false,
             });
+          }
         })
         .catch(() => {
           if (current())
@@ -227,6 +241,7 @@ export function usePeopleSearch(input: string, enabled: boolean, country?: strin
     visible,
     people: current?.people ?? EMPTY,
     existingPersonIds: current?.existingPersonIds ?? {},
+    ...(current?.friendPersonIds?.size ? { friendPersonIds: current.friendPersonIds } : {}),
     vaultId: vault,
     loading: visible && (current?.loading ?? true),
     error: current?.error ?? false,
