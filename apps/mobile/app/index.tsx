@@ -50,6 +50,8 @@ import {
 } from "../components/HomeFilterPopover";
 import { SelectionToolbar } from "../components/SelectionToolbar";
 import { SponsorBanner } from "../components/SponsorBanner";
+import { SponsorButton } from "../components/SponsorButton";
+import { useSponsorPlacement } from "../lib/sponsor-placement";
 import { SearchKeyboardFrame, SearchKeyboardFooter } from "../components/SearchKeyboardMotion";
 import {
   currencyBalances,
@@ -1183,6 +1185,13 @@ export default function HomeScreen() {
     !batteryDialogOpen &&
     !oemDialogOpen &&
     !bleSettingsDialogOpen;
+  const sponsorship = useSponsorPlacement(loaded && !!activeVaultId && !forceUpdate);
+  const showSponsorship =
+    directionControlsEnabled &&
+    !loadError &&
+    !keyboardLayoutShown &&
+    !searchFocused &&
+    !customerQuery.trim();
   const reviewContext = useMemo(() => {
     if (!loaded || !self || !currentPeopleScope || !currentVaultScope) return null;
     try {
@@ -2130,11 +2139,8 @@ export default function HomeScreen() {
                           currentPeopleScope && currentVaultScope && !filtersExpanded && !selecting
                         }
                       />
-                      {directionControlsEnabled &&
-                      !loadError &&
-                      !keyboardLayoutShown &&
-                      !customerQuery.trim() ? (
-                        <SponsorBanner />
+                      {showSponsorship && sponsorship ? (
+                        <SponsorButton {...sponsorship.button} />
                       ) : null}
                     </>
                   }
@@ -2145,6 +2151,15 @@ export default function HomeScreen() {
                     !!currencyFilter
                   }
                   controls={inlineControls}
+                  firstCustomerRow={
+                    showSponsorship && sponsorship?.banner.slides.length ? (
+                      <SponsorBanner
+                        key={JSON.stringify(sponsorship.banner.slides)}
+                        slides={sponsorship.banner.slides}
+                        rotationSeconds={sponsorship.banner.rotation_seconds}
+                      />
+                    ) : null
+                  }
                   discoveryActive={peopleSearch.visible}
                   friendPersonIds={peopleSearch.visible ? peopleSearch.friendPersonIds : undefined}
                   discovery={
@@ -2732,6 +2747,7 @@ function HomePage(
       onToggleSettled: () => void;
       filtered: boolean;
       controls: React.ReactNode;
+      firstCustomerRow?: React.ReactNode;
       discovery?: React.ReactNode;
       discoveryActive?: boolean;
       selectionControls: React.ReactNode;
@@ -2864,6 +2880,7 @@ function HomePage(
             ]}
           >
             {props.controls}
+            {props.firstCustomerRow}
             {props.discoveryActive &&
             (props.people.length > 0 || props.settledPeople.length > 0) ? (
               <Text style={[styles.localSearchLabel, textDir(isRTL)]}>

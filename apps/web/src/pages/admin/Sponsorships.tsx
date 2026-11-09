@@ -7,9 +7,11 @@ import {
   sponsorCampaignsKey,
   useAdminToken,
   useSponsorCampaigns,
+  validSponsorUrl,
   type SponsorCampaign,
   type SponsorCampaignInput,
 } from "./api";
+import { SponsorPlacement } from "./SponsorPlacement";
 import { Card, ErrorCard, PageHeader, SkeletonCard } from "./ui";
 
 const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -40,18 +42,6 @@ function readSchedule(value: string, original?: string) {
   return date.toISOString();
 }
 
-function validUrl(value: string, httpsOnly = false) {
-  if (!/^https?:\/\//i.test(value) || new TextEncoder().encode(value).length > 2048) return false;
-  try {
-    const url = new URL(value);
-    return Boolean(
-      url.hostname && !url.username && !url.password && (!httpsOnly || url.protocol === "https:"),
-    );
-  } catch {
-    return false;
-  }
-}
-
 function campaignStatus(campaign: SponsorCampaign, now: number, liveId: number) {
   if (Date.parse(campaign.ends_at) <= now) return "Ended";
   if (!campaign.is_active) return "Paused";
@@ -60,6 +50,21 @@ function campaignStatus(campaign: SponsorCampaign, now: number, liveId: number) 
 }
 
 export function Sponsorships() {
+  return (
+    <div className="min-w-0 max-w-full">
+      <PageHeader
+        title="Sponsorships"
+        description="Manage the promotion button and image ads on Kaata’s mobile home screen."
+      />
+      <div className="flex min-w-0 flex-col gap-4">
+        <SponsorPlacement />
+        <LegacyCampaigns />
+      </div>
+    </div>
+  );
+}
+
+function LegacyCampaigns() {
   const token = useAdminToken();
   const client = useQueryClient();
   const query = useSponsorCampaigns();
@@ -110,12 +115,11 @@ export function Sponsorships() {
   const error = save.error?.message;
 
   return (
-    <div className="min-w-0 max-w-full">
-      <PageHeader
-        title="Sponsorships"
-        description="Schedule paid placements for the Kaata mobile home screen."
-      />
-      <div className="flex min-w-0 flex-col gap-4">
+    <details className="min-w-0">
+      <summary className="cursor-pointer text-sm font-medium text-brand-ink">
+        Legacy scheduled campaigns
+      </summary>
+      <div className="mt-3 flex min-w-0 flex-col gap-4">
         {notice ? (
           <p role="status" className="text-sm font-medium text-emerald-700">
             {notice}
@@ -215,7 +219,7 @@ export function Sponsorships() {
           </Card>
         )}
       </div>
-    </div>
+    </details>
   );
 }
 
@@ -257,11 +261,11 @@ function CampaignEditor({
     const ctaUrl = read("cta_url");
     const startsAt = readSchedule(read("starts_at"), campaign?.starts_at);
     const endsAt = readSchedule(read("ends_at"), campaign?.ends_at);
-    if (image && !validUrl(image, true)) {
+    if (image && !validSponsorUrl(image, true)) {
       setValidationError("Enter a valid HTTPS image URL up to 2,048 bytes.");
       return;
     }
-    if (Boolean(ctaLabel) !== Boolean(ctaUrl) || (ctaUrl && !validUrl(ctaUrl))) {
+    if (Boolean(ctaLabel) !== Boolean(ctaUrl) || (ctaUrl && !validSponsorUrl(ctaUrl))) {
       setValidationError(
         "Provide both a button label and a valid HTTP or HTTPS URL, or leave both blank.",
       );

@@ -655,6 +655,7 @@ const libMocks: Record<string, any> = {
   auth: { getSessionUser: async () => null, signOut: async () => {} },
   "ledger-events": ledgerEvents,
   "app-meta-context": { useAppMeta: () => ({ forceUpdate: false }) },
+  "sponsor-placement": { useSponsorPlacement: () => null },
   money: { sumAmounts },
   "battery-exemption": new Proxy({}, { get: () => async () => false }),
   "trust/backfill": { ensureChainBackfill: async () => {} },
@@ -714,6 +715,7 @@ const componentMocks: Record<string, any> = {
   SelectionToolbar: { SelectionToolbar: "SelectionToolbar", SelectionMark: "SelectionMark" },
   SelectionMark: { SelectionMark: "SelectionMark" },
   SponsorBanner: { SponsorBanner: "SponsorBanner" },
+  SponsorButton: { SponsorButton: "SponsorButton" },
   ProfileSettingsSheet: { ProfileSettingsSheet: "Settings" },
   Toast: {
     useToast: () => toast,

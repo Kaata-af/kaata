@@ -252,6 +252,7 @@ const selectionSummary = compileUI("../selection-summary", {
     getDb: () => assert.fail("Selection must use the displayed list, without a database read"),
   },
 });
+let sponsorPlacement: ReturnType<typeof import("../sponsor-placement").useSponsorPlacement> = null;
 const mocks: Record<string, any> = {
   react,
   "react/jsx-runtime": { jsx: homeJsx, jsxs: homeJsx, Fragment: "Fragment" },
@@ -309,6 +310,7 @@ const mocks: Record<string, any> = {
     SearchKeyboardFooter: "SearchKeyboardFooter",
   },
   "../lib/app-meta-context": { useAppMeta: () => ({ forceUpdate: false }) },
+  "../lib/sponsor-placement": { useSponsorPlacement: () => sponsorPlacement },
   "../lib/use-store-review-prompt": {
     useStoreReviewPrompt: (options: NonNullable<typeof reviewPromptOptions>) => {
       reviewPromptOptions = options;
@@ -492,6 +494,7 @@ for (const [file, exported] of [
   ["PeopleSearchSection", "PeopleSearchSection"],
   ["DiscoveredPersonDialog", "DiscoveredPersonDialog"],
   ["SponsorBanner", "SponsorBanner"],
+  ["SponsorButton", "SponsorButton"],
   ["ProfileSettingsSheet", "ProfileSettingsSheet"],
   ["UpdateBanner", "UpdateBanner"],
   ["VaultPickerSheet", "VaultPickerSheet"],
@@ -1333,6 +1336,31 @@ async function homeBackSearch() {
 async function main() {
   render();
   await flush();
+  const initialCustomers = homeRows().map((row) => row.props.person.id);
+  sponsorPlacement = {
+    button: { enabled: false, label: "" },
+    banner: {
+      enabled: true,
+      rotation_seconds: 6,
+      slides: [
+        { image_url: "https://api.example.invalid/ad", destination_url: "https://example.invalid" },
+      ],
+    },
+  };
+  render();
+  const customerNodes = nodes(homeSwipe());
+  const adPosition = customerNodes.findIndex((node) => node.type === "SponsorBanner");
+  const firstCustomer = customerNodes.findIndex((node) => node.type === "PersonRow");
+  assert.ok(
+    adPosition >= 0 && adPosition < firstCustomer,
+    "The ad is the first customer-list slot",
+  );
+  assert.deepEqual(
+    homeRows().map((row) => row.props.person.id),
+    initialCustomers,
+  );
+  sponsorPlacement = null;
+  render();
   assert.deepEqual(reviewPromptOptions?.context, {
     installId: "install",
     accountId: "account-a",

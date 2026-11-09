@@ -1,120 +1,126 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useRef, useState } from "react";
-import { useFocusEffect, useRouter } from "expo-router";
-import { Image, Linking, Pressable, StyleSheet, Text } from "react-native";
-import { useAppMeta } from "../lib/app-meta-context";
-import { colors } from "../lib/colors";
-import { rowDir, textDir, useIsRTL } from "../lib/direction";
+import { useLayoutEffect, useRef, useState } from "react";
+import {
+  Animated,
+  Image,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+} from "react-native";
 import { t } from "../lib/i18n";
-import { gutter, radius, space, TOUCH_MIN, typography } from "../lib/tokens";
+import { useReducedMotion } from "../lib/reduced-motion";
+import type { SponsorSlide } from "../lib/sponsor-placement";
+import { space } from "../lib/tokens";
 import { useToast } from "./Toast";
 
-export function SponsorBanner() {
-  const { sponsorBanner } = useAppMeta();
-  const isRTL = useIsRTL();
-  const toast = useToast();
-  const router = useRouter();
-  const [failedImage, setFailedImage] = useState<string | null>(null);
-  const opening = useRef(false);
-  const focused = useRef(false);
-  useFocusEffect(
-    useCallback(() => {
-      focused.current = true;
-      opening.current = false;
-      return () => {
-        focused.current = false;
-      };
-    }, []),
-  );
-  const imageUrl = sponsorBanner?.image_url;
-  const link = sponsorBanner?.cta_url;
-  const interactive = !sponsorBanner || Boolean(link);
-  const label = sponsorBanner
-    ? `${t("sponsorBanner.sponsored")} · ${sponsorBanner.sponsor} · ${sponsorBanner.title}`
-    : t("sponsorBanner.promote");
+const WIDTH = 320;
+const HEIGHT = 50;
 
+export function SponsorBanner({
+  slides,
+  rotationSeconds,
+}: {
+  slides: readonly SponsorSlide[];
+  rotationSeconds: number;
+}) {
+  const { width: screenWidth } = useWindowDimensions();
+  const width = Math.min(WIDTH, screenWidth);
+  const height = (width * HEIGHT) / WIDTH;
+  const [index, setIndex] = useState(0);
+  const [imageStatus, setImageStatus] = useState<Record<string, "ready" | "failed">>({});
+  const offset = useRef(new Animated.Value(0)).current;
+  const transitioning = useRef(false);
+  const opening = useRef(false);
+  const reducedMotion = useReducedMotion();
+  const toast = useToast();
+
+  const available = slides.filter((slide) => imageStatus[slide.image_url] !== "failed");
+  const currentPosition = Math.max(0, available.indexOf(slides[index]));
+  const current = available[currentPosition];
+  const next = available.length > 1 ? available[(currentPosition + 1) % available.length] : null;
+  const nextIndex = next ? slides.indexOf(next) : -1;
+  const ready = !!current && imageStatus[current.image_url] === "ready";
+  const nextReady = !!next && imageStatus[next.image_url] === "ready";
+
+  useLayoutEffect(() => {
+    if (!ready || !nextReady) return;
+    const animation = Animated.timing(offset, {
+      toValue: -width,
+      duration: 300,
+      useNativeDriver: Platform.OS !== "web",
+    });
+    const timer = setInterval(() => {
+      if (opening.current || transitioning.current) return;
+      if (reducedMotion) {
+        setIndex(nextIndex);
+        return;
+      }
+      transitioning.current = true;
+      animation.start(({ finished }) => {
+        if (finished) setIndex(nextIndex);
+      });
+    }, rotationSeconds * 1_000);
+    return () => {
+      clearInterval(timer);
+      animation.stop();
+      offset.setValue(0);
+      transitioning.current = false;
+    };
+  }, [current, next, nextIndex, nextReady, offset, ready, reducedMotion, rotationSeconds, width]);
+
+  if (!current) return null;
+  const recordStatus = (imageUrl: string, status: "ready" | "failed") =>
+    setImageStatus((previous) =>
+      previous[imageUrl] === status ? previous : { ...previous, [imageUrl]: status },
+    );
   return (
     <Pressable
       testID="home-sponsor-banner"
-      disabled={!interactive}
-      accessibilityRole={sponsorBanner ? (interactive ? "link" : "text") : "button"}
-      accessibilityLabel={label}
-      accessibilityHint={
-        sponsorBanner ? (sponsorBanner.cta_label ?? undefined) : t("sponsorBanner.formHint")
-      }
+      accessible={ready}
+      accessibilityRole="link"
+      accessibilityLabel={t("sponsorBanner.sponsored")}
+      disabled={!ready}
       onPress={async () => {
-        if (opening.current || !focused.current) return;
+        if (transitioning.current || opening.current || !ready) return;
         opening.current = true;
         try {
-          if (sponsorBanner && link) {
-            await Linking.openURL(link);
-          } else if (!sponsorBanner) {
-            router.push("/promote");
-            return;
-          }
+          await Linking.openURL(current.destination_url);
         } catch {
-          opening.current = false;
-          if (focused.current) toast.push(t("sponsorBanner.openFailed"), "error");
+          toast.push(t("sponsorBanner.openFailed"), "error");
         } finally {
-          if (sponsorBanner) opening.current = false;
+          opening.current = false;
         }
       }}
-      style={({ pressed }) => [
-        styles.banner,
-        rowDir(isRTL),
-        pressed && interactive && { opacity: 0.6 },
-      ]}
+      style={[styles.frame, { width, height: ready ? height : 0 }, ready && styles.spacing]}
     >
-      {imageUrl && imageUrl !== failedImage ? (
-        <Image
-          key={imageUrl}
-          source={{ uri: imageUrl }}
-          style={styles.artwork}
-          onError={() => setFailedImage(imageUrl)}
-          accessible={false}
-        />
-      ) : (
-        <Ionicons
-          name="megaphone-outline"
-          size={18}
-          color={colors.textInverted}
-          accessible={false}
-        />
-      )}
-      <Text style={[styles.label, textDir(isRTL)]} numberOfLines={1}>
-        {label}
-      </Text>
-      {interactive ? (
-        <Ionicons
-          name={isRTL ? "chevron-back" : "chevron-forward"}
-          size={14}
-          color={colors.textInverted}
-          accessible={false}
-        />
-      ) : null}
+      <Animated.View
+        style={[
+          styles.track,
+          { width: next ? 2 * width : width, transform: [{ translateX: offset }] },
+        ]}
+      >
+        {[current, next].map((slide) =>
+          slide ? (
+            <Image
+              key={slides.indexOf(slide)}
+              accessible={false}
+              source={{ uri: slide.image_url }}
+              style={{ width, height }}
+              resizeMode="contain"
+              fadeDuration={0}
+              onLoad={() => recordStatus(slide.image_url, "ready")}
+              onError={() => recordStatus(slide.image_url, "failed")}
+            />
+          ) : null,
+        )}
+      </Animated.View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  banner: {
-    minHeight: TOUCH_MIN,
-    alignItems: "center",
-    gap: space.sm,
-    marginHorizontal: gutter.ledger,
-    marginBottom: space.md,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.actionPrimary,
-    borderRadius: radius.md,
-    backgroundColor: colors.actionPrimary,
-  },
-  artwork: {
-    width: 24,
-    height: 24,
-    borderRadius: radius.grabber,
-    backgroundColor: colors.bgSubtle,
-  },
-  label: { ...typography.bodySm, flex: 1, color: colors.textInverted },
+  frame: { alignSelf: "center", direction: "ltr", overflow: "hidden" },
+  spacing: { marginBottom: space.sm },
+  track: { flexDirection: "row", alignSelf: "flex-start" },
 });

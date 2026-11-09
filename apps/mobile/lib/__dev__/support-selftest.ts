@@ -2,8 +2,7 @@
 // Never opens another app, sends a message, or accesses the network.
 import assert from "node:assert/strict";
 import { SUPPORT_SMS_E164, SUPPORT_WHATSAPP_E164 } from "../../constants/env";
-import type { SponsorBanner } from "../types";
-import { compileUI, deferred, flattenStyle, jsx, nodes, uiHooks } from "./ui-fixture";
+import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 const language = compileUI("../i18n", {
   "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
@@ -88,22 +87,22 @@ function fixture(
   };
 }
 
-function bannerFixture(
+function sponsorButtonFixture(
   options: {
     locale?: "en" | "fa" | "ps";
-    sponsor?: SponsorBanner;
+    enabled?: boolean;
+    label?: string;
     push?: (route: string, count: number) => void;
   } = {},
 ) {
   const locale = options.locale ?? "en";
   language.setLocale(locale);
   const hooks = uiHooks();
-  const sponsorLinks: string[] = [];
   const routes: string[] = [];
   const toasts: unknown[][] = [];
   let blur = () => {};
   let focus = () => () => {};
-  const component = compileUI("../../components/SponsorBanner", {
+  const component = compileUI("../../components/SponsorButton", {
     react: hooks.react,
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "@expo/vector-icons": { Ionicons: "Icon" },
@@ -122,13 +121,10 @@ function bannerFixture(
       }),
     },
     "react-native": {
-      Image: "Image",
       Pressable: "Pressable",
       Text: "Text",
       StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 0.5 },
-      Linking: { openURL: async (url: string) => void sponsorLinks.push(url) },
     },
-    "../lib/app-meta-context": { useAppMeta: () => ({ sponsorBanner: options.sponsor ?? null }) },
     "../lib/colors": compileUI("../colors", {}),
     "../lib/direction": {
       useIsRTL: () => locale !== "en",
@@ -139,17 +135,178 @@ function bannerFixture(
     "../lib/tokens": tokens,
     "./Toast": { useToast: () => ({ push: (...args: unknown[]) => void toasts.push(args) }) },
   });
-  const tree = hooks.render(() => component.SponsorBanner());
+  const tree = hooks.render(() =>
+    component.SponsorButton({ enabled: options.enabled ?? true, label: options.label ?? "" }),
+  );
   return {
     tree,
     routes,
-    sponsorLinks,
     toasts,
     blur: () => blur(),
     focus: () => {
       blur = focus();
     },
   };
+}
+
+async function sponsorPlacementChecks() {
+  const path = `/v1/sponsor-images/${"a".repeat(64)}`;
+  const destination = "https://example.invalid/?text=@shop";
+  const hooks = uiHooks();
+  const appState = { currentState: "active", addEventListener: () => ({ remove() {} }) };
+  const intervals = new Set<() => void>();
+  const requests: string[] = [];
+  let buttonEnabled = true;
+  let bannerEnabled = true;
+  let unavailable = false;
+  const placementModule = compileUI(
+    "../sponsor-placement",
+    {
+      react: hooks.react,
+      "expo-router": {
+        useFocusEffect: (effect: () => () => void) => hooks.react.useEffect(effect, [effect]),
+      },
+      "react-native": { AppState: appState },
+      "./api": { getBackendUrl: async () => "https://api.example.invalid/backend/" },
+    },
+    {
+      fetch: async (url: string) => {
+        requests.push(url);
+        return {
+          ok: !unavailable,
+          json: async () => ({
+            button: { enabled: buttonEnabled, label: " Advertise here " },
+            banner: {
+              enabled: bannerEnabled,
+              rotation_seconds: 8,
+              slides: [
+                { image_url: path, destination_url: destination },
+                {
+                  image_url: "https://tracker.example.invalid/pixel",
+                  destination_url: destination,
+                },
+                { image_url: path, destination_url: "kaata://invite/not-an-ad" },
+              ],
+            },
+          }),
+        };
+      },
+      setInterval: (fn: () => void, delay: number) => {
+        assert.equal(delay, 60_000);
+        intervals.add(fn);
+        return fn;
+      },
+      clearInterval: (fn: () => void) => intervals.delete(fn),
+    },
+  );
+  assert.equal(
+    hooks.render(() => placementModule.useSponsorPlacement(true)),
+    null,
+  );
+  await settleUI();
+  assert.deepEqual(hooks.render(), {
+    button: { enabled: true, label: "Advertise here" },
+    banner: {
+      enabled: true,
+      rotation_seconds: 8,
+      slides: [
+        { image_url: `https://api.example.invalid/backend${path}`, destination_url: destination },
+      ],
+    },
+  });
+  assert.deepEqual(requests, ["https://api.example.invalid/backend/v1/sponsor-placement"]);
+  const poll = async () => {
+    intervals.forEach((callback) => callback());
+    await settleUI();
+    return hooks.render();
+  };
+  buttonEnabled = false;
+  let result: any = await poll();
+  assert.equal(result.button.enabled, false);
+  assert.equal(result.banner.slides.length, 1);
+  buttonEnabled = true;
+  bannerEnabled = false;
+  result = await poll();
+  assert.equal(result.button.enabled, true);
+  assert.deepEqual(result.banner.slides, []);
+  unavailable = true;
+  assert.equal(await poll(), null, "A failed refresh clears an expired placement");
+  hooks.unmount();
+  assert.equal(intervals.size, 0);
+}
+
+async function sponsorCarouselChecks() {
+  const hooks = uiHooks();
+  const urls: string[] = [];
+  const intervals = new Set<() => void>();
+  const component = compileUI(
+    "../../components/SponsorBanner",
+    {
+      react: { ...hooks.react, useLayoutEffect: hooks.react.useEffect },
+      "react/jsx-runtime": { jsx, jsxs: jsx },
+      "react-native": {
+        Animated: {
+          View: "Track",
+          Value: class {
+            setValue() {}
+          },
+          timing: (_offset: unknown, options: { toValue: number }) => ({
+            start: (done: (state: { finished: boolean }) => void) => {
+              assert.equal(options.toValue, -320);
+              done({ finished: true });
+            },
+            stop() {},
+          }),
+        },
+        Image: "Image",
+        Linking: { openURL: async (url: string) => void urls.push(url) },
+        Platform: { OS: "ios" },
+        Pressable: "Pressable",
+        StyleSheet: { create: (styles: unknown) => styles },
+        useWindowDimensions: () => ({ width: 390 }),
+      },
+      "../lib/i18n": language,
+      "../lib/reduced-motion": { useReducedMotion: () => false },
+      "../lib/tokens": tokens,
+      "./Toast": { useToast: () => ({ push() {} }) },
+    },
+    {
+      setInterval: (fn: () => void, delay: number) => {
+        assert.equal(delay, 6_000);
+        intervals.add(fn);
+        return fn;
+      },
+      clearInterval: (fn: () => void) => intervals.delete(fn),
+    },
+  );
+  const slides = ["one", "two"].map((id) => ({
+    image_url: `https://api.example.invalid/${id}`,
+    destination_url: `https://example.invalid/${id}`,
+  }));
+  const tree = hooks.render(() => component.SponsorBanner({ slides, rotationSeconds: 6 }));
+  assert.equal(tree.props.disabled, true);
+  const images = nodes(tree).filter((node) => node.type === "Image");
+  assert.equal(images.length, 2, "The next ad loads before rotation");
+  assert.equal(
+    nodes(tree).some((node) => node.type === "Text"),
+    false,
+  );
+  images.forEach((image) => image.props.onLoad());
+  const ready = hooks.render();
+  const style = flattenStyle(ready.props.style);
+  assert.deepEqual([style.width, style.height], [320, 50]);
+  await ready.props.onPress();
+  intervals.forEach((rotate) => rotate());
+  await hooks.render().props.onPress();
+  assert.deepEqual(
+    urls,
+    slides.map((slide) => slide.destination_url),
+  );
+  nodes(hooks.tree)
+    .filter((node) => node.type === "Image")
+    .forEach((image) => image.props.onError());
+  assert.equal(hooks.render(), null, "Failed images leave no empty ad row");
+  assert.equal(intervals.size, 0);
 }
 
 async function main() {
@@ -279,13 +436,8 @@ async function main() {
   );
 
   for (const locale of ["en", "fa", "ps"] as const) {
-    const banner = bannerFixture({ locale });
-    assert.equal(banner.tree.props.testID, "home-sponsor-banner");
-    assert.equal(
-      banner.tree.props.disabled,
-      false,
-      "The promotion remains available without a campaign",
-    );
+    const banner = sponsorButtonFixture({ locale });
+    assert.equal(banner.tree.props.testID, "home-sponsor-button");
     const label = nodes(banner.tree).find((node) => node.type === "Text")!;
     assert.equal(label.props.children, language.t("sponsorBanner.promote"));
     assert.equal(label.props.numberOfLines, 1, "The promotion uses one line");
@@ -295,11 +447,10 @@ async function main() {
     assert.equal(banner.tree.props.accessibilityRole, "button");
     await banner.tree.props.onPress();
     assert.deepEqual(banner.routes, ["/promote"]);
-    assert.deepEqual(banner.sponsorLinks, []);
     assert.deepEqual(banner.toasts, []);
   }
 
-  const duplicate = bannerFixture();
+  const duplicate = sponsorButtonFixture();
   await duplicate.tree.props.onPress();
   await duplicate.tree.props.onPress();
   assert.equal(duplicate.routes.length, 1, "Repeated taps cannot open duplicate proposal forms");
@@ -309,7 +460,7 @@ async function main() {
   assert.equal(duplicate.routes.length, 2, "Returning to Home restores the promotion action");
 
   let rejectNavigation = true;
-  const failure = bannerFixture({
+  const failure = sponsorButtonFixture({
     push: () => {
       if (rejectNavigation) throw new Error("Synthetic navigation failure");
     },
@@ -319,31 +470,22 @@ async function main() {
   rejectNavigation = false;
   await failure.tree.props.onPress();
   assert.equal(failure.routes.length, 2, "A failed navigation can be retried");
-  const blurred = bannerFixture();
+  const blurred = sponsorButtonFixture();
   blurred.blur();
   await blurred.tree.props.onPress();
   assert.deepEqual(blurred.routes, [], "A departed Home screen cannot navigate");
 
-  const sponsor: SponsorBanner = {
-    id: 1,
-    sponsor: "Synthetic supplier",
-    title: "Synthetic offer",
-    body: "Synthetic details",
-    image_url: null,
-    cta_label: "View offer",
-    cta_url: "https://example.invalid/offer",
-    starts_at: "2026-11-01T00:00:00Z",
-    ends_at: "2026-12-01T00:00:00Z",
-  };
-  const paid = bannerFixture({ sponsor });
-  await paid.tree.props.onPress();
-  assert.deepEqual(paid.sponsorLinks, [sponsor.cta_url]);
-  assert.deepEqual(paid.routes, [], "An active sponsor retains its own destination");
-  const information = bannerFixture({ sponsor: { ...sponsor, cta_label: null, cta_url: null } });
-  assert.equal(information.tree.props.disabled, true);
-  assert.equal(information.tree.props.accessibilityRole, "text");
+  assert.equal(sponsorButtonFixture({ enabled: false }).tree, null);
+  const custom = sponsorButtonFixture({ label: "Advertise with Kaata" });
+  assert.equal(custom.tree.props.accessibilityLabel, "Advertise with Kaata");
+  assert.equal(
+    nodes(custom.tree).find((node) => node.type === "Text")?.props.children,
+    "Advertise with Kaata",
+  );
+  await sponsorPlacementChecks();
+  await sponsorCarouselChecks();
   console.log(
-    "PASS support transports and compact promotion strip: SMS outcomes, guarded WhatsApp support, EN/FA/PS black 44dp form invitation, duplicate navigation, retry/focus guards and active sponsor destinations",
+    "PASS support transports and independent promotion button: SMS outcomes, guarded WhatsApp support, EN/FA/PS defaults, label override, visibility, duplicate navigation and retry/focus guards",
   );
 }
 void main().catch((error) => {

@@ -317,6 +317,44 @@ async function fetchAdmin<T>(path: string, token: string): Promise<T> {
 export const AdminTokenContext = createContext("");
 export const useAdminToken = () => useContext(AdminTokenContext);
 
+export type SponsorSlide = { image_url: string; destination_url: string };
+export type SponsorPlacement = {
+  button: { enabled: boolean; label: string };
+  banner: { enabled: boolean; rotation_seconds: number; slides: SponsorSlide[] };
+  updated_at: string;
+};
+
+const SPONSOR_PLACEMENT_PATH = "/v1/admin/sponsor-placement";
+export const sponsorPlacementKey = (token: string) =>
+  ["admin", "sponsor-placement", token] as const;
+
+export function useSponsorPlacement() {
+  const token = useAdminToken();
+  return useQuery({
+    queryKey: sponsorPlacementKey(token),
+    queryFn: () => fetchAdmin<SponsorPlacement>(SPONSOR_PLACEMENT_PATH, token),
+    enabled: !!token,
+  });
+}
+
+export function validSponsorUrl(value: string, httpsOnly = false) {
+  if (
+    !/^https?:\/\//i.test(value) ||
+    /[ \\]/.test(value) ||
+    new TextEncoder().encode(value).length > 2048
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(value);
+    return Boolean(
+      url.hostname && !url.username && !url.password && (!httpsOnly || url.protocol === "https:"),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export type SponsorCampaignInput = {
   sponsor: string;
   title: string;
@@ -817,11 +855,14 @@ async function writeAdminResponse(
   method: "POST" | "PUT" = "POST",
 ): Promise<Response> {
   let res: Response;
+  const form = body instanceof FormData ? body : null;
   try {
     res = await fetch(`${BACKEND_URL}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: form
+        ? { Authorization: `Bearer ${token}` }
+        : { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: form ?? JSON.stringify(body),
       signal: AbortSignal.timeout(POST_TIMEOUT_MS),
     });
   } catch (error) {
@@ -835,6 +876,27 @@ export async function postAdmin<T>(path: string, token: string, body: unknown): 
   const res = await writeAdminResponse(path, token, body);
   if (!res.ok) throw await responseError(res);
   return readJson<T>(res);
+}
+
+export async function saveSponsorPlacement(
+  token: string,
+  { button, banner, updated_at }: SponsorPlacement,
+): Promise<SponsorPlacement> {
+  const res = await writeAdminResponse(
+    SPONSOR_PLACEMENT_PATH,
+    token,
+    { button, banner, expected_updated_at: updated_at },
+    "PUT",
+  );
+  if (res.status === 409) throw new ConflictError((await responseError(res)).message);
+  if (!res.ok) throw await responseError(res);
+  return readJson<SponsorPlacement>(res);
+}
+
+export function uploadSponsorImage(token: string, file: File): Promise<{ image_url: string }> {
+  const form = new FormData();
+  form.append("image", file);
+  return postAdmin("/v1/admin/sponsor-images", token, form);
 }
 
 export async function saveSponsorCampaign(

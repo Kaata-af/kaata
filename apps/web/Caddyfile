@@ -88,7 +88,7 @@
 		# CSP for the SPA (index.html has no inline script; the bundle loads
 		# hashed JS/CSS + self-hosted fonts from this origin and calls the API).
 		header {
-			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.kaata.af wss://api.kaata.af; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+			Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://api.kaata.af/v1/sponsor-images/; font-src 'self'; connect-src 'self' https://api.kaata.af wss://api.kaata.af; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		}
 
 		# index.html must always be revalidated: a heuristically-cached stale

@@ -366,6 +366,12 @@ func main() {
 		Get("/v1/people/search/preview", authH.SearchPeoplePreview)
 	r.With(httpx.RateLimitPerIP(sponsorProposalLimit, sponsorProposalWindow)).
 		Post("/v1/sponsor-proposals", sponsorH.SubmitProposal)
+	// The home screen refreshes this small payload every minute. Keep a generous
+	// IP budget for installations sharing a carrier NAT.
+	r.With(httpx.RateLimitPerIP(600, time.Minute)).Get("/v1/sponsor-placement", sponsorH.SponsorPlacement)
+	sponsorImages := r.With(httpx.RateLimitPerIP(1200, time.Minute))
+	sponsorImages.Get("/v1/sponsor-images/{digest}", sponsorH.ServeSponsorImage)
+	sponsorImages.Head("/v1/sponsor-images/{digest}", sponsorH.ServeSponsorImage)
 	r.Get("/v1/download", visitH.Download)
 	// chi doesn't auto-route HEAD to GET handlers; download managers (MIUI
 	// browser, ADM, wget --spider) probe with HEAD before the real GET and a
@@ -494,6 +500,9 @@ func main() {
 	r.Group(func(pr chi.Router) {
 		pr.Use(httpx.AdminKeyMiddleware(cfg.AdminAPIKey))
 		pr.Get("/v1/admin/stats", adminH.Stats)
+		pr.Get("/v1/admin/sponsor-placement", sponsorH.AdminSponsorPlacement)
+		pr.Put("/v1/admin/sponsor-placement", sponsorH.SaveSponsorPlacement)
+		pr.With(httpx.RateLimitPerIP(20, time.Minute)).Post("/v1/admin/sponsor-images", sponsorH.UploadSponsorImage)
 		pr.Get("/v1/admin/sponsor-campaigns", sponsorH.List)
 		pr.Post("/v1/admin/sponsor-campaigns", sponsorH.Create)
 		pr.Put("/v1/admin/sponsor-campaigns/{id}", sponsorH.Update)

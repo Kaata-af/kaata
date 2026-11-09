@@ -1,25 +1,14 @@
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { AppState } from "react-native";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import { rotateSessionJWT, syncPendingAccountNameFromSelf } from "./auth";
 import { getAppMeta, setAppMeta } from "./db";
-import type { CheckInResponse, SponsorBanner } from "./types";
+import type { CheckInResponse } from "./types";
 
 type Update = CheckInResponse["update"];
 type Announcement = CheckInResponse["announcement"];
-type SponsorPlacement = { banner: SponsorBanner; expiresAt: number };
 
 type AppMetaState = {
   update: Update;
   announcement: Announcement;
-  sponsorBanner: SponsorBanner | null;
   currentVersion: string;
   forceUpdate: boolean;
   applyCheckIn: (resp: CheckInResponse) => Promise<void>;
@@ -32,31 +21,7 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
   const { currentVersion } = props;
   const [update, setUpdate] = useState<Update>(null);
   const [announcement, setAnnouncement] = useState<Announcement>(null);
-  const [sponsorPlacement, setSponsorPlacement] = useState<SponsorPlacement | null>(null);
-  const latestSponsorCheckIn = useRef(0);
   const [forceUpdate, setForceUpdate] = useState(false);
-
-  useEffect(() => {
-    if (!sponsorPlacement) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const scheduleExpiry = () => {
-      clearTimeout(timer);
-      const remaining = sponsorPlacement.expiresAt - Date.now();
-      if (remaining <= 0) {
-        setSponsorPlacement((current) => (current === sponsorPlacement ? null : current));
-        return;
-      }
-      timer = setTimeout(scheduleExpiry, Math.min(remaining, 2_147_483_647));
-    };
-    scheduleExpiry();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") scheduleExpiry();
-    });
-    return () => {
-      clearTimeout(timer);
-      subscription.remove();
-    };
-  }, [sponsorPlacement]);
 
   const refresh = useCallback(async () => {
     const latestVersion = await getAppMeta("latest_known_version");
@@ -98,17 +63,6 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
 
   const applyCheckIn = useCallback(
     async (resp: CheckInResponse) => {
-      const serverTime = Date.parse(resp.server_time);
-      if (serverTime >= latestSponsorCheckIn.current) {
-        latestSponsorCheckIn.current = serverTime;
-        const banner = resp.sponsor_banner;
-        const remaining = banner ? Date.parse(banner.ends_at) - serverTime : 0;
-        // Use the server's clock to establish the display window. Keep it in
-        // memory so a cold launch waits for a fresh campaign decision.
-        setSponsorPlacement(
-          banner && remaining > 0 ? { banner, expiresAt: Date.now() + remaining } : null,
-        );
-      }
       if (resp.update) {
         await setAppMeta("latest_known_version", resp.update.version);
         if (resp.update.apk_url) await setAppMeta("latest_known_apk_url", resp.update.apk_url);
@@ -288,7 +242,6 @@ export function AppMetaProvider(props: { currentVersion: string; children: React
       value={{
         update,
         announcement,
-        sponsorBanner: sponsorPlacement?.banner ?? null,
         forceUpdate,
         currentVersion,
         applyCheckIn,
