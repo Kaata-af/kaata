@@ -16,6 +16,7 @@ import {
   type SponsorPlacement as Placement,
   type SponsorSlide,
 } from "./api";
+import { buildSponsorWhatsAppLink, parseSponsorWhatsAppLink } from "./sponsor-whatsapp";
 import { Card, ErrorCard, SkeletonCard } from "./ui";
 
 const MAX_SLIDES = 8;
@@ -380,6 +381,27 @@ function ButtonEditor({
   );
 }
 
+type SlideDraft = SponsorArtwork & {
+  key: number;
+  destinationType: "website" | "whatsapp";
+  website: string;
+  phone: string;
+  message: string;
+};
+
+function slideDraft(artwork: SponsorArtwork, key: number, link = ""): SlideDraft {
+  const chat = parseSponsorWhatsAppLink(link);
+  return {
+    image_url: artwork.image_url,
+    aspect_ratio: artwork.aspect_ratio,
+    key,
+    destinationType: chat ? "whatsapp" : "website",
+    website: chat ? "" : link,
+    phone: chat?.phone ?? "",
+    message: chat?.message ?? "",
+  };
+}
+
 function BannerEditor({
   artwork,
   hidesBanner,
@@ -394,14 +416,16 @@ function BannerEditor({
   onSave: (slides: SponsorSlide[]) => void;
 }) {
   const token = useAdminToken();
-  const [slides, setSlides] = useState(() => artwork.map((slide, key) => ({ ...slide, key })));
+  const [slides, setSlides] = useState(() =>
+    artwork.map((slide, key) => slideDraft(slide, key, slide.destination_url)),
+  );
   const [error, setError] = useState("");
   const nextKey = useRef(slides.length);
   const upload = useMutation({
     mutationFn: (file: File) => uploadSponsorImage(token, file),
     onSuccess: (artwork) => {
       const key = nextKey.current++;
-      setSlides((current) => [...current, { ...artwork, destination_url: "", key }]);
+      setSlides((current) => [...current, slideDraft(artwork, key)]);
     },
   });
   const locked = busy || upload.isPending;
@@ -431,17 +455,38 @@ function BannerEditor({
     });
   }
 
+  function editDestination(
+    key: number,
+    patch: Partial<Pick<SlideDraft, "destinationType" | "website" | "phone" | "message">>,
+  ) {
+    setError("");
+    setSlides((current) =>
+      current.map((slide) => (slide.key === key ? { ...slide, ...patch } : slide)),
+    );
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (locked) return;
-    const cleaned = slides.map(({ image_url, aspect_ratio, destination_url }) => ({
-      image_url,
-      aspect_ratio,
-      destination_url: destination_url.trim(),
-    }));
-    if (cleaned.some((slide) => !validSponsorUrl(slide.destination_url))) {
-      setError("Enter a valid HTTP or HTTPS destination for every image.");
-      return;
+    const cleaned: SponsorSlide[] = [];
+    for (const [index, slide] of slides.entries()) {
+      let destination_url = slide.website.trim();
+      if (slide.destinationType === "whatsapp") {
+        const link = buildSponsorWhatsAppLink(slide.phone, slide.message);
+        if ("error" in link) {
+          setError(`Slide ${index + 1}. ${link.error}`);
+          return;
+        }
+        destination_url = link.url;
+      } else if (!validSponsorUrl(destination_url)) {
+        setError(`Slide ${index + 1}. Enter a valid HTTP or HTTPS website.`);
+        return;
+      }
+      cleaned.push({
+        image_url: slide.image_url,
+        aspect_ratio: slide.aspect_ratio,
+        destination_url,
+      });
     }
     setError("");
     onSave(cleaned);
@@ -461,23 +506,71 @@ function BannerEditor({
                 <div className="min-w-0 space-y-2 border-t border-brand-border p-3">
                   <p className="text-sm font-medium text-brand-ink">Slide {position + 1}</p>
                   <label className={fieldClass}>
-                    <span>Destination link</span>
-                    <Input
-                      type="url"
-                      placeholder="https://"
-                      dir="ltr"
-                      required
-                      value={slide.destination_url}
-                      onChange={(event) => {
-                        const value = event.currentTarget.value;
-                        setSlides((current) =>
-                          current.map((item) =>
-                            item.key === slide.key ? { ...item, destination_url: value } : item,
-                          ),
-                        );
-                      }}
-                    />
+                    <span>Opens on tap</span>
+                    <select
+                      className="block h-9 w-full rounded-md border border-input bg-white px-3 text-sm font-normal"
+                      value={slide.destinationType}
+                      onChange={(event) =>
+                        editDestination(slide.key, {
+                          destinationType:
+                            event.currentTarget.value === "whatsapp" ? "whatsapp" : "website",
+                        })
+                      }
+                    >
+                      <option value="website">Website</option>
+                      <option value="whatsapp">WhatsApp chat</option>
+                    </select>
                   </label>
+                  {slide.destinationType === "whatsapp" ? (
+                    <>
+                      <label className={fieldClass}>
+                        <span>WhatsApp number</span>
+                        <Input
+                          type="tel"
+                          placeholder="+93 …"
+                          dir="ltr"
+                          required
+                          value={slide.phone}
+                          onChange={(event) =>
+                            editDestination(slide.key, { phone: event.currentTarget.value })
+                          }
+                        />
+                        <span className="block text-xs font-normal text-brand-muted">
+                          Include the country code.
+                        </span>
+                      </label>
+                      <label className={fieldClass}>
+                        <span>Prewritten message</span>
+                        <textarea
+                          className="block w-full min-w-0 rounded-md border border-input bg-white px-3 py-2 text-sm font-normal"
+                          dir="auto"
+                          rows={3}
+                          required
+                          value={slide.message}
+                          onChange={(event) =>
+                            editDestination(slide.key, { message: event.currentTarget.value })
+                          }
+                        />
+                        <span className="block text-xs font-normal text-brand-muted">
+                          The message is ready to send when the chat opens.
+                        </span>
+                      </label>
+                    </>
+                  ) : (
+                    <label className={fieldClass}>
+                      <span>Website URL</span>
+                      <Input
+                        type="url"
+                        placeholder="https://"
+                        dir="ltr"
+                        required
+                        value={slide.website}
+                        onChange={(event) =>
+                          editDestination(slide.key, { website: event.currentTarget.value })
+                        }
+                      />
+                    </label>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
