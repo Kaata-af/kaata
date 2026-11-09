@@ -1,0 +1,6 @@
+Kaata 2.3.2
+
+- Find people on Kaata, connect with friends, and accept shared tally and Kaata invitations in the app.
+- Add tally notes and export clearer PDF and CSV statements.
+- Save a restorable backup to your phone and get a confirmation when it finishes.
+- Customize member roles and manage shared tallies with clearer notifications and controls.
