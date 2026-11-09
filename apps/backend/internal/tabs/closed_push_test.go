@@ -66,7 +66,7 @@ func TestClosedSharedHistoryRetainsInboxWithoutRemoteAlerts(t *testing.T) {
 		t.Fatalf("closed account sent %d remote alerts", providerCalls)
 	}
 	for _, account := range []string{f.acctA, f.acctB} {
-		page, err := f.svc.listInbox(ctx, account, "en", 0)
+		page, err := f.svc.listInbox(ctx, account, "en", 0, false)
 		if err != nil || len(page.Items) == 0 {
 			t.Fatalf("silencing remote alerts removed durable inbox for %s: %+v %v", account, page, err)
 		}

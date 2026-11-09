@@ -8,15 +8,15 @@ import {
 } from "./notification-preferences";
 
 export type IncomingRequestSnapshot = { ids: ReadonlySet<string>; newestAt: number };
-type IncomingRequest = { id: string; created_at_ms?: number; invited_at?: number };
+type IncomingRequest = { id: string; created_at_ms?: number; invited_at?: number; read?: boolean };
 const createdAt = (row: IncomingRequest) => row.created_at_ms ?? row.invited_at ?? 0;
 
 /** Compare successful, continuous foreground polls. The first read on a
- * screen or after resume establishes the baseline without replaying old requests. */
+ * screen or after resume establishes the baseline without replaying old notices. */
 export function observeIncomingRequests(
   previous: IncomingRequestSnapshot | null,
   rows: readonly IncomingRequest[],
-  kind: "friend_request" | "people_request" | "vault_member_request",
+  kind: "friend_request" | "friend_accepted" | "people_request" | "vault_member_request",
   isCurrent: () => boolean,
 ): IncomingRequestSnapshot | null {
   if (AppState.currentState !== "active" || !isCurrent()) return null;
@@ -30,7 +30,7 @@ export function observeIncomingRequests(
   if (!previous) return next;
   // Removing a request can reveal an older one in a capped inbox response.
   const fresh = rows.find(
-    (row) => !previous.ids.has(row.id) && createdAt(row) >= previous.newestAt,
+    (row) => !row.read && !previous.ids.has(row.id) && createdAt(row) >= previous.newestAt,
   );
   if (!fresh) return next;
 

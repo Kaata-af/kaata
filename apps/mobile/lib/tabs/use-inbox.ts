@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { getAccountIdSync } from "../db-tx";
+import { getSessionAccountIdSync } from "../db-tx";
 import { getAppMeta, setAppMeta } from "../db";
 import { getLocale } from "../i18n";
+import { observeIncomingRequests, type IncomingRequestSnapshot } from "../incoming-request-cue";
 import { fetchInbox, type InboxPage } from "./api";
 import { onTabApplied } from "./events";
 import {
@@ -83,7 +84,7 @@ function withCache<T>(fn: () => Promise<T>): Promise<T> {
 // subscriber (below) flips the live page; this one owns the cache.
 onInboxReadsApplied((specs, source) => {
   if (source !== "handled") return;
-  const account = getAccountIdSync();
+  const account = getSessionAccountIdSync();
   if (!account) return;
   const key = cacheKey(account, getLocale());
   void withCache(async () => {
@@ -106,6 +107,7 @@ export function useInbox() {
   const generation = useRef(0);
   const busy = useRef(false);
   const refreshPending = useRef(false);
+  const observedAcceptances = useRef<IncomingRequestSnapshot | null>(null);
   // The page as last committed, for the read listener: it runs outside a
   // render and must flip what is on screen, not what its closure captured.
   // Every state write goes through `commit` so the two never disagree.
@@ -115,12 +117,15 @@ export function useInbox() {
     setPage(next);
   }, []);
   const locale = getLocale();
-  const account = getAccountIdSync();
+  const account = getSessionAccountIdSync();
+  const isCurrent = () =>
+    !!account && owner.current === account && getSessionAccountIdSync() === account;
   const reload = useCallback(
     async (before = ""): Promise<void> => {
-      const who = getAccountIdSync();
+      const who = getSessionAccountIdSync();
       if (owner.current !== who) {
         owner.current = who;
+        observedAcceptances.current = null;
         commit(empty());
       }
       if (!who) return;
@@ -129,6 +134,7 @@ export function useInbox() {
         return;
       }
       const run = generation.current;
+      const current = () => run === generation.current && who === getSessionAccountIdSync();
       busy.current = true;
       setLoading(true);
       try {
@@ -144,12 +150,20 @@ export function useInbox() {
             resolve();
           });
         });
-        if (run !== generation.current || who !== getAccountIdSync()) return;
+        if (!current()) return;
         const fetched = await fetchInbox(locale, before);
-        if (run !== generation.current || who !== getAccountIdSync()) return;
+        if (!current()) return;
         // Marks the flush could not send yet still win over the server page.
         const next = await withPendingReads(fetched, who);
-        if (run !== generation.current || who !== getAccountIdSync()) return;
+        if (!current()) return;
+        if (!before) {
+          observedAcceptances.current = observeIncomingRequests(
+            observedAcceptances.current,
+            next.items.filter((item) => item.kind === "friend_accepted"),
+            "friend_accepted",
+            current,
+          );
+        }
         commit(
           before
             ? {
@@ -187,6 +201,7 @@ export function useInbox() {
       const run = ++generation.current;
       busy.current = false;
       refreshPending.current = false;
+      observedAcceptances.current = null;
       owner.current = account;
       commit(empty());
       setLoading(false);
@@ -195,13 +210,14 @@ export function useInbox() {
         if (account) {
           try {
             const cached = await withCache(() => getAppMeta(cacheKey(account, locale)));
-            if (cached && run === generation.current && getAccountIdSync() === account) {
+            if (cached && run === generation.current && getSessionAccountIdSync() === account) {
               const parsed = JSON.parse(cached) as InboxPage;
               if (Array.isArray(parsed.items)) {
                 // Marks made while this screen was not focused (the person
                 // screen, an OS button) are still queued: show them now.
                 const shown = await withPendingReads(parsed, account);
-                if (run === generation.current && getAccountIdSync() === account) commit(shown);
+                if (run === generation.current && getSessionAccountIdSync() === account)
+                  commit(shown);
               }
             }
           } catch {
@@ -221,7 +237,7 @@ export function useInbox() {
       // badge must drop before the network is even tried, offline included.
       // A read learned from the server is already on the page it came with.
       const offReads = onInboxReadsApplied((specs, source) => {
-        if (source !== "handled" || !account || getAccountIdSync() !== account) return;
+        if (source !== "handled" || !account || getSessionAccountIdSync() !== account) return;
         // A fetch in flight was answered before this mark: its page would
         // put the notice back. Let one trailing reload restate it.
         if (busy.current) refreshPending.current = true;
@@ -230,6 +246,7 @@ export function useInbox() {
       });
       const app = AppState.addEventListener("change", (state) => {
         if (state === "active") void reload();
+        else observedAcceptances.current = null;
       });
       const poll = setInterval(() => {
         if (AppState.currentState === "active") void reload();
@@ -238,6 +255,7 @@ export function useInbox() {
         generation.current++;
         busy.current = false;
         refreshPending.current = false;
+        observedAcceptances.current = null;
         off();
         offReads();
         app.remove();
@@ -248,8 +266,7 @@ export function useInbox() {
   );
 
   const read = async (id?: string) => {
-    const who = getAccountIdSync();
-    if (!who || (id == null && page.latest_id === "0")) return;
+    if (!isCurrent() || (id == null && page.latest_id === "0")) return;
     // The page flips through the listener above before anything is sent;
     // the mark itself is durable and never throws (offline is fine).
     const item = id ? page.items.find((n) => n.id === id) : undefined;
@@ -260,7 +277,7 @@ export function useInbox() {
           : { id }
         : { through: page.latest_id },
     );
-    if (who !== getAccountIdSync()) return;
+    if (!isCurrent()) return;
     // Invalidate a pre-mark GET: otherwise its older unread count can land
     // after this acknowledgement and make a read notice look new again.
     generation.current++;
@@ -274,6 +291,7 @@ export function useInbox() {
     failed,
     reload,
     read,
+    isCurrent,
     signedIn: !!account,
   };
 }

@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
+import { defaultNotificationPolicy } from "../notification-policy";
 import type { InboxPage } from "../tabs/api";
 import { TabApiError } from "../tabs/errors";
 
@@ -85,6 +86,7 @@ let locale = "en";
 const cache = new Map<string, string>();
 stub("../db-tx", {
   getAccountIdSync: () => account,
+  getSessionAccountIdSync: () => account,
   getDb: async () => ({ isInTransactionSync: () => false }),
 });
 stub("../db", {
@@ -95,6 +97,21 @@ stub("../db", {
 });
 stub("../i18n", { getLocale: () => locale });
 stub("../tabs/events", { onTabApplied: () => () => {} });
+const cues: string[] = [];
+let connectionsEnabled = true;
+stub("../notification-preferences", {
+  notificationOwnerScope: () => `account:${account}`,
+  notificationPreferencesRevision: () => 0,
+  notificationPolicyForContact: async () => ({
+    ...defaultNotificationPolicy(),
+    connections: connectionsEnabled,
+  }),
+});
+stub("../foreground-notification-cue", {
+  playForegroundNotificationCue: (_policy: unknown, current: () => boolean, key: string) => {
+    if (current()) cues.push(key);
+  },
+});
 function page(id: string, body = id, read = false): InboxPage {
   return {
     items: [
@@ -361,6 +378,49 @@ async function main() {
   assert.equal(output.page.unread, 0);
   offAnnounce();
   console.log("PASS 13: read rows of a fetched page are announced as server reads, never queued");
+
+  const acceptance = (id: string, read = false) => {
+    const result = page(id, "Nuri accepted your friend request.", read);
+    Object.assign(result.items[0], {
+      kind: "friend_accepted",
+      actor_account_id: "peer",
+      tab_id: "",
+      role: "",
+      entry_id: "",
+      rev: 0,
+      created_at_ms: Number(id),
+    });
+    return result;
+  };
+  fetcher = async () => acceptance("11");
+  await output.reload();
+  await output.reload();
+  await settle();
+  assert.equal(output.page.unread, 1);
+  assert.deepEqual(cues, ["account:c:friend_accepted:11"], "a new acceptance cues exactly once");
+  marker = async (body) => {
+    assert.deepEqual(body, { id: "11" }, "friend notice is read by its inbox id");
+    fetcher = async () => acceptance("11", true);
+  };
+  await output.read("11");
+  assert.equal(output.page.unread, 0);
+  connectionsEnabled = false;
+  fetcher = async () => acceptance("12");
+  await output.reload();
+  await settle();
+  assert.equal(output.page.unread, 1, "muting connections does not hide inbox history");
+  connectionsEnabled = true;
+  account = "d";
+  fetcher = async () => acceptance("13");
+  render();
+  await settle();
+  assert.equal(output.page.unread, 1);
+  assert.deepEqual(
+    cues,
+    ["account:c:friend_accepted:11"],
+    "muted and first-load notices stay quiet",
+  );
+  console.log("PASS 14: friend acceptances are read by id and cue only for new unmuted arrivals");
 }
 main()
   .catch((e) => {

@@ -351,6 +351,13 @@ func (s *Service) changeFriendship(ctx context.Context, viewer, id, action strin
 	if err != nil {
 		return FriendshipState{}, err
 	}
+	if status == "accepted" {
+		_, err = tx.Exec(ctx, `INSERT INTO account_friend_notifications(friend_request_id,recipient_account_id,actor_account_id,actor_label)
+ SELECT $1::uuid,$2::uuid,a.id,COALESCE(NULLIF(a.display_name,''),a.name,'') FROM accounts a WHERE a.id=$3::uuid`, id, f.requestedBy, viewer)
+		if err != nil {
+			return FriendshipState{}, err
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return FriendshipState{}, err
 	}

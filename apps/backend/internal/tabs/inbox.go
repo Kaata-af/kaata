@@ -25,15 +25,16 @@ const inboxAccess = `(p.account_id=$1::uuid OR EXISTS (
  AND n.actor_account_id IS DISTINCT FROM $1::uuid`
 
 type InboxItem struct {
-	ID          string `json:"id"`
-	TabID       string `json:"tab_id"`
-	Role        string `json:"role"`
-	Rev         int64  `json:"rev"`
-	Kind        string `json:"kind"`
-	EntryID     string `json:"entry_id"`
-	Body        string `json:"body"`
-	CreatedAtMS int64  `json:"created_at_ms"`
-	Read        bool   `json:"read"`
+	ID             string `json:"id"`
+	TabID          string `json:"tab_id"`
+	Role           string `json:"role"`
+	Rev            int64  `json:"rev"`
+	Kind           string `json:"kind"`
+	EntryID        string `json:"entry_id"`
+	ActorAccountID string `json:"actor_account_id,omitempty"`
+	Body           string `json:"body"`
+	CreatedAtMS    int64  `json:"created_at_ms"`
+	Read           bool   `json:"read"`
 }
 type InboxPage struct {
 	Items      []InboxItem `json:"items"`
@@ -58,7 +59,7 @@ func (h *Handler) Inbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	page, err := h.svc.listInbox(r.Context(), claims.AccountID, r.URL.Query().Get("locale"), before)
+	page, err := h.svc.listInbox(r.Context(), claims.AccountID, r.URL.Query().Get("locale"), before, r.URL.Query().Get("include_connections") == "1")
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -66,45 +67,66 @@ func (h *Handler) Inbox(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, 200, page)
 }
 
-func (s *Service) listInbox(ctx context.Context, accountID, locale string, before int64) (InboxPage, error) {
+func (s *Service) listInbox(ctx context.Context, accountID, locale string, before int64, includeConnections bool) (InboxPage, error) {
 	page := InboxPage{Items: []InboxItem{}}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return page, err
 	}
 	defer tx.Rollback(ctx)
-	err = tx.QueryRow(ctx, `SELECT COUNT(*) FILTER (WHERE nr.notification_id IS NULL), COALESCE(MAX(n.id),0)::text
+	// Keep old clients' counts and cursors scoped to rows they can display.
+	err = tx.QueryRow(ctx, `SELECT tabs.unread+friends.unread,GREATEST(tabs.latest,friends.latest)::text FROM (
+ SELECT COUNT(*) FILTER (WHERE nr.notification_id IS NULL) AS unread,COALESCE(MAX(n.id),0) AS latest
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  LEFT JOIN tab_notification_reads nr ON nr.notification_id=n.id AND nr.account_id=$1::uuid
- WHERE `+inboxAccess, accountID).Scan(&page.Unread, &page.LatestID)
+ WHERE `+inboxAccess+`
+ ) tabs CROSS JOIN (
+ SELECT COUNT(*) FILTER (WHERE n.read_at IS NULL) AS unread,COALESCE(MAX(n.id),0) AS latest
+ FROM account_friend_notifications n WHERE $2::boolean AND n.recipient_account_id=$1::uuid
+ ) friends`, accountID, includeConnections).Scan(&page.Unread, &page.LatestID)
 	if err != nil {
 		return page, err
 	}
-	rows, err := tx.Query(ctx, `SELECT n.id::text,n.tab_id::text,n.recipient_role,n.rev,n.event_kind,
+	rows, err := tx.Query(ctx, `(
+ SELECT n.id,n.tab_id::text,n.recipient_role,n.rev,n.event_kind,
  COALESCE(n.entry_id::text,''),n.actor_label,n.created_at,nr.notification_id IS NOT NULL,
  COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency,
  (p.account_id=$1::uuid OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id
    AND vm.account_id=$1::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
-   AND vm.role IN ('owner','manager','editor'))) AND t.recording_mode='review' AND COALESCE(e.status='pending',FALSE)
+   AND vm.role IN ('owner','manager','editor'))) AND t.recording_mode='review' AND COALESCE(e.status='pending',FALSE),
+ ''::text
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  JOIN tabs t ON t.id=n.tab_id LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
  LEFT JOIN tab_notification_reads nr ON nr.notification_id=n.id AND nr.account_id=$1::uuid
- WHERE `+inboxAccess+` AND ($2::bigint=0 OR n.id<$2) ORDER BY n.id DESC LIMIT 51`, accountID, before)
+ WHERE `+inboxAccess+` AND ($2::bigint=0 OR n.id<$2) ORDER BY n.id DESC LIMIT 51
+ ) UNION ALL (
+ SELECT n.id,''::text,''::text,0,'friend_accepted',''::text,n.actor_label,n.created_at,n.read_at IS NOT NULL,
+ 0,''::text,''::text,FALSE,n.actor_account_id::text
+ FROM account_friend_notifications n
+ WHERE $3::boolean AND n.recipient_account_id=$1::uuid AND ($2::bigint=0 OR n.id<$2)
+ ORDER BY n.id DESC LIMIT 51
+ ) ORDER BY id DESC LIMIT 51`, accountID, before, includeConnections)
 	if err != nil {
 		return page, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var item InboxItem
+		var id int64
 		var at time.Time
 		var actor, direction, currency string
 		var amount int64
 		var canReview bool
-		if err = rows.Scan(&item.ID, &item.TabID, &item.Role, &item.Rev, &item.Kind, &item.EntryID, &actor, &at, &item.Read, &amount, &direction, &currency, &canReview); err != nil {
+		if err = rows.Scan(&id, &item.TabID, &item.Role, &item.Rev, &item.Kind, &item.EntryID, &actor, &at, &item.Read, &amount, &direction, &currency, &canReview, &item.ActorAccountID); err != nil {
 			return page, err
 		}
+		item.ID = strconv.FormatInt(id, 10)
 		item.CreatedAtMS = at.UnixMilli()
-		item.Body = detailedPushBody(item.Kind, locale, actor, amount, direction, currency, item.Role, canReview)
+		if item.Kind == "friend_accepted" {
+			item.Body = friendAcceptedBody(locale, actor)
+		} else {
+			item.Body = detailedPushBody(item.Kind, locale, actor, amount, direction, currency, item.Role, canReview)
+		}
 		page.Items = append(page.Items, item)
 	}
 	if err = rows.Err(); err != nil {
@@ -156,11 +178,26 @@ func (h *Handler) ReadInbox(w http.ResponseWriter, r *http.Request) {
 		httpx.ErrorCode(w, 400, "invalid_body", "provide exactly one of: id, through, tab_id+entry_id, tab_id+rev, tab_id+through_rev")
 		return
 	}
-	tag, err := h.svc.pool.Exec(r.Context(), `INSERT INTO tab_notification_reads(notification_id,account_id)
+	markTabs := `INSERT INTO tab_notification_reads(notification_id,account_id)
  SELECT n.id,$1::uuid FROM tab_notifications n
  JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
- WHERE `+inboxAccess+` AND `+where+`
- ON CONFLICT DO NOTHING`, append([]any{claims.AccountID}, args...)...)
+ WHERE ` + inboxAccess + ` AND ` + where + `
+ ON CONFLICT DO NOTHING`
+	params := append([]any{claims.AccountID}, args...)
+	if req.TabID == "" && r.URL.Query().Get("include_connections") == "1" {
+		var marked int64
+		err := h.svc.pool.QueryRow(r.Context(), `WITH tabs AS (`+markTabs+` RETURNING 1), friends AS (
+ UPDATE account_friend_notifications n SET read_at=NOW()
+ WHERE n.recipient_account_id=$1::uuid AND n.read_at IS NULL AND `+where+` RETURNING 1
+ ) SELECT (SELECT COUNT(*) FROM tabs)+(SELECT COUNT(*) FROM friends)`, params...).Scan(&marked)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		httpx.JSON(w, 200, map[string]any{"ok": true, "marked": marked})
+		return
+	}
+	tag, err := h.svc.pool.Exec(r.Context(), markTabs, params...)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -231,6 +268,30 @@ func notificationLabel(label string) string {
 		runes = append(runes[:60], '…')
 	}
 	return string(runes)
+}
+
+func friendAcceptedBody(locale, actor string) string {
+	actor = notificationLabel(actor)
+	if actor != "" {
+		actor = "\u2068" + actor + "\u2069"
+	}
+	switch applocale.Normalize(locale) {
+	case "fa":
+		if actor == "" {
+			return "درخواست دوستی شما پذیرفته شد."
+		}
+		return actor + " درخواست دوستی شما را پذیرفت."
+	case "ps":
+		if actor == "" {
+			return "ستاسو د ملګرتیا غوښتنه ومنل شوه."
+		}
+		return actor + " ستاسو د ملګرتیا غوښتنه ومنله."
+	default:
+		if actor == "" {
+			return "Your friend request was accepted."
+		}
+		return actor + " accepted your friend request."
+	}
 }
 
 func detailedPushBody(kind, locale, actor string, minor int64, direction, currency, recipient string, canReview bool) string {

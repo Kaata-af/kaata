@@ -27,11 +27,13 @@ function fixture(full = false) {
     callback?: (result: { finished: boolean }) => void;
     stopped: boolean;
   }[] = [];
+  let inboxCurrent = true;
   const inbox = {
-    page: { unread: 1, items: [], next_before: null },
+    page: { unread: 1, items: [] as import("../tabs/api").InboxItem[], next_before: null },
     loading: false,
     failed: false,
     signedIn: true,
+    isCurrent: () => inboxCurrent,
     reload: async () => {},
     read: async (id: any) => {
       reads.push(id);
@@ -190,6 +192,10 @@ function fixture(full = false) {
     animations,
     opens,
     reads,
+    inbox,
+    invalidateInbox: () => {
+      inboxCurrent = false;
+    },
     requests,
     declined,
     invalidateRequests: () => {
@@ -532,6 +538,44 @@ async function main() {
     "reviewing a member invitation cannot open a financial tally",
   );
   membership.hooks.unmount();
+  const accepted = {
+    id: "42",
+    tab_id: "",
+    role: "" as const,
+    rev: 0,
+    kind: "friend_accepted",
+    entry_id: "",
+    actor_account_id: "peer-account",
+    body: "Peer accepted your friend request.",
+    created_at_ms: 1,
+    read: false,
+  };
+  for (const [full, current] of [
+    [false, true],
+    [true, true],
+    [false, false],
+  ]) {
+    const confirmations = fixture(full);
+    confirmations.inbox.page.items = [accepted];
+    confirmations.render();
+    if (!full) {
+      confirmations.open();
+      confirmations.measure();
+    }
+    const row = nodes(confirmations.hooks.tree).find((node) => node.props.item === accepted)!;
+    assert.ok(row, "friend acceptance is shown in the notification list");
+    row.props.onPress();
+    if (!current) confirmations.invalidateInbox();
+    confirmations.flushTimers();
+    await settleUI();
+    assert.deepEqual(confirmations.opens, [], "a friend notice never opens a tally");
+    assert.deepEqual(
+      confirmations.routes,
+      current ? [{ pathname: "/people/[accountId]", params: { accountId: "peer-account" } }] : [],
+    );
+    assert.deepEqual(confirmations.reads, current ? ["42"] : []);
+    confirmations.hooks.unmount();
+  }
   const friend = { id: "friend-request", from: { account_id: "peer-account", name: "Peer" } };
   for (const full of [false, true]) {
     const friendship = fixture(full);
@@ -576,7 +620,10 @@ async function main() {
       (node) => node.type === "Pressable" && node.props.accessibilityHint === "peopleProfile.view",
     )!;
     assert.equal(card.props.accessibilityLabel, "friends.requestBody");
-    assert.ok(!nodes(card).some((node) => node.type === "Button"), "the action buttons are separate tap targets");
+    assert.ok(
+      !nodes(card).some((node) => node.type === "Button"),
+      "the action buttons are separate tap targets",
+    );
     card.props.onPress();
     assert.deepEqual(friendship.routes, [], "profile waits for the notification popup to dismiss");
     if (switched) friendship.invalidateFriends();

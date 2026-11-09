@@ -596,10 +596,11 @@ export async function registerTabNotifications(
 export type InboxItem = {
   id: string;
   tab_id: string;
-  role: TabLink["role"];
+  role: TabLink["role"] | "";
   rev: number;
   kind: string;
   entry_id: string;
+  actor_account_id?: string;
   body: string;
   created_at_ms: number;
   read: boolean;
@@ -614,7 +615,7 @@ export type InboxPage = {
 export async function fetchInbox(locale: string, before = ""): Promise<InboxPage> {
   return request(
     "GET",
-    `/v1/tabs/inbox?locale=${encodeURIComponent(locale)}&before=${encodeURIComponent(before)}`,
+    `/v1/tabs/inbox?locale=${encodeURIComponent(locale)}&before=${encodeURIComponent(before)}&include_connections=1`,
     await requireJwt(),
   );
 }
@@ -633,5 +634,5 @@ export type InboxReadBody =
   | { tab_id: string; through_rev: number };
 
 export async function markInboxRead(body: InboxReadBody): Promise<void> {
-  await request("POST", "/v1/tabs/inbox/read", await requireJwt(), body);
+  await request("POST", "/v1/tabs/inbox/read?include_connections=1", await requireJwt(), body);
 }

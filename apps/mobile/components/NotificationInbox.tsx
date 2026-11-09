@@ -43,16 +43,34 @@ function openPeopleRequest(item: PeopleRequest, intent?: "accept") {
   });
 }
 
+async function openInboxNotice(inbox: Inbox, item: InboxItem) {
+  if (item.kind === "friend_accepted") {
+    if (!inbox.isCurrent() || !item.actor_account_id) return;
+    router.push({
+      pathname: "/people/[accountId]",
+      params: { accountId: item.actor_account_id },
+    });
+  } else {
+    await openTabNotification(item.tab_id, item.entry_id, {
+      notificationId: item.id,
+      rev: item.rev,
+    });
+  }
+  await inbox.read(item.id);
+}
+
 function NoticeRow({ item, onPress }: { item: InboxItem; onPress: () => void }) {
   const rtl = useIsRTL();
   const glyph =
-    item.kind === "entry_accepted" || item.kind === "entry_removal_approved"
-      ? "checkmark-outline"
-      : item.kind === "entry_rejected" ||
-          item.kind === "entry_voided" ||
-          item.kind === "entry_removal_declined"
-        ? "close-outline"
-        : "receipt-outline";
+    item.kind === "friend_accepted"
+      ? "people-outline"
+      : item.kind === "entry_accepted" || item.kind === "entry_removal_approved"
+        ? "checkmark-outline"
+        : item.kind === "entry_rejected" ||
+            item.kind === "entry_voided" ||
+            item.kind === "entry_removal_declined"
+          ? "close-outline"
+          : "receipt-outline";
   return (
     <Pressable
       accessibilityRole="button"
@@ -579,13 +597,7 @@ export function NotificationBell({
   // in the queue, idempotent on the server — and refreshes the page.
   const open = (item: InboxItem) =>
     close(() => {
-      void (async () => {
-        await openTabNotification(item.tab_id, item.entry_id, {
-          notificationId: item.id,
-          rev: item.rev,
-        });
-        await inbox.read(item.id);
-      })().catch(() => toast.push(t("inbox.openFailed"), "error"));
+      void openInboxNotice(inbox, item).catch(() => toast.push(t("inbox.openFailed"), "error"));
     });
   return (
     <>
@@ -739,14 +751,7 @@ export function FullNotificationInbox() {
   const open = (item: InboxItem) => {
     if (busy.current) return;
     busy.current = true;
-    // Same order and same double mark as the bell's open, for the same reason.
-    void (async () => {
-      await openTabNotification(item.tab_id, item.entry_id, {
-        notificationId: item.id,
-        rev: item.rev,
-      });
-      await inbox.read(item.id);
-    })()
+    void openInboxNotice(inbox, item)
       .catch(() => toast.push(t("inbox.openFailed"), "error"))
       .finally(() => {
         busy.current = false;
