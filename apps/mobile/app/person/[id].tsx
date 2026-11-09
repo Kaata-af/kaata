@@ -3154,21 +3154,6 @@ export default function PersonDetailScreen() {
                         ) : null}
                       </View>
                     ) : null}
-                    {entryCurrencies.scope === flowScope &&
-                    entryCurrencies.codes.length === 0 &&
-                    currencyPeriods.some(
-                      (period) =>
-                        period.tab?.closed_at == null &&
-                        period.tab?.recording_mode === "notify_one_way" &&
-                        period.tab.role === "b",
-                    ) ? (
-                      <Text
-                        testID="customer-one-way-read-only"
-                        style={[styles.groups, textDir(isRTL)]}
-                      >
-                        {t("tab.recordingMode.oneWayReadOnly")}
-                      </Text>
-                    ) : null}
                     {/* Unlinking preserves shared history and pending reviews; tallies written
                     after it are private and carry no review state, which made
                     them look like accepted shared ones (audit #6). */}

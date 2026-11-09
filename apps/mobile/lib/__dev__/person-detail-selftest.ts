@@ -2815,8 +2815,9 @@ async function oneWayAccountUITests() {
         "management names the creator-only contract rather than the approval mode",
       );
       assert.equal(
-        nodes(tree).some((node) => node.props.testID === "customer-one-way-read-only"),
-        role === "b",
+        words(tree).includes("tab.recordingMode.oneWayReadOnly"),
+        false,
+        "the customer page omits the creator-only tally message",
       );
       assert.equal(
         nodes(tree).some((node) => node.props.accessibilityLabel?.startsWith("person.settle.row")),
@@ -2886,7 +2887,7 @@ async function oneWayAccountUITests() {
   );
   unmount();
   console.log(
-    "PASS: one-way creator/recipient monetary controls, read-only disclosure, retained search/reminder/export and per-currency permissions on Android/iOS",
+    "PASS: one-way creator/recipient monetary controls, retained search/reminder/export and per-currency permissions on Android/iOS",
   );
 }
 
