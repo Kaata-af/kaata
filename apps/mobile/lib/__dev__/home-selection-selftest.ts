@@ -1341,8 +1341,8 @@ async function main() {
   render();
   await flush();
   const initialCustomers = homeRows().map((row) => row.props.person.id);
-  sponsorPlacement = {
-    button: { enabled: false, label: "" },
+  const sponsorFixture = {
+    button: { enabled: true, label: "" },
     banner: {
       enabled: true,
       rotation_seconds: 6,
@@ -1355,6 +1355,7 @@ async function main() {
       ],
     },
   };
+  sponsorPlacement = sponsorFixture;
   render();
   const customerCard = homeNodes().find(
     (node) => node.props.testID === "home-active-customer-rows",
@@ -1375,8 +1376,13 @@ async function main() {
     homeRows().map((row) => row.props.person.id),
     initialCustomers,
   );
-  sponsorPlacement = null;
-  render();
+  const sponsorAd = () => homeNodes().find((node) => node.type === "SponsorBanner");
+  const sponsorButton = () => homeNodes().find((node) => node.type === "SponsorButton");
+  const expectSponsorInteraction = (interactive: boolean) => {
+    assert.equal(sponsorAd()?.props.interactive, interactive);
+    assert.equal(sponsorAd()?.props.slides, sponsorFixture.banner.slides);
+    assert.equal(sponsorButton()?.props.interactive, interactive);
+  };
   assert.deepEqual(reviewPromptOptions?.context, {
     installId: "install",
     accountId: "account-a",
@@ -1386,6 +1392,28 @@ async function main() {
   assert.equal(typeof tree.props.onTouchStart, "function");
   tree.props.onTouchStart();
   assert.equal(reviewInteractionCancels, 1, "The review coordinator sees Home interactions");
+  expectSponsorInteraction(true);
+  homeNodes()
+    .find((node) => node.props.accessibilityLabel === "menu.title.vaultSwitcher")!
+    .props.onPress();
+  render();
+  expectSponsorInteraction(false);
+  homeNodes()
+    .find((node) => node.type === "VaultPickerSheet")!
+    .props.onDismiss();
+  await flush();
+  expectSponsorInteraction(true);
+  openSearch();
+  assert.equal(sponsorAd(), undefined, "The keyboard still frees the banner space for search");
+  assert.equal(sponsorButton(), undefined);
+  input().props.ref.current.blur();
+  input().props.onBlur();
+  if (native.Platform.OS === "ios") emitKeyboard("keyboardWillHide");
+  emitKeyboard("keyboardDidHide");
+  render();
+  expectSponsorInteraction(true);
+  sponsorPlacement = null;
+  render();
   assert.equal(addButton(), undefined, "Cold unresolved permissions never invent a writer action");
   const searchBeforePermissions = input().props.ref;
   writeCaps = { resolved: true, canCreate: true, canAmend: true };
@@ -2567,9 +2595,13 @@ async function main() {
     settings().props.onDismiss();
     render();
   };
+  sponsorPlacement = sponsorFixture;
+  render();
+  expectSponsorInteraction(true);
   openSettings();
   await flush();
   assert.equal(settings().props.visible, true);
+  expectSponsorInteraction(false);
   assert.equal(meshImports, 1);
   assert.equal(meshSubscriptions, 1);
   assert.equal(meshListeners.size, 1);
@@ -2584,6 +2616,9 @@ async function main() {
   render();
   assert.equal(settings().props.activePeers, 9, "Open settings receives live peer status");
   closeSettings();
+  expectSponsorInteraction(true);
+  sponsorPlacement = null;
+  render();
   assert.equal(settings().props.activePeers, 0);
   assert.equal(meshListeners.size, 0, "Closing settings removes its peer listener immediately");
   assert.equal(meshRemovals, 1);

@@ -11,20 +11,25 @@ export function SponsorBanner({
   slides,
   rotationSeconds,
   separated,
+  interactive = true,
 }: {
   slides: readonly SponsorSlide[];
   rotationSeconds: number;
   separated: boolean;
+  interactive?: boolean;
 }) {
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
   const [appState, setAppState] = useState(AppState.currentState);
   const [imageStatus, setImageStatus] = useState<Record<string, "ready" | "failed">>({});
   const [progress] = useState(() => new Animated.Value(0));
-  const transitioning = useRef(false);
+  const transition = useRef<Animated.CompositeAnimation | null>(null);
   const opening = useRef(false);
   const reducedMotion = useReducedMotion();
   const focused = useIsFocused();
+  const canInteract = interactive && focused && appState === "active";
+  const interaction = useRef(canInteract);
+  interaction.current = canInteract;
   const toast = useToast();
 
   const available = slides.filter((slide) => imageStatus[slide.image_url] !== "failed");
@@ -41,33 +46,39 @@ export function SponsorBanner({
   }, []);
 
   useLayoutEffect(() => {
-    if (!focused || appState !== "active" || !ready || !nextReady || width <= 0) return;
-    const animation = Animated.timing(progress, {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: false,
-    });
+    return () => {
+      const animation = transition.current;
+      transition.current = null;
+      animation?.stop();
+      progress.setValue(0);
+    };
+  }, [current, next, progress, width]);
+
+  useLayoutEffect(() => {
+    if (!canInteract || !ready || !nextReady || width <= 0) return;
     const timer = setInterval(() => {
-      if (opening.current || transitioning.current) return;
+      if (!interaction.current || opening.current || transition.current) return;
       if (reducedMotion) {
         setIndex(nextIndex);
         return;
       }
-      transitioning.current = true;
+      const animation = Animated.timing(progress, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: false,
+      });
+      transition.current = animation;
       animation.start(({ finished }) => {
+        if (transition.current !== animation) return;
         if (finished) setIndex(nextIndex);
+        else transition.current = null;
       });
     }, rotationSeconds * 1_000);
-    return () => {
-      clearInterval(timer);
-      animation.stop();
-      progress.setValue(0);
-      transitioning.current = false;
-    };
+    // Opening a sheet pauses rotation without resetting a slide in flight.
+    return () => clearInterval(timer);
   }, [
-    appState,
+    canInteract,
     current,
-    focused,
     next,
     nextIndex,
     nextReady,
@@ -107,10 +118,10 @@ export function SponsorBanner({
           accessible={ready}
           accessibilityRole="link"
           accessibilityLabel={t("sponsorBanner.sponsored")}
-          disabled={!ready}
+          disabled={!ready || !canInteract}
           style={StyleSheet.absoluteFill}
           onPress={async () => {
-            if (transitioning.current || opening.current || !ready) return;
+            if (!interaction.current || transition.current || opening.current || !ready) return;
             opening.current = true;
             try {
               await Linking.openURL(current.destination_url);

@@ -93,6 +93,7 @@ function sponsorButtonFixture(
     locale?: "en" | "fa" | "ps";
     enabled?: boolean;
     label?: string;
+    interactive?: boolean;
     push?: (route: string, count: number) => void;
   } = {},
 ) {
@@ -137,7 +138,11 @@ function sponsorButtonFixture(
     "./Toast": { useToast: () => ({ push: (...args: unknown[]) => void toasts.push(args) }) },
   });
   const tree = hooks.render(() =>
-    component.SponsorButton({ enabled: options.enabled ?? true, label: options.label ?? "" }),
+    component.SponsorButton({
+      enabled: options.enabled ?? true,
+      label: options.label ?? "",
+      interactive: options.interactive,
+    }),
   );
   return {
     tree,
@@ -419,6 +424,9 @@ async function sponsorCarouselChecks() {
   const hooks = uiHooks();
   const urls: string[] = [];
   const intervals = new Set<() => void>();
+  let interactive = true;
+  let finishTransition = () => {};
+  let stops = 0;
   const component = compileUI(
     "../../components/SponsorBanner",
     {
@@ -437,9 +445,11 @@ async function sponsorCarouselChecks() {
           timing: (_offset: unknown, options: { toValue: number }) => ({
             start: (done: (state: { finished: boolean }) => void) => {
               assert.equal(options.toValue, 1);
-              done({ finished: true });
+              finishTransition = () => done({ finished: true });
             },
-            stop() {},
+            stop() {
+              stops++;
+            },
           }),
         },
         AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
@@ -469,7 +479,7 @@ async function sponsorCarouselChecks() {
     aspect_ratio: index === 0 ? 6.4 : 2.5,
   }));
   const tree = hooks.render(() =>
-    component.SponsorBanner({ slides, rotationSeconds: 6, separated: true }),
+    component.SponsorBanner({ slides, rotationSeconds: 6, separated: true, interactive }),
   );
   const frame = (root: typeof tree) =>
     nodes(root).find((node) => node.props.testID === "home-sponsor-banner-frame")!;
@@ -504,6 +514,21 @@ async function sponsorCarouselChecks() {
   assert.deepEqual(style.height, [352 / 6.4, 352 / 2.5]);
   await link(ready).props.onPress();
   intervals.forEach((rotate) => rotate());
+  interactive = false;
+  const covered = hooks.render();
+  assert.equal(intervals.size, 0);
+  assert.equal(stops, 0, "Opening an overlay leaves an in-flight slide intact");
+  assert.equal(link(covered).props.disabled, true);
+  await link(ready).props.onPress();
+  assert.deepEqual(
+    urls,
+    [slides[0].destination_url],
+    "A queued tap cannot open a link through an overlay",
+  );
+  finishTransition();
+  assert.deepEqual(flattenStyle(frame(hooks.render()).props.style).height, [352 / 2.5, 352 / 6.4]);
+  assert.equal(intervals.size, 0);
+  interactive = true;
   const rotated = hooks.render();
   assert.deepEqual(flattenStyle(frame(rotated).props.style).height, [352 / 2.5, 352 / 6.4]);
   await link(rotated).props.onPress();
@@ -685,6 +710,10 @@ async function main() {
   assert.deepEqual(blurred.routes, [], "A departed Home screen cannot navigate");
 
   assert.equal(sponsorButtonFixture({ enabled: false }).tree, null);
+  const coveredButton = sponsorButtonFixture({ interactive: false });
+  assert.equal(coveredButton.tree.props.disabled, true);
+  await coveredButton.tree.props.onPress();
+  assert.deepEqual(coveredButton.routes, []);
   const custom = sponsorButtonFixture({ label: "Advertise with Kaata" });
   assert.equal(custom.tree.props.accessibilityLabel, "Advertise with Kaata");
   assert.equal(

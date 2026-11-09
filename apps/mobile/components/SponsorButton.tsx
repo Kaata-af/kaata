@@ -8,12 +8,22 @@ import { t } from "../lib/i18n";
 import { gutter, radius, space, TOUCH_MIN, typography } from "../lib/tokens";
 import { useToast } from "./Toast";
 
-export function SponsorButton({ enabled, label }: { enabled: boolean; label: string }) {
+export function SponsorButton({
+  enabled,
+  label,
+  interactive = true,
+}: {
+  enabled: boolean;
+  label: string;
+  interactive?: boolean;
+}) {
   const isRTL = useIsRTL();
   const toast = useToast();
   const router = useRouter();
   const opening = useRef(false);
   const focused = useRef(false);
+  const canOpen = useRef(interactive);
+  canOpen.current = interactive;
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
@@ -31,8 +41,9 @@ export function SponsorButton({ enabled, label }: { enabled: boolean; label: str
       accessibilityRole="button"
       accessibilityLabel={label || t("sponsorBanner.promote")}
       accessibilityHint={t("sponsorBanner.formHint")}
+      disabled={!interactive}
       onPress={() => {
-        if (opening.current || !focused.current) return;
+        if (opening.current || !focused.current || !canOpen.current) return;
         opening.current = true;
         try {
           router.push("/promote");

@@ -1171,11 +1171,10 @@ export default function HomeScreen() {
     selectedCurrency,
     homeRequest,
   ]);
+  const normalCustomerList =
+    currentPeopleScope && currentVaultScope && !selecting && !selectionBusy;
   const directionControlsEnabled =
-    currentPeopleScope &&
-    currentVaultScope &&
-    !selecting &&
-    !selectionBusy &&
+    normalCustomerList &&
     !filtersExpanded &&
     !settingsVisible &&
     !vaultPickerVisible &&
@@ -1190,11 +1189,13 @@ export default function HomeScreen() {
     loaded && !!activeVaultId && !forceUpdate,
   );
   const showSponsorship =
-    directionControlsEnabled &&
+    normalCustomerList &&
     !loadError &&
+    !filtersExpanded &&
     !keyboardLayoutShown &&
     !searchFocused &&
     !customerQuery.trim();
+  const sponsorshipInteractive = directionControlsEnabled && !notificationInboxVisible;
   const reviewContext = useMemo(() => {
     if (!loaded || !self || !currentPeopleScope || !currentVaultScope) return null;
     try {
@@ -2143,7 +2144,10 @@ export default function HomeScreen() {
                         }
                       />
                       {showSponsorship && sponsorship ? (
-                        <SponsorButton {...sponsorship.button} />
+                        <SponsorButton
+                          {...sponsorship.button}
+                          interactive={sponsorshipInteractive}
+                        />
                       ) : null}
                     </>
                   }
@@ -2162,6 +2166,7 @@ export default function HomeScreen() {
                             slides={sponsorship.banner.slides}
                             rotationSeconds={sponsorship.banner.rotation_seconds}
                             separated={hasFollowingRows}
+                            interactive={sponsorshipInteractive}
                           />
                         )
                       : undefined
