@@ -8,6 +8,7 @@ import { getAppMeta, setAppMeta } from "../db";
 import { getAccountIdSync, getInstallIdSync, getSessionAccountIdSync } from "../db-tx";
 import { applyForCurrentSession, captureCurrentSession } from "../auth";
 import { getLocale, subscribeLocale, t, tIn, type LocaleCode } from "../i18n";
+import { playForegroundNotificationCue } from "../foreground-notification-cue";
 import { getTabLink, listTabLinks, queueNotificationReview } from "./db";
 import { registerTabNotifications, resolveTabAuth } from "./api";
 import { setTabPushRefreshHook, syncTab, requestTabSync } from "./sync";
@@ -43,6 +44,10 @@ let registrationTimeZone: string | null = null;
 let registering: Promise<void> | null = null;
 let notificationsPromise: Promise<typeof import("expo-notifications")> | null = null;
 const processing = new Map<string, Promise<void>>();
+
+function tabCueKey(owner: string, tabId: string, entryId: string, rev: number | string): string {
+  return `${owner}:tab:${tabId}:${entryId}:${rev}`;
+}
 
 /** Closing sharing mutes alerts, independently of the remaining review rights. */
 async function isClosedTabNotice(data: unknown): Promise<boolean> {
@@ -223,34 +228,48 @@ async function bootstrap() {
           : link
             ? await notificationPolicyForTab(link)
             : await notificationPolicyForContact();
-      // A customer reminder is an alarm the user set for themselves: it must
-      // alert even while Kaata is open, where it used to be silently dropped.
-      // Shared-account notices do not alert in the foreground, their own
-      // author, or a closed relationship. Server delivery applies the same
-      // close gate; this also catches an already-sent, late arrival.
+      // Reminders still use the OS alert. Shared notices can give a short
+      // foreground cue while the user's optional system banners are off.
       const closed = await isClosedTabNotice(data).catch(() => false);
       const creditAllowed =
         data?.kind !== "credit_alert" ||
         (await import("../credit-alert-notifications")
           .then((service) => service.creditAlertNoticeAllowed(data))
           .catch(() => false));
-      const show =
+      const reminder = data?.kind === "customer_reminder";
+      const creditAlert = data?.kind === "credit_alert";
+      const kind = String(data?.kind ?? "updated");
+      const ownNotice =
+        typeof data?.actor_account_id === "string" && data.actor_account_id === getAccountIdSync();
+      const current = () =>
+        owner === notificationOwnerScope() && revision === notificationPreferencesRevision();
+      const allowed =
         creditAllowed &&
-        owner === notificationOwnerScope() &&
-        revision === notificationPreferencesRevision() &&
-        (data?.kind === "customer_reminder" || data?.kind === "credit_alert"
-          ? data.owner_scope === owner
+        current() &&
+        (reminder || creditAlert
+          ? data?.owner_scope === owner
           : getSessionAccountIdSync() != null) &&
-        notificationAllowed(policy, String(data?.kind ?? "updated")) &&
-        (data?.kind === "customer_reminder" ||
-          ((policy.foreground ||
-            AppState.currentState === "background" ||
-            AppState.currentState === "inactive") &&
-            !(
-              typeof data?.actor_account_id === "string" &&
-              data.actor_account_id === getAccountIdSync()
-            ) &&
-            !closed));
+        notificationAllowed(policy, kind) &&
+        (reminder || (!closed && !ownNotice));
+      const show =
+        allowed &&
+        (reminder ||
+          policy.foreground ||
+          AppState.currentState === "background" ||
+          AppState.currentState === "inactive");
+      if (allowed && !show && AppState.currentState === "active" && (link || creditAlert)) {
+        const key =
+          typeof data?.tab_id === "string" &&
+          typeof data?.entry_id === "string" &&
+          (typeof data?.rev === "number" || typeof data?.rev === "string")
+            ? tabCueKey(owner, data.tab_id, data.entry_id, data.rev)
+            : `${owner}:notification:${notification.request.identifier}`;
+        playForegroundNotificationCue(
+          policy,
+          () => current() && notificationAllowed(policy, kind),
+          key,
+        );
+      }
       return {
         shouldShowBanner: show,
         shouldShowList: show,
@@ -415,8 +434,8 @@ export async function ensureTabNotificationPermission() {
   await syncTabPushSubscriptions();
 }
 
-// Foreground pulls only refresh UI. Background fallback alerts are used only
-// when remote delivery is unavailable, and never for our own write/ack.
+// Fallback alerts cover incoming changes when remote delivery is unavailable.
+// Foreground cues do not require an OS banner or notification permission.
 onTabApplied((ev) => {
   if (ev.origin !== "pull" || !ev.changes?.length) return;
   const account = getAccountIdSync(),
@@ -427,18 +446,14 @@ onTabApplied((ev) => {
     const session = await captureCurrentSession();
     if (!session.jwt || !stillCurrent()) return;
     const registered = Number(await getAppMeta("tab_push_active:" + ev.tabId));
-    if (registered && Date.now() - registered < 2 * 3600_000) return;
+    if (registered && !isRunningInExpoGo() && Date.now() - registered < 2 * 3600_000) return;
     const n = await notifications();
     const link = await getTabLink(ev.tabId);
-    if (!n || !link || link.closed_at != null || !stillCurrent()) return;
+    if (!link || link.closed_at != null || !stillCurrent()) return;
     const policy = await notificationPolicyForTab(link);
-    if (AppState.currentState === "active" && !policy.foreground) return;
-    await configure(n);
-    const { readVaultRole, canPerformAction } = await import("../use-vault-role");
-    const canReview =
-      canPerformAction(await readVaultRole(link.vault_id, getAccountIdSync()), "entry.amend") &&
-      (link.recording_mode ?? "review") === "review" &&
-      link.recording_mode_known !== 0;
+    const shouldCue = () => AppState.currentState === "active" && (!n || !policy.foreground);
+    if (!n && !shouldCue()) return;
+    let canReview: boolean | undefined;
     for (const change of ev.changes!) {
       if (!notificationAllowed(policy, change.kind)) continue;
       let body =
@@ -461,7 +476,6 @@ onTabApplied((ev) => {
       );
       // A pull/ack can race a local write. Never alert the writer or replay
       // stale state as a new tally. Remote push is the main background path.
-      if (AppState.currentState === "active" && !policy.foreground) return;
       if (
         change.kind === "entry_created" &&
         (!entry ||
@@ -498,6 +512,14 @@ onTabApplied((ev) => {
           entry ? notificationVars(link, entry, t("tab.them")) : { name: t("tab.them") },
         );
       }
+      if (n && !shouldCue() && canReview === undefined) {
+        await configure(n);
+        const { readVaultRole, canPerformAction } = await import("../use-vault-role");
+        canReview =
+          canPerformAction(await readVaultRole(link.vault_id, getAccountIdSync()), "entry.amend") &&
+          (link.recording_mode ?? "review") === "review" &&
+          link.recording_mode_known !== 0;
+      }
       // A local unlink can finish while the entry and native adapters load.
       const current = await getTabLink(ev.tabId);
       if (!current || current.closed_at != null || !stillCurrent()) return;
@@ -505,7 +527,17 @@ onTabApplied((ev) => {
       if (!stillCurrent() || JSON.stringify(latestPolicy) !== JSON.stringify(policy)) return;
       const identifier = `tab:${ev.tabId}:${change.entryId}:${change.rev}`;
       await applyForCurrentSession(session, async () => {
-        if (!stillCurrent()) return;
+        const currentPolicy = () => stillCurrent() && notificationAllowed(policy, change.kind);
+        if (!currentPolicy()) return;
+        if (shouldCue()) {
+          playForegroundNotificationCue(
+            policy,
+            () => currentPolicy() && shouldCue(),
+            tabCueKey(notificationOwnerScope(), ev.tabId, change.entryId, change.rev),
+          );
+          return;
+        }
+        if (!n || canReview === undefined) return;
         await n.scheduleNotificationAsync({
           identifier,
           content: {

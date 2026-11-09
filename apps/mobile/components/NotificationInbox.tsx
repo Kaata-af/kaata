@@ -168,56 +168,68 @@ function InboxContent({
           </Text>
         ) : null}
         {(compact ? friendRequests.rows.slice(0, 3) : friendRequests.rows).map((item) => {
-          const key = `friend-${item.id}`;
+          const name = item.from.name || item.from.username || t("inviteAccept.confirm.someone");
+          const body = t("friends.requestBody", { name });
+          const responding = friendRequests.responding;
+          const respond = (action: "accept" | "decline") => {
+            void friendRequests[action](item.id).catch(() => {
+              if (friendRequests.isCurrent()) toast.push(t("inbox.failed"), "error");
+            });
+          };
           return (
-            <View
-              key={key}
-              style={[styles.notice, { alignItems: rtl ? "flex-end" : "flex-start" }]}
-            >
-              <Text style={[styles.body, textDir(rtl)]}>
-                {t("friends.requestBody", {
-                  name: item.from.name || item.from.username || t("inviteAccept.confirm.someone"),
-                })}
-              </Text>
-              {item.from.username ? (
-                <Text style={[styles.time, textDir(rtl)]}>
-                  {ltrIsolate(`@${item.from.username}`)}
-                </Text>
-              ) : null}
-              <View style={[rowDir(rtl), { gap: 16 }]}>
-                <Pressable
-                  accessibilityRole="button"
-                  style={styles.control}
-                  disabled={declining !== null}
-                  onPress={() => openFriendRequest(item)}
-                >
-                  <Text style={styles.controlText}>{t("peopleProfile.view")}</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  style={styles.control}
-                  disabled={declining !== null}
-                  onPress={() => {
-                    if (decliningRef.current) return;
-                    decliningRef.current = true;
-                    setDeclining(key);
-                    void friendRequests
-                      .decline(item.id)
-                      .catch(() => {
-                        if (friendRequests.isCurrent()) toast.push(t("inbox.failed"), "error");
-                      })
-                      .finally(() => {
-                        decliningRef.current = false;
-                        setDeclining(null);
-                      });
-                  }}
-                >
-                  {declining === key ? (
-                    <ActivityIndicator color={colors.textSubtle} />
-                  ) : (
-                    <Text style={styles.controlText}>{t("peopleSearch.decline")}</Text>
-                  )}
-                </Pressable>
+            <View key={`friend-${item.id}`} style={styles.notice}>
+              {/* The card opens the profile. Accept and Reject are separate hit targets. */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={body}
+                accessibilityHint={t("peopleProfile.view")}
+                disabled={responding != null}
+                style={({ pressed }) => [
+                  StyleSheet.absoluteFill,
+                  pressed && { backgroundColor: colors.bgSubtle },
+                ]}
+                onPress={() => {
+                  if (friendRequests.isRequestCurrent(item.id)) openFriendRequest(item);
+                }}
+              />
+              <View
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={[styles.requestText, styles.friendRequestHeader, rowDir(rtl)]}
+              >
+                <View style={styles.text}>
+                  <Text style={[styles.body, textDir(rtl)]}>{body}</Text>
+                  {item.from.username ? (
+                    <Text style={[styles.time, textDir(rtl)]}>
+                      {ltrIsolate(`@${item.from.username}`)}
+                    </Text>
+                  ) : null}
+                </View>
+                <Ionicons
+                  name={rtl ? "chevron-back" : "chevron-forward"}
+                  size={icon.row}
+                  color={colors.textSubtle}
+                />
+              </View>
+              <View pointerEvents="box-none" style={[styles.requestActions, rowDir(rtl)]}>
+                <Button
+                  label={t("tab.accept")}
+                  accessibilityLabel={`${t("peopleProfile.accept")} · ${name}`}
+                  wrapLabel
+                  disabled={responding != null}
+                  loading={responding?.id === item.id && responding.action === "accept"}
+                  onPress={() => respond("accept")}
+                />
+                <Button
+                  label={t("tab.reject")}
+                  accessibilityLabel={`${t("tab.reject")} · ${name}`}
+                  variant="secondary"
+                  wrapLabel
+                  disabled={responding != null}
+                  loading={responding?.id === item.id && responding.action === "decline"}
+                  onPress={() => respond("decline")}
+                />
               </View>
             </View>
           );
@@ -672,7 +684,7 @@ export function NotificationBell({
               friendRequests={friendRequests}
               openFriendRequest={(item) =>
                 close(() => {
-                  if (friendRequests.isCurrent())
+                  if (friendRequests.isRequestCurrent(item.id))
                     router.push({
                       pathname: "/people/[accountId]",
                       params: { accountId: item.from.account_id },
@@ -748,7 +760,7 @@ export function FullNotificationInbox() {
       memberRequests={memberRequests}
       friendRequests={friendRequests}
       openFriendRequest={(item) => {
-        if (friendRequests.isCurrent())
+        if (friendRequests.isRequestCurrent(item.id))
           router.push({
             pathname: "/people/[accountId]",
             params: { accountId: item.from.account_id },
@@ -853,6 +865,7 @@ const styles = StyleSheet.create({
   },
   noticeIcon: { paddingTop: 2 },
   requestText: { alignSelf: "stretch" },
+  friendRequestHeader: { alignItems: "center", gap: 8 },
   requestActions: { alignSelf: "stretch", flexWrap: "wrap", gap: 8 },
   text: { flex: 1, minWidth: 0 },
   body: { ...typography.bodySm, color: colors.textDefault },

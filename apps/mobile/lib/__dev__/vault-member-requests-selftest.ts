@@ -443,6 +443,7 @@ function hookFixture(kind: "members" | "people" = "members") {
       },
       "./auth": { SessionChangedError },
       "./vault-api": { ApiError },
+      "./incoming-request-cue": { observeIncomingRequests: () => null },
       "./tabs/errors": errors,
       "./people-connections": { listPeopleRequests: startList, declinePeopleRequest: startDecline },
       "./vault-member-requests": {

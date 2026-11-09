@@ -83,8 +83,18 @@ const queued = new Set<string>();
 let presented: any[] = [];
 const dismissed: string[] = [];
 const inboxMarks: unknown[] = [];
+const cues: Array<{ key: string; sound: boolean; vibration: boolean }> = [];
 
 stub("react-native", { AppState: state, Platform: platform });
+stub("../foreground-notification-cue", {
+  playForegroundNotificationCue: (
+    { sound, vibration }: NotificationPolicy,
+    current: () => boolean,
+    key: string,
+  ) => {
+    if (current() && (sound || vibration)) cues.push({ key, sound, vibration });
+  },
+});
 stub("expo", { isRunningInExpoGo: () => expoGo });
 stub("expo-constants", { default: { easConfig: { projectId: "project" } } });
 stub("expo-task-manager", {
@@ -265,6 +275,8 @@ compiled._compile(
   filename,
 );
 const notify = compiled.exports as typeof import("../tabs/notify");
+const { observeIncomingRequests } =
+  require("../incoming-request-cue") as typeof import("../incoming-request-cue");
 // The real read queue (its db / api boundaries are the stubs above), the
 // same module instance notify.ts subscribed to at load.
 const inboxReads = require("../tabs/inbox-reads") as typeof import("../tabs/inbox-reads");
@@ -304,6 +316,7 @@ function reset() {
   presented = [];
   dismissed.length = 0;
   inboxMarks.length = 0;
+  cues.length = 0;
   rows.clear();
   currentEntry = undefined;
   onEntryRead = null;
@@ -648,10 +661,11 @@ async function main() {
     assert.equal(queued.size, 0);
     assert.equal(scheduled[0].content.body, "tab.notify.actionFailed");
   });
-  await test("OS presentation stays silent in foreground on both platforms", async () => {
+  await test("foreground notices cue once through the app or the OS presentation path", async () => {
     for (const os of ["android", "ios"]) {
       platform.OS = os;
       state.currentState = "active";
+      cues.length = 0;
       const result = await handler.handleNotification(response("default").notification);
       assert.deepEqual(result, {
         shouldShowBanner: false,
@@ -659,12 +673,22 @@ async function main() {
         shouldPlaySound: false,
         shouldSetBadge: false,
       });
+      assert.deepEqual(cues, [
+        { key: `account:account:tab:${TAB}:${ENTRY}:1`, sound: true, vibration: true },
+      ]);
+      deliveryPolicy.foreground = true;
+      assert.equal(
+        (await handler.handleNotification(response("default").notification)).shouldPlaySound,
+        true,
+      );
+      deliveryPolicy.foreground = false;
+      const own = response("default", { ...payload, actor_account_id: "account" }).notification;
+      assert.equal((await handler.handleNotification(own)).shouldShowBanner, false);
       state.currentState = "background";
       assert.equal(
         (await handler.handleNotification(response("default").notification)).shouldShowBanner,
         true,
       );
-      const own = response("default", { ...payload, actor_account_id: "account" }).notification;
       assert.equal((await handler.handleNotification(own)).shouldShowBanner, false);
       // A customer reminder is an alarm the user set: it alerts even while
       // Kaata is open, where it used to be dropped without a sound or banner.
@@ -680,6 +704,7 @@ async function main() {
         shouldPlaySound: true,
         shouldSetBadge: false,
       });
+      assert.equal(cues.length, 1, "no additional app cue for system alerts or own notices");
     }
   });
   await test("late remote alerts for closed relationships stay silent on both platforms", async () => {
@@ -721,7 +746,7 @@ async function main() {
       }
     }
   });
-  await test("pull fallback ignores foreground and own acknowledgements", async () => {
+  await test("pull fallback cues in the foreground and skips own acknowledgements", async () => {
     const ev = {
       tabId: TAB,
       origin: "pull",
@@ -738,8 +763,12 @@ async function main() {
     emitApplied(ev);
     await settled();
     assert.equal(scheduled.length, 0);
-    state.currentState = "background";
+    assert.equal(cues[0]?.key, `account:account:tab:${TAB}:${ENTRY}:1`);
     currentEntry.created_by = "b";
+    emitApplied(ev);
+    await settled();
+    assert.equal(cues.length, 1, "own side in foreground");
+    state.currentState = "background";
     emitApplied(ev);
     await settled();
     assert.equal(scheduled.length, 0, "own side");
@@ -752,6 +781,32 @@ async function main() {
     emitApplied(ev);
     await settled();
     assert.equal(scheduled.length, 1, "real incoming fallback");
+  });
+  await test("foreground request polling cues for newly arrived requests only", async () => {
+    const poll = (
+      previous: ReturnType<typeof observeIncomingRequests>,
+      rows: Array<{ id: string; created_at_ms: number }>,
+    ) => observeIncomingRequests(previous, rows, "friend_request", () => true);
+    const existing = { id: "existing", created_at_ms: 10 };
+    const fresh = { id: "fresh", created_at_ms: 11 };
+    let seen = poll(null, [existing]);
+    await settled();
+    assert.equal(cues.length, 0, "silent baseline");
+    seen = poll(seen, [fresh, existing]);
+    await settled();
+    assert.equal(cues[0]?.key, "account:account:friend_request:fresh");
+    seen = poll(seen, [existing, { id: "older", created_at_ms: 9 }]);
+    await settled();
+    assert.equal(cues.length, 1, "an older request can become visible after an action");
+    deliveryPolicy.connections = false;
+    seen = poll(seen, [{ id: "muted", created_at_ms: 12 }]);
+    await settled();
+    assert.equal(cues.length, 1);
+    deliveryPolicy.connections = true;
+    poll(seen, [{ id: "stale", created_at_ms: 13 }]);
+    accountId = "other-account";
+    await settled();
+    assert.equal(cues.length, 1, "pending policy lookup cannot cue across an account switch");
   });
   await test("closed-period pulls update history without scheduling any fallback alerts", async () => {
     state.currentState = "background";

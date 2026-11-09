@@ -112,6 +112,15 @@
       ],
       "expo-apple-authentication",
       [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Kaata uses the camera to scan profile QR codes to connect with people and pairing codes when you add another phone you own.",

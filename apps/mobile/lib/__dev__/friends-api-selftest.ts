@@ -125,6 +125,7 @@ function inboxFixture() {
       "./auth": f.auth,
       "./db-tx": f.dbScope,
       "./friends-api": f.api,
+      "./incoming-request-cue": { observeIncomingRequests: () => null },
       "./tabs/errors": tabErrors,
     },
     { setInterval: () => 1, clearInterval: () => {} },
@@ -264,6 +265,7 @@ async function main() {
     f.switchAccount(owner);
     assert.equal(old.isCurrent(), false);
     await old.decline(requestID);
+    await old.accept(requestID);
     assert.equal(f.calls.length, 1, "stale row actions never use a re-signed account");
     f.replies.push(() => result({ requests: [] }));
     assert.deepEqual(f.render().rows, []);
@@ -271,30 +273,58 @@ async function main() {
     assert.deepEqual(f.render().rows, []);
     f.ui.unmount();
   }
-  {
+  for (const action of ["accept", "decline"] as const) {
     const f = inboxFixture();
     f.replies.push(() => result({ requests: [row] }));
     f.render();
     await settleHTTP();
     const snapshot = f.render();
     const late = deferred<Response>();
-    f.replies.push(
-      () => late.promise,
-      () => result(undefined, 204),
-    );
+    const response = deferred<Response>();
+    f.replies.push(() => late.promise, () => response.promise);
     const refresh = snapshot.reload();
     await settleHTTP();
+    const pending = snapshot[action](requestID);
+    await settleHTTP();
+    assert.equal(f.render().responding?.action, action);
+    assert.equal(snapshot.isRequestCurrent(requestID), false, "profile is disabled while responding");
+    await snapshot.accept(requestID);
     await snapshot.decline(requestID);
+    assert.equal(f.calls.length, 3, "duplicate and opposite taps do not dispatch another action");
+    assert.equal(f.calls[2].init.method, action === "accept" ? "POST" : "DELETE");
+    response.resolve(
+      action === "accept"
+        ? result({ friendship: { state: "friends", id: requestID } })
+        : result(undefined, 204),
+    );
+    await pending;
+    await snapshot[action](requestID);
+    assert.equal(f.calls.length, 3, "a retained handler cannot resubmit a completed action");
     late.resolve(result({ requests: [row] }));
     await refresh;
-    assert.deepEqual(f.render().rows, [], "a pending read cannot resurrect a declined request");
+    assert.deepEqual(f.render().rows, [], "a pending read cannot resurrect a resolved request");
     f.replies.push(() => result({}, 404));
     await f.render().reload();
     assert.equal(f.render().failed, false, "older servers do not break the existing inbox");
     f.ui.unmount();
   }
+  {
+    const f = inboxFixture();
+    f.replies.push(() => result({ requests: [row] }));
+    f.render();
+    await settleHTTP();
+    f.replies.push(() => result({}, 503), () => result({ requests: [row] }));
+    await assert.rejects(f.render().accept(requestID), { status: 503 });
+    await settleHTTP();
+    assert.deepEqual(f.render().rows, [row], "a failed response leaves the request available for retry");
+    assert.equal(f.render().responding, null);
+    f.replies.push(() => result({ friendship: { state: "friends", id: requestID } }));
+    await f.render().accept(requestID);
+    assert.deepEqual(f.render().rows, []);
+    f.ui.unmount();
+  }
   console.log(
-    "PASS friendship API/inbox: private profile scope, independent lifecycle, pagination, session races, and stale decline guards",
+    "PASS friendship API/inbox: private profile scope, independent lifecycle, pagination, session races, and guarded accept/reject",
   );
 }
 

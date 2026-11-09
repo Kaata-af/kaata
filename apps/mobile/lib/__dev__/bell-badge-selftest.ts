@@ -74,6 +74,7 @@ for (const os of ["ios", "android"] as const) {
   let styles: any;
   let slots: any[] = [];
   let cursor = 0;
+  const emptyRequests = () => ({ rows: [], reload: async () => {} });
   const mocks: Record<string, any> = {
     "./ProtectedModal": { ProtectedModal: "Modal" },
     "./SheetBackdrop": {
@@ -145,6 +146,10 @@ for (const os of ["ios", "android"] as const) {
     },
     "../lib/tabs/open-notification": { openTabNotification: async () => {} },
     "../lib/use-customer-reminders": { useCustomerReminders: () => ({ due: [], rows: [] }) },
+    "../lib/use-people-requests": { usePeopleRequests: emptyRequests },
+    "../lib/use-vault-member-requests": { useVaultMemberRequests: emptyRequests },
+    "../lib/use-friend-requests": { useFriendRequests: emptyRequests },
+    "./Button": { Button: "Button" },
     "./Toast": { useToast: () => ({ push() {} }) },
   };
   const { NotificationBell } = compile("../../components/NotificationInbox", mocks);

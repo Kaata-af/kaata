@@ -733,6 +733,7 @@ function requestHookFixture() {
           await declineGate;
         },
       },
+      "./incoming-request-cue": { observeIncomingRequests: () => null },
       "./tabs/errors": errors,
     },
     {
