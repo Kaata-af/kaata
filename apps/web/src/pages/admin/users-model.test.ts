@@ -216,6 +216,48 @@ test("facets combine with search across profile fields and normalized phone digi
   assert.equal(filterUsers(rows, filters, "Ahmad missing-word", NOW).visible.length, 0);
 });
 
+test("the inclusive version filter compares numbered releases and combines with other filters", () => {
+  const rows = userRows(
+    data(
+      [
+        install("equal", { app_version: "2.3.9" }),
+        install("older", { app_version: "2.3.8" }),
+        install("newer-patch", { app_version: "2.3.10" }),
+        install("newer-minor", { app_version: "2.4" }),
+        install("with-build", { app_version: "v2.3.9+94" }),
+        install("prerelease", { app_version: "2.4.0-beta" }),
+        install("web", { app_version: "web", platform: "web" }),
+        install("missing", { app_version: "" }),
+        install("malformed", { app_version: "2.4..0" }),
+        install("other-source", { app_version: "2.4.0", source: "other" }),
+      ],
+      [account({ app_version: "3.0.0" })],
+    ),
+  );
+  const version = { ...DEFAULT_FILTERS, version: "2.3.9" };
+  assert.deepEqual(
+    filterUsers(rows, version, "", NOW).visible.map((row) => row.id),
+    ["i:equal"],
+  );
+  assert.deepEqual(
+    filterUsers(rows, { ...version, versionOrNewer: true }, "", NOW).visible.map((row) => row.id),
+    ["a:account-1", "i:equal", "i:newer-patch", "i:newer-minor", "i:with-build", "i:other-source"],
+  );
+  assert.deepEqual(
+    filterUsers(
+      rows,
+      { ...version, version: "2.4.0", versionOrNewer: true, source: "market-qr" },
+      "Ahmad",
+      NOW,
+    ).visible.map((row) => row.id),
+    ["i:newer-minor"],
+  );
+  assert.deepEqual(
+    filterUsers(rows, { ...version, version: "web" }, "", NOW).visible.map((row) => row.id),
+    ["i:web"],
+  );
+});
+
 test("unidentified counts reflect the other filters and remain explicit when hidden", () => {
   const rows = userRows(
     data([
@@ -411,6 +453,22 @@ test("preferences restore only whitelisted fields and never search or user ident
   assert.equal(JSON.stringify(restored).includes("private"), false);
   assert.equal(JSON.stringify(restored).includes("account-id"), false);
   assert.equal(parsePreferences({ pageSize: 999 }).pageSize, 25);
+});
+
+test("saved app-version filters preserve a valid minimum and default older preferences to exact", () => {
+  assert.equal(parsePreferences({ filters: { version: "2.3.9" } }).filters.versionOrNewer, false);
+  assert.equal(
+    parsePreferences({ filters: { version: "2.3.9", versionOrNewer: true } }).filters
+      .versionOrNewer,
+    true,
+  );
+  for (const version of ["", "__unknown__", "web", "2.3.9-beta", "9007199254740993"]) {
+    const saved = parsePreferences({ filters: { version, versionOrNewer: true } }).filters;
+    assert.equal(saved.version, version);
+    assert.equal(saved.versionOrNewer, false);
+  }
+  assert.equal(activePreset(presetFilters("active")), "active");
+  assert.equal(presetFilters("active").versionOrNewer, false);
 });
 
 test("test data is hidden by default, counted, and shown with its reason on request", () => {

@@ -63,6 +63,7 @@ export type UserFilters = {
   language: string;
   source: string;
   version: string;
+  versionOrNewer: boolean;
   entries: "all" | "with" | "without";
   contact: "all" | "available" | "missing";
   from: string;
@@ -87,6 +88,7 @@ export const DEFAULT_FILTERS: UserFilters = {
   language: "",
   source: "",
   version: "",
+  versionOrNewer: false,
   entries: "all",
   contact: "all",
   from: "",
@@ -266,6 +268,24 @@ function matchesSearch(row: UserListRow, search: string): boolean {
   return query.split(/\s+/).every((word) => fields.some((field) => field.includes(word)));
 }
 
+export function parseAppVersion(value: string): number[] | null {
+  // Compare numbered releases. Build metadata does not affect release order.
+  const match = /^v?([0-9]+(?:\.[0-9]+)*)(?:\+[0-9a-z-]+(?:\.[0-9a-z-]+)*)?$/i.exec(value.trim());
+  if (!match) return null;
+  const parts = match[1].split(".").map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+
+function matchesMinimumVersion(value: string, minimum: number[]): boolean {
+  const parts = parseAppVersion(value);
+  if (!parts) return false;
+  for (let i = 0; i < Math.max(parts.length, minimum.length); i++) {
+    const difference = (parts[i] ?? 0) - (minimum[i] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return true;
+}
+
 // Test data stays out of the list (and every count below) unless
 // includeExcluded is on; `excluded` counts the matching rows it holds back,
 // so the page can say how many and offer to show them.
@@ -275,6 +295,7 @@ export function filterUsers(
   search: string,
   now: number,
 ) {
+  const minimumVersion = filters.versionOrNewer ? parseAppVersion(filters.version) : null;
   const candidates = rows.filter((row) => {
     if (filters.signIn === "signed-in" && row.kind !== "account") return false;
     if (filters.signIn === "signed-out" && row.kind !== "install") return false;
@@ -282,9 +303,10 @@ export function filterUsers(
       return false;
     if (!matchesActivity(row, filters.activity, now)) return false;
     if (filters.platform && !platformFacets(row.platforms).includes(filters.platform)) return false;
-    for (const key of ["source", "version"] as const) {
-      if (filters[key] && filters[key] !== (row[key] || "__unknown__")) return false;
-    }
+    if (filters.source && filters.source !== (row.source || "__unknown__")) return false;
+    if (minimumVersion && !matchesMinimumVersion(row.version, minimumVersion)) return false;
+    if (!minimumVersion && filters.version && filters.version !== (row.version || "__unknown__"))
+      return false;
     if (filters.language && filters.language !== (row.locale || "__unknown__")) return false;
     if (filters.entries === "with" && row.entries === 0) return false;
     if (filters.entries === "without" && row.entries > 0) return false;
@@ -371,6 +393,8 @@ export function parsePreferences(value: unknown): UserPreferences {
     if (typeof filters[key] === "string" && filters[key].length <= 128)
       defaults.filters[key] = filters[key];
   }
+  defaults.filters.versionOrNewer =
+    filters.versionOrNewer === true && parseAppVersion(defaults.filters.version) !== null;
   for (const key of ["from", "to"] as const) {
     const day = filters[key];
     if (typeof day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(day)) {

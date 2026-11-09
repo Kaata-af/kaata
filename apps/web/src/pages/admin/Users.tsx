@@ -17,6 +17,7 @@ import {
   filterUsers,
   isIdentified,
   matchesActivity,
+  parseAppVersion,
   parsePreferences,
   presetFilters,
   quickDateRange,
@@ -255,7 +256,11 @@ export function Users() {
   }, []);
 
   function updateFilters(patch: Partial<UserFilters>) {
-    setPreferences((p) => ({ ...p, filters: { ...p.filters, ...patch } }));
+    setPreferences((p) => {
+      const next = { ...p.filters, ...patch };
+      if (next.versionOrNewer && !parseAppVersion(next.version)) next.versionOrNewer = false;
+      return { ...p, filters: next };
+    });
     setPage(0);
     setExpanded({});
   }
@@ -466,12 +471,26 @@ export function Users() {
                       options={facetOptions("source", filters.source)}
                       onChange={(source) => updateFilters({ source })}
                     />
-                    <FilterSelect
-                      label="App version"
-                      value={filters.version}
-                      options={facetOptions("version", filters.version)}
-                      onChange={(version) => updateFilters({ version })}
-                    />
+                    <div className="min-w-0">
+                      <FilterSelect
+                        label="App version"
+                        value={filters.version}
+                        options={facetOptions("version", filters.version)}
+                        onChange={(version) => updateFilters({ version })}
+                      />
+                      <label className="mt-1 flex min-h-7 w-fit items-center gap-2 text-xs font-medium text-brand-muted has-[:disabled]:opacity-50">
+                        <input
+                          type="checkbox"
+                          checked={filters.versionOrNewer}
+                          disabled={!parseAppVersion(filters.version)}
+                          onChange={(event) =>
+                            updateFilters({ versionOrNewer: event.target.checked })
+                          }
+                          className="size-4 accent-brand-primary"
+                        />
+                        Or newer
+                      </label>
+                    </div>
                     {SELECTS.slice(3).map((field) => (
                       <FilterSelect
                         key={field.key}
@@ -797,9 +816,15 @@ function filterChips(filters: UserFilters): { key: keyof UserFilters; label: str
     ["platform", "Platform"],
     ["language", "Language"],
     ["source", "Source"],
-    ["version", "Version"],
   ] as const) {
     if (filters[key]) chips.push({ key, label: `${label}: ${humanValue(filters[key])}` });
+  }
+  if (filters.version) {
+    const version = humanValue(filters.version);
+    chips.push({
+      key: "version",
+      label: `Version: ${version}${filters.versionOrNewer ? "+" : ""}`,
+    });
   }
   if (filters.from) chips.push({ key: "from", label: `From ${fmtDay(filters.from)}` });
   if (filters.to) chips.push({ key: "to", label: `Through ${fmtDay(filters.to)}` });
