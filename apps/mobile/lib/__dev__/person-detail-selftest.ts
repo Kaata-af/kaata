@@ -905,22 +905,24 @@ function fixture(shared = false) {
   dirty = true;
 }
 
+const reminderId = "12345678-1234-1234-1234-123456789abc";
+function queueNotificationReminder(notificationKey: string) {
+  const row = { id: reminderId, updated_at: 1, schedule_json: "{}" };
+  reminderRows = [row];
+  const key = intents.queueReminderPing({
+    reminderId,
+    personId: "person",
+    vaultId,
+    ownerScope: reminderOwner(),
+    notificationKey,
+    fingerprint: `${row.updated_at}:${row.schedule_json}:Asia/Kabul`,
+  });
+  params = { id: "person", reminderId, reminderActionKey: key };
+  dirty = true;
+  return key;
+}
+
 async function notificationReminderFlowTests() {
-  const reminderId = "12345678-1234-1234-1234-123456789abc";
-  const action = (notificationKey: string) => {
-    const row = { id: reminderId, updated_at: 1, schedule_json: "{}" };
-    reminderRows = [row];
-    const key = intents.queueReminderPing({
-      reminderId,
-      personId: "person",
-      vaultId,
-      ownerScope: reminderOwner(),
-      notificationKey,
-      fingerprint: `${row.updated_at}:${row.schedule_json}:Asia/Kabul`,
-    });
-    params = { id: "person", reminderId, reminderActionKey: key };
-    return key;
-  };
   for (const os of ["ios", "android"])
     for (const locale of [false, true]) {
       accountId = "account";
@@ -928,7 +930,7 @@ async function notificationReminderFlowTests() {
       fixture();
       platform = os;
       rtl = locale;
-      action(`native:${os}:${locale}`);
+      queueNotificationReminder(`native:${os}:${locale}`);
       assert.equal(shares.length, 0, "notification can't share before the ledger loads");
       await flush();
       await flush();
@@ -962,7 +964,7 @@ async function notificationReminderFlowTests() {
 
   fixture();
   preference = "ask";
-  action("native:ask");
+  queueNotificationReminder("native:ask");
   await flush();
   await flush();
   assert.equal(shares.length, 0);
@@ -977,7 +979,7 @@ async function notificationReminderFlowTests() {
 
   fixture();
   appState = "background";
-  action("native:foreground");
+  queueNotificationReminder("native:foreground");
   await flush();
   await flush();
   assert.equal(shares.length, 0);
@@ -997,26 +999,26 @@ async function notificationReminderFlowTests() {
   assert.equal(shares.length, 1, "aborted work doesn't replay on resume");
 
   fixture();
-  action("native:changed-reminder");
+  queueNotificationReminder("native:changed-reminder");
   reminderRows[0].updated_at = 2;
   await flush();
   await flush();
   assert.equal(shares.length, 0, "edited/marked-done reminders don't auto-run stale notices");
   fixture();
-  action("native:deleted-reminder");
+  queueNotificationReminder("native:deleted-reminder");
   reminderRows = [];
   await flush();
   await flush();
   assert.equal(shares.length, 0);
   fixture();
-  action("native:no-tallies");
+  queueNotificationReminder("native:no-tallies");
   entries = [];
   await flush();
   await flush();
   assert.equal(shares.length, 0, "an empty ledger doesn't prepare a bogus statement");
 
   fixture();
-  action("native:account-aba");
+  queueNotificationReminder("native:account-aba");
   let release!: (rows: any[]) => void;
   reminderReadGate = new Promise((resolve) => {
     release = resolve;
@@ -1033,7 +1035,7 @@ async function notificationReminderFlowTests() {
   assert.equal(shares.length, 0, "account ABA invalidates an in-flight handoff");
 
   fixture();
-  const key = action("native:leave-before-ready");
+  const key = queueNotificationReminder("native:leave-before-ready");
   await flush(); // if preparation starts, the normal blur abort still protects it
   blur();
   await flush();
@@ -2120,6 +2122,7 @@ async function sharedClosureReviewTests() {
 
 async function billLinkPreferenceTests() {
   fixture(true);
+  link = { ...link, closed_at: 1000 };
   const earlier = {
     link: { tab_id: "unrestored-earlier-book", last_synced_at: null },
     entries: [tally("earlier-private-note", "Historical private note", 999, 1)],
@@ -2834,7 +2837,7 @@ async function oneWayAccountUITests() {
           actions.some((action: any) => action.label === label),
           `view-only recipients keep ${label}`,
         );
-      assert.ok(pingButton(), "view-only recipients can still send a statement");
+      assert.equal(pingButton(), undefined, "One-way shared accounts hide the bill button");
       unmount();
     }
   for (const locale of ["en", "fa", "ps"] as const) {
@@ -3365,11 +3368,20 @@ async function customerHeaderIdentityTests() {
   assert.equal(badge.props.name, person.name);
   assert.equal(badge.props.size, 16);
   assert.equal(badge.props.fontSize, 16);
+  assertHeader(44);
+  assert.equal(pingButton(), undefined, "Joined accounts receive shared tally notifications");
+  person = { ...person, phone: "" };
+  await ledgerRefresh();
+  await flush();
+  const hasWhatsAppMenuAction = () =>
+    find("OverflowMenu")!.props.actions.some((action: any) => action.icon === "logo-whatsapp");
+  assert.equal(hasWhatsAppMenuAction(), false, "Joined accounts also hide the menu fallback");
   link.other_joined_at = null;
   await ledgerRefresh();
   await flush();
   assert.equal(find("SharedAccountBadge"), undefined);
   assert.ok(nodes(byTestId("customer-metadata")).includes(byTestId("customer-link-waiting")!));
+  assert.equal(hasWhatsAppMenuAction(), true, "A pending invitation still allows private reminders");
   unmount();
   platform = originalPlatform;
   rtl = originalRTL;
@@ -4737,6 +4749,7 @@ async function main() {
       find("SharedAccountBadge"),
       "a joined foreign-currency account enables the contact badge with a private primary currency",
     );
+    assert.equal(pingButton(), undefined, "A joined foreign currency hides the account-wide bill button");
     await flush();
     assert.ok(
       (watched.get("usd-tab") ?? 0) > 0,
@@ -4751,7 +4764,7 @@ async function main() {
     dateControl().props.onChange(dateRangeBetween(Date.UTC(2026, 9, 26), Date.UTC(2026, 9, 26)));
     await flush();
     assert.deepEqual(rowIds(), [], "The screen filters hide all tallies before sharing");
-    pingButton().props.onPress();
+    queueNotificationReminder("native:mixed-currency-bill");
     await flush();
     const chooseCurrency = nodes(tree).find(
       (node) =>
@@ -4836,7 +4849,7 @@ async function main() {
     };
     await ledgerRefresh();
     await flush();
-    pingButton().props.onPress();
+    queueNotificationReminder("native:mixed-currency-unrestored");
     await flush();
     assert.equal(shares.length, 1, "An unknown foreign balance blocks the entire bill");
     assert.equal(toasts.at(-1)?.[0], "tab.notDownloaded");
@@ -6042,6 +6055,8 @@ async function main() {
     "earlier periods are summary-only, never injected into current money/list",
   );
   assert.ok(words(tree).includes("amount:493"), "flow history cannot change the hero balance");
+  assert.equal(pingButton(), undefined, "A relinked shared account also hides the bill button");
+  link = { ...link, closed_at: 1000 };
   const olderCache = {
     link: { tab_id: "older-unrestored", last_synced_at: null as number | null },
     entries: [],

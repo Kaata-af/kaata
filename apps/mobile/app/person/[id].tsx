@@ -2837,7 +2837,8 @@ export default function PersonDetailScreen() {
   const balanceRows = personCurrencyRows(person);
   const singleBalanceCurrency = balanceRows.length === 1;
   const hasCustomerPhone = !!person.phone?.trim();
-  const showHeaderWhatsApp = entries.length > 0 && hasCustomerPhone;
+  const canSendHeaderWhatsApp = entries.length > 0 && sharedAccountStatus !== "joined";
+  const showHeaderWhatsApp = canSendHeaderWhatsApp && hasCustomerPhone;
   const whatsAppLabel = t(
     pingStage === "preparing"
       ? "person.ping.preparing"
@@ -3025,7 +3026,7 @@ export default function PersonDetailScreen() {
                       });
                     },
                   },
-                  ...(!hasCustomerPhone && entries.length > 0
+                  ...(canSendHeaderWhatsApp && !hasCustomerPhone
                     ? [
                         {
                           label: whatsAppLabel,
