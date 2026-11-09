@@ -30,6 +30,7 @@ import { usePeopleRequests } from "../lib/use-people-requests";
 import type { PeopleRequest } from "../lib/people-connections";
 import { useVaultMemberRequests } from "../lib/use-vault-member-requests";
 import type { VaultMemberRequest } from "../lib/vault-member-requests";
+import { prepareVaultMemberInviteAcceptance } from "../lib/vault-member-invite-intent";
 import { useFriendRequests } from "../lib/use-friend-requests";
 import type { FriendRequest } from "../lib/friends-api";
 import { Button } from "./Button";
@@ -41,6 +42,101 @@ function openPeopleRequest(item: PeopleRequest, intent?: "accept") {
     pathname: "/t/[token]",
     params: { token: item.token, ...(intent ? { intent } : {}) },
   });
+}
+
+async function openVaultMemberRequest(
+  item: VaultMemberRequest,
+  isCurrent: () => boolean,
+  intent?: "accept",
+) {
+  if (!isCurrent()) return;
+  const acceptance =
+    intent === "accept" ? await prepareVaultMemberInviteAcceptance(item.token, isCurrent) : null;
+  if (!isCurrent()) return;
+  router.push({
+    pathname: "/invite/[token]",
+    params: { token: item.token, ...(acceptance ? { acceptance } : {}) },
+  });
+}
+
+function renderRequestCard({
+  key,
+  rtl,
+  body,
+  subtitle,
+  hint,
+  acceptLabel,
+  rejectLabel,
+  disabled,
+  loading,
+  onOpen,
+  onAccept,
+  onReject,
+}: {
+  key: string;
+  rtl: boolean;
+  body: string;
+  subtitle?: string;
+  hint: string;
+  acceptLabel: string;
+  rejectLabel: string;
+  disabled: boolean;
+  loading?: "accept" | "decline";
+  onOpen: () => void;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <View key={key} style={styles.notice}>
+      {/* The card body and the two action buttons are separate tap targets. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={body}
+        accessibilityHint={hint}
+        disabled={disabled}
+        style={({ pressed }) => [
+          StyleSheet.absoluteFill,
+          pressed && { backgroundColor: colors.bgSubtle },
+        ]}
+        onPress={onOpen}
+      />
+      <View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.requestText, styles.requestHeader, rowDir(rtl)]}
+      >
+        <View style={styles.text}>
+          <Text style={[styles.body, textDir(rtl)]}>{body}</Text>
+          {subtitle ? <Text style={[styles.time, textDir(rtl)]}>{subtitle}</Text> : null}
+        </View>
+        <Ionicons
+          name={rtl ? "chevron-back" : "chevron-forward"}
+          size={icon.row}
+          color={colors.textSubtle}
+        />
+      </View>
+      <View pointerEvents="box-none" style={[styles.requestActions, rowDir(rtl)]}>
+        <Button
+          label={t("tab.accept")}
+          accessibilityLabel={acceptLabel}
+          wrapLabel
+          disabled={disabled}
+          loading={loading === "accept"}
+          onPress={onAccept}
+        />
+        <Button
+          label={t("tab.reject")}
+          accessibilityLabel={rejectLabel}
+          variant="secondary"
+          wrapLabel
+          disabled={disabled}
+          loading={loading === "decline"}
+          onPress={onReject}
+        />
+      </View>
+    </View>
+  );
 }
 
 async function openInboxNotice(inbox: Inbox, item: InboxItem) {
@@ -120,7 +216,7 @@ function InboxContent({
   requests: ReturnType<typeof usePeopleRequests>;
   openRequest: (item: PeopleRequest, intent?: "accept") => void;
   memberRequests: ReturnType<typeof useVaultMemberRequests>;
-  openMemberRequest: (item: VaultMemberRequest) => void;
+  openMemberRequest: (item: VaultMemberRequest, intent?: "accept") => void | Promise<void>;
   friendRequests: ReturnType<typeof useFriendRequests>;
   openFriendRequest: (item: FriendRequest) => void;
 }) {
@@ -129,6 +225,8 @@ function InboxContent({
   const [marking, setMarking] = useState(false);
   const [declining, setDeclining] = useState<string | null>(null);
   const decliningRef = useRef(false);
+  const [acceptingMember, setAcceptingMember] = useState<string | null>(null);
+  const openingMemberRef = useRef(false);
   const { page, loading, failed, signedIn } = inbox;
   const toReminders = openReminders ?? (() => router.push("/reminders"));
   return (
@@ -194,63 +292,22 @@ function InboxContent({
               if (friendRequests.isCurrent()) toast.push(t("inbox.failed"), "error");
             });
           };
-          return (
-            <View key={`friend-${item.id}`} style={styles.notice}>
-              {/* The card opens the profile. Accept and Reject are separate hit targets. */}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={body}
-                accessibilityHint={t("peopleProfile.view")}
-                disabled={responding != null}
-                style={({ pressed }) => [
-                  StyleSheet.absoluteFill,
-                  pressed && { backgroundColor: colors.bgSubtle },
-                ]}
-                onPress={() => {
-                  if (friendRequests.isRequestCurrent(item.id)) openFriendRequest(item);
-                }}
-              />
-              <View
-                pointerEvents="none"
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                style={[styles.requestText, styles.friendRequestHeader, rowDir(rtl)]}
-              >
-                <View style={styles.text}>
-                  <Text style={[styles.body, textDir(rtl)]}>{body}</Text>
-                  {item.from.username ? (
-                    <Text style={[styles.time, textDir(rtl)]}>
-                      {ltrIsolate(`@${item.from.username}`)}
-                    </Text>
-                  ) : null}
-                </View>
-                <Ionicons
-                  name={rtl ? "chevron-back" : "chevron-forward"}
-                  size={icon.row}
-                  color={colors.textSubtle}
-                />
-              </View>
-              <View pointerEvents="box-none" style={[styles.requestActions, rowDir(rtl)]}>
-                <Button
-                  label={t("tab.accept")}
-                  accessibilityLabel={`${t("peopleProfile.accept")} · ${name}`}
-                  wrapLabel
-                  disabled={responding != null}
-                  loading={responding?.id === item.id && responding.action === "accept"}
-                  onPress={() => respond("accept")}
-                />
-                <Button
-                  label={t("tab.reject")}
-                  accessibilityLabel={`${t("tab.reject")} · ${name}`}
-                  variant="secondary"
-                  wrapLabel
-                  disabled={responding != null}
-                  loading={responding?.id === item.id && responding.action === "decline"}
-                  onPress={() => respond("decline")}
-                />
-              </View>
-            </View>
-          );
+          return renderRequestCard({
+            key: `friend-${item.id}`,
+            rtl,
+            body,
+            subtitle: item.from.username ? ltrIsolate(`@${item.from.username}`) : undefined,
+            hint: t("peopleProfile.view"),
+            acceptLabel: `${t("peopleProfile.accept")} · ${name}`,
+            rejectLabel: `${t("tab.reject")} · ${name}`,
+            disabled: responding != null,
+            loading: responding?.id === item.id ? responding.action : undefined,
+            onOpen: () => {
+              if (friendRequests.isRequestCurrent(item.id)) openFriendRequest(item);
+            },
+            onAccept: () => respond("accept"),
+            onReject: () => respond("decline"),
+          });
         })}
         {memberRequests.failed ? (
           <Pressable
@@ -266,53 +323,56 @@ function InboxContent({
             {t("invite.people.requestsTitle")}
           </Text>
         ) : null}
-        {(compact ? memberRequests.rows.slice(0, 3) : memberRequests.rows).map((item) => (
-          <View
-            key={`member-${item.id}`}
-            style={[styles.notice, { alignItems: rtl ? "flex-end" : "flex-start" }]}
-          >
-            <Text style={[styles.body, textDir(rtl)]}>
-              {t("invite.people.requestBody", {
-                name: item.inviter_name || t("inviteAccept.confirm.someone"),
-                kaata: item.vault_name,
-                role: t(`invite.role.${item.role}`),
-              })}
-            </Text>
-            <View style={[rowDir(rtl), { gap: 16 }]}>
-              <Pressable
-                accessibilityRole="button"
-                style={styles.control}
-                disabled={declining !== null}
-                onPress={() => openMemberRequest(item)}
-              >
-                <Text style={styles.controlText}>{t("peopleSearch.review")}</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                style={styles.control}
-                disabled={declining !== null}
-                onPress={() => {
-                  if (decliningRef.current) return;
-                  decliningRef.current = true;
-                  setDeclining(item.id);
-                  void memberRequests
-                    .decline(item.id)
-                    .catch(() => toast.push(t("inbox.failed"), "error"))
-                    .finally(() => {
-                      decliningRef.current = false;
-                      setDeclining(null);
-                    });
-                }}
-              >
-                {declining === item.id ? (
-                  <ActivityIndicator color={colors.textSubtle} />
-                ) : (
-                  <Text style={styles.controlText}>{t("peopleSearch.decline")}</Text>
-                )}
-              </Pressable>
-            </View>
-          </View>
-        ))}
+        {(compact ? memberRequests.rows.slice(0, 3) : memberRequests.rows).map((item) => {
+          const key = `member-${item.id}`;
+          const canAct = () =>
+            !decliningRef.current &&
+            !openingMemberRef.current &&
+            memberRequests.isRequestCurrent(item.id);
+          const open = (intent?: "accept") => {
+            if (!canAct()) return;
+            openingMemberRef.current = true;
+            if (intent) setAcceptingMember(key);
+            void Promise.resolve(openMemberRequest(item, intent))
+              .catch(() => {
+                if (memberRequests.isCurrent()) toast.push(t("inbox.failed"), "error");
+              })
+              .finally(() => {
+                openingMemberRef.current = false;
+                if (intent) setAcceptingMember(null);
+              });
+          };
+          return renderRequestCard({
+            key,
+            rtl,
+            body: t("invite.people.requestBody", {
+              name: item.inviter_name || t("inviteAccept.confirm.someone"),
+              kaata: item.vault_name,
+              role: t(`invite.role.${item.role}`),
+            }),
+            hint: t("peopleSearch.review"),
+            acceptLabel: `${t("inviteAccept.confirm.accept")} · ${item.vault_name}`,
+            rejectLabel: `${t("tab.reject")} · ${item.vault_name}`,
+            disabled: declining !== null || acceptingMember !== null,
+            loading: declining === key ? "decline" : acceptingMember === key ? "accept" : undefined,
+            onOpen: () => open(),
+            onAccept: () => open("accept"),
+            onReject: () => {
+              if (!canAct()) return;
+              decliningRef.current = true;
+              setDeclining(key);
+              void memberRequests
+                .decline(item.id)
+                .catch(() => {
+                  if (memberRequests.isCurrent()) toast.push(t("inbox.failed"), "error");
+                })
+                .finally(() => {
+                  decliningRef.current = false;
+                  setDeclining(null);
+                });
+            },
+          });
+        })}
         {requests.failed ? (
           <Pressable
             accessibilityRole="button"
@@ -703,10 +763,17 @@ export function NotificationBell({
                     });
                 })
               }
-              openMemberRequest={(item) =>
-                close(() =>
-                  router.push({ pathname: "/invite/[token]", params: { token: item.token } }),
-                )
+              openMemberRequest={(item, intent) =>
+                close(() => {
+                  const opening = generation.current;
+                  const current = () =>
+                    mounted.current &&
+                    opening === generation.current &&
+                    memberRequests.isRequestCurrent(item.id);
+                  void openVaultMemberRequest(item, current, intent).catch(() => {
+                    if (current()) toast.push(t("inbox.failed"), "error");
+                  });
+                })
               }
               openRequest={(item, intent) =>
                 close(() => {
@@ -771,8 +838,8 @@ export function FullNotificationInbox() {
             params: { accountId: item.from.account_id },
           });
       }}
-      openMemberRequest={(item) =>
-        router.push({ pathname: "/invite/[token]", params: { token: item.token } })
+      openMemberRequest={(item, intent) =>
+        openVaultMemberRequest(item, () => memberRequests.isRequestCurrent(item.id), intent)
       }
       openRequest={(item, intent) => {
         if (requests.isCurrent()) openPeopleRequest(item, intent);
@@ -870,7 +937,7 @@ const styles = StyleSheet.create({
   },
   noticeIcon: { paddingTop: 2 },
   requestText: { alignSelf: "stretch" },
-  friendRequestHeader: { alignItems: "center", gap: 8 },
+  requestHeader: { alignItems: "center", gap: 8 },
   requestActions: { alignSelf: "stretch", flexWrap: "wrap", gap: 8 },
   text: { flex: 1, minWidth: 0 },
   body: { ...typography.bodySm, color: colors.textDefault },

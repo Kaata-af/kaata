@@ -998,6 +998,7 @@ const emptyRequests = () => ({
 });
 mocks["../lib/use-people-requests"] = { usePeopleRequests: emptyRequests };
 mocks["../lib/use-vault-member-requests"] = { useVaultMemberRequests: emptyRequests };
+mocks["../lib/vault-member-invite-intent"] = { prepareVaultMemberInviteAcceptance: async () => null };
 mocks["../lib/use-friend-requests"] = { useFriendRequests: emptyRequests };
 const { NotificationBell, FullNotificationInbox } = compile(
   readFileSync(require.resolve("../../components/NotificationInbox"), "utf8"),

@@ -148,6 +148,7 @@ for (const os of ["ios", "android"] as const) {
     "../lib/use-customer-reminders": { useCustomerReminders: () => ({ due: [], rows: [] }) },
     "../lib/use-people-requests": { usePeopleRequests: emptyRequests },
     "../lib/use-vault-member-requests": { useVaultMemberRequests: emptyRequests },
+    "../lib/vault-member-invite-intent": { prepareVaultMemberInviteAcceptance: async () => null },
     "../lib/use-friend-requests": { useFriendRequests: emptyRequests },
     "./Button": { Button: "Button" },
     "./Toast": { useToast: () => ({ push() {} }) },

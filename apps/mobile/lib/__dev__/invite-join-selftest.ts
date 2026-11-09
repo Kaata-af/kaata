@@ -1238,6 +1238,7 @@ async function screenCases() {
           applyForCurrentSession: async (_: any, work: any) => work(),
           SessionChangedError: class extends Error {},
         },
+        "../../lib/vault-member-invite-intent": { consumeVaultMemberInviteAcceptance: () => false },
         "../../lib/checkin-trigger": { requestImmediateCheckIn: () => {} },
         "../../lib/colors": { colors },
         "../../lib/db-tx": {
@@ -1361,7 +1362,7 @@ function sessionReact(hooks: ReturnType<typeof uiHooks>) {
   };
 }
 
-async function targetedScreenFixture() {
+async function targetedScreenFixture(shortcut?: "inbox" | "external") {
   const hooks = uiHooks();
   const token = "v_11111111-1111-4111-8111-111111111111";
   let account: string | null = "A",
@@ -1405,6 +1406,26 @@ async function targetedScreenFixture() {
       throw new SessionChangedError();
     return work();
   };
+  const auth = {
+    captureCurrentSession: async () => session(),
+    applyForCurrentSession: guard,
+    applyForUnchangedLocalSession: guard,
+    SessionChangedError,
+  };
+  const intent = compileUI("../vault-member-invite-intent", {
+    "expo-crypto": { randomUUID },
+    "react-native": { AppState: appState },
+    "./auth": auth,
+    "./vault-member-requests": {
+      isVaultMemberRequestToken: (value: string) => value === token,
+    },
+  }) as typeof import("../vault-member-invite-intent");
+  const acceptance =
+    shortcut === "inbox"
+      ? await intent.prepareVaultMemberInviteAcceptance(token, () => true)
+      : shortcut === "external"
+        ? randomUUID()
+        : undefined;
   const router = { replace: (path: string) => navigations.push(path) };
   const toast = { push: (text: string) => toasts.push(text) };
   const screen = compileUI(
@@ -1416,7 +1437,7 @@ async function targetedScreenFixture() {
       "expo-router": {
         useIsFocused: () => focused,
         useRouter: () => router,
-        useLocalSearchParams: () => ({ token }),
+        useLocalSearchParams: () => ({ token, acceptance }),
       },
       "react-native": {
         AppState: appState,
@@ -1429,12 +1450,8 @@ async function targetedScreenFixture() {
       "../../components/Button": { Button: "Button" },
       "../../components/SettingsScreen": { ScreenHeader: "Header" },
       "../../components/Toast": { useToast: () => toast },
-      "../../lib/auth": {
-        captureCurrentSession: async () => session(),
-        applyForCurrentSession: guard,
-        applyForUnchangedLocalSession: guard,
-        SessionChangedError,
-      },
+      "../../lib/auth": auth,
+      "../../lib/vault-member-invite-intent": intent,
       "../../lib/db-tx": {
         getSessionAccountIdSync: () => account,
         onAccountIdentityChanged: (listener: () => void) => {
@@ -1577,12 +1594,52 @@ async function targetedScreenFixture() {
 }
 
 async function targetedScreenCases() {
-  const returning = await targetedScreenFixture();
+  const direct = await targetedScreenFixture("inbox");
+  assert.equal(direct.posts.length, 0, "the inbox shortcut waits for the authenticated preview");
+  direct.previews[0].reply.resolve(direct.preview("A Kaata"));
+  await direct.flush();
+  assert.equal(direct.posts.length, 1, "an explicit inbox Accept uses the normal acceptance path");
+  assert.equal(direct.posts[0].accountId, "A");
+  direct.focus(false);
+  await direct.flush();
+  direct.focus(true);
+  await direct.flush();
+  direct.previews[1].reply.resolve(direct.preview("A Kaata"));
+  await direct.flush();
+  assert.equal(direct.posts.length, 1, "a consumed shortcut does not run again on focus");
+  direct.acceptReply.resolve({ vault_id: "A-vault", vault_name: "A Kaata", role: "viewer" });
+  await direct.flush();
+  direct.hooks.unmount();
+
+  const external = await targetedScreenFixture("external");
+  external.previews[0].reply.resolve(external.preview("A Kaata"));
+  await external.flush();
+  assert.equal(external.posts.length, 0, "a deep link cannot authorize acceptance");
+  assert.ok(external.button("inviteAccept.confirm.accept"));
+  external.hooks.unmount();
+
+  const rebound = await targetedScreenFixture("inbox");
+  rebound.switchAccount(null);
+  rebound.switchAccount("A");
+  await rebound.flush();
+  rebound.previews.at(-1)!.reply.resolve(rebound.preview("A Kaata"));
+  await rebound.flush();
+  assert.equal(rebound.posts.length, 0, "an older session cannot authorize the shortcut");
+  assert.ok(rebound.button("inviteAccept.confirm.accept"));
+  rebound.previews[0].reply.resolve(rebound.preview("Old A Kaata"));
+  rebound.hooks.unmount();
+
+  const returning = await targetedScreenFixture("inbox");
   returning.previews[0].reply.resolve({
     ...returning.preview("A Kaata"),
     kind: "member_readmission",
   });
   await returning.flush();
+  assert.equal(
+    returning.posts.length,
+    0,
+    "a return invitation requires the existing consent screen",
+  );
   returning.returnResponse(true);
   const acceptReturn = returning.button("inviteAccept.readmission.accept")!.props.onPress;
   await Promise.all([acceptReturn(), acceptReturn()]);

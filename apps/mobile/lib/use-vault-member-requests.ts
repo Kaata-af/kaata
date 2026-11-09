@@ -10,6 +10,8 @@ import {
   type VaultMemberRequest,
 } from "./vault-member-requests";
 
+type RequestSnapshot = { scope: string; rows: VaultMemberRequest[] };
+
 /** Pending access requests live in the existing inbox, scoped to its signed-in account. */
 export function useVaultMemberRequests() {
   const identityRevision = useRef(0);
@@ -24,14 +26,23 @@ export function useVaultMemberRequests() {
   const currentScope = () => `${identityRevision.current}:${getSessionAccountIdSync() ?? ""}`;
   const scope = useSyncExternalStore(subscribe, currentScope, () => "signed-out");
   const account = getSessionAccountIdSync();
-  const [snapshot, setSnapshot] = useState<{ scope: string; rows: VaultMemberRequest[] } | null>(
-    null,
-  );
+  const [snapshot, setSnapshot] = useState<RequestSnapshot | null>(null);
+  const latest = useRef<RequestSnapshot | null>(null);
   const [failure, setFailure] = useState<{ scope: string; failed: boolean } | null>(null);
   const sequence = useRef(0);
   const active = useRef(false);
   const busy = useRef(false);
   const observed = useRef<IncomingRequestSnapshot | null>(null);
+  const commit = useCallback((next: RequestSnapshot) => {
+    latest.current = next;
+    setSnapshot(next);
+  }, []);
+  const isCurrent = () => !!account && active.current && currentScope() === scope;
+  const isRequestCurrent = (id: string) =>
+    isCurrent() &&
+    AppState.currentState === "active" &&
+    latest.current?.scope === scope &&
+    latest.current.rows.some((row) => row.id === id);
   const reload = useCallback(async () => {
     if (!account || currentScope() !== scope || !active.current || busy.current) return;
     const run = ++sequence.current;
@@ -46,7 +57,7 @@ export function useVaultMemberRequests() {
           "vault_member_request",
           current,
         );
-        setSnapshot({ scope, rows });
+        commit({ scope, rows });
         setFailure({ scope, failed: false });
       }
     } catch (error) {
@@ -55,7 +66,7 @@ export function useVaultMemberRequests() {
     } finally {
       if (run === sequence.current) busy.current = false;
     }
-  }, [account, scope]);
+  }, [account, scope, commit]);
   useFocusEffect(
     useCallback(() => {
       active.current = true;
@@ -80,16 +91,13 @@ export function useVaultMemberRequests() {
     }, [reload]),
   );
   const decline = async (id: string) => {
-    if (!account || !active.current || currentScope() !== scope) return;
+    if (!isRequestCurrent(id)) return;
     await declineVaultMemberRequest(id);
-    if (active.current && currentScope() === scope) {
+    const previous = latest.current;
+    if (isCurrent() && previous?.scope === scope) {
       sequence.current++;
       busy.current = false;
-      setSnapshot((previous) =>
-        previous?.scope === scope
-          ? { scope, rows: previous.rows.filter((item) => item.id !== id) }
-          : previous,
-      );
+      commit({ scope, rows: previous.rows.filter((item) => item.id !== id) });
     }
   };
   return {
@@ -97,5 +105,7 @@ export function useVaultMemberRequests() {
     failed: account && failure?.scope === scope ? failure.failed : false,
     reload,
     decline,
+    isCurrent,
+    isRequestCurrent,
   };
 }

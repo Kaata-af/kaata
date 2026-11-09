@@ -580,7 +580,9 @@ for (const kind of ["members", "people"] as const) {
     f.lists[0].resolve([{ id: inviteId }]);
     await f.settle();
     const previous = f.result();
+    if (kind === "members") assert.equal(previous.isRequestCurrent(inviteId), true);
     f.rebind(false);
+    if (kind === "members") assert.equal(previous.isRequestCurrent(inviteId), false);
     await previous.decline(inviteId);
     await previous.reload();
     assert.equal(f.declines.length, 0);

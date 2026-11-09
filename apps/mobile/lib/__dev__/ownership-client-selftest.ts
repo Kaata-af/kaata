@@ -365,6 +365,7 @@ async function screenCase() {
         emitWitnessedSelfAdmission: async () => {},
         witnessEmitPendingKey: () => "pending",
       },
+      "../../lib/vault-member-invite-intent": { consumeVaultMemberInviteAcceptance: () => false },
       "../../lib/recovery": {
         seedJoinedVaultMinimal: async () => {},
         recoverJoinedVault: async () => {

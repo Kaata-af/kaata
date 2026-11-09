@@ -73,6 +73,7 @@ import {
   type PendingInvite,
   type AcceptInviteResult,
 } from "../../lib/vault-api";
+import { consumeVaultMemberInviteAcceptance } from "../../lib/vault-member-invite-intent";
 
 type Stage =
   | "loading"
@@ -115,8 +116,12 @@ export default function InviteAcceptScreen() {
     );
     return () => listener.remove();
   }, []);
-  const { token: tokenParam } = useLocalSearchParams<{ token: string }>();
+  const { token: tokenParam, acceptance: acceptanceParam } = useLocalSearchParams<{
+    token: string;
+    acceptance?: string;
+  }>();
   const token = typeof tokenParam === "string" ? tokenParam : null;
+  const acceptance = typeof acceptanceParam === "string" ? acceptanceParam : null;
 
   // Count notifications as well as account IDs: A -> signed out -> A may be
   // batched into one render, but it must still discard A's old session work.
@@ -135,7 +140,7 @@ export default function InviteAcceptScreen() {
   );
   const identity = useSyncExternalStore(subscribeIdentity, identitySnapshot, identitySnapshot);
   const [attempt, setAttempt] = useState(0);
-  const scope = JSON.stringify([token, identity, attempt, focused, foreground]);
+  const scope = JSON.stringify([token, acceptance, identity, attempt, focused, foreground]);
   const latestScope = useRef(scope);
   latestScope.current = scope;
   const currentScope = () =>
@@ -522,6 +527,22 @@ export default function InviteAcceptScreen() {
       setStage("error");
     }
   }
+
+  useEffect(() => {
+    const preview = previewSession.current;
+    if (
+      stage !== "confirm" ||
+      !invite ||
+      !token ||
+      !acceptance ||
+      preview?.scope !== scope ||
+      !currentScope()
+    )
+      return;
+    const confirmed = consumeVaultMemberInviteAcceptance(token, acceptance, preview.session);
+    // Return and ownership invitations have their own consent disclosures.
+    if (confirmed && !invite.kind) void onAccept();
+  }, [stage, scope, invite]);
 
   // Ordinary sync uploads the proof and retries interrupted setup. Re-check
   // while this screen is visible, without consuming the invite a second time.

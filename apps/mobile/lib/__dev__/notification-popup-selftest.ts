@@ -52,11 +52,20 @@ function fixture(full = false) {
     },
     isCurrent: () => requestScope,
   };
+  let memberScope = true;
+  const memberAccepts: string[] = [];
+  const memberRejects: string[] = [];
   const memberRequests = {
     rows: [] as any[],
     failed: false,
     reload: async () => {},
-    decline: async () => {},
+    decline: async (id: string) => {
+      memberRejects.push(id);
+      memberRequests.rows = memberRequests.rows.filter((row) => row.id !== id);
+    },
+    isCurrent: () => memberScope,
+    isRequestCurrent: (id: string): boolean =>
+      memberScope && memberRequests.rows.some((row) => row.id === id),
   };
   let friendScope = true;
   const friendActions: [string, string][] = [];
@@ -80,6 +89,13 @@ function fixture(full = false) {
     {
       "../lib/use-people-requests": { usePeopleRequests: () => requests },
       "../lib/use-vault-member-requests": { useVaultMemberRequests: () => memberRequests },
+      "../lib/vault-member-invite-intent": {
+        prepareVaultMemberInviteAcceptance: async (token: string, current: () => boolean) => {
+          if (!current()) return null;
+          memberAccepts.push(token);
+          return "in-app-consent";
+        },
+      },
       "../lib/use-friend-requests": { useFriendRequests: () => friendRequests },
       "./ProtectedModal": { ProtectedModal: "Modal" },
       "./Button": { Button: "Button" },
@@ -202,6 +218,11 @@ function fixture(full = false) {
       requestScope = false;
     },
     memberRequests,
+    memberAccepts,
+    memberRejects,
+    invalidateMembers: () => {
+      memberScope = false;
+    },
     friendRequests,
     friendActions,
     invalidateFriends: () => {
@@ -508,8 +529,9 @@ async function main() {
   stale.flushTimers();
   assert.deepEqual(stale.routes, [], "Accept cannot open an old account's invitation");
   stale.hooks.unmount();
+  const member = { id: "member-invite", token: "v_account-bound", vault_name: "Demo Kaata" };
   const membership = fixture();
-  membership.memberRequests.rows = [{ id: "member-invite", token: "v_account-bound" }];
+  membership.memberRequests.rows = [member];
   membership.render();
   const memberBadge = nodes(membership.bell()).find(
     (node) => node.type === "Text" && node.props.allowFontScaling === false,
@@ -521,10 +543,12 @@ async function main() {
   );
   membership.open();
   membership.measure();
-  const memberContent = nodes(membership.hooks.tree).find(
-    (node) => typeof node.props.openMemberRequest === "function",
+  const cardBody = nodes(membership.hooks.tree).find(
+    (node) =>
+      node.type === "Pressable" && node.props.accessibilityLabel === "invite.people.requestBody",
   )!;
-  memberContent.props.openMemberRequest(membership.memberRequests.rows[0]);
+  assert.ok(!nodes(cardBody).some((node) => node.type === "Button"));
+  cardBody.props.onPress();
   assert.deepEqual(membership.routes, [], "member review waits for the popup to close");
   membership.flushTimers();
   assert.deepEqual(
@@ -537,7 +561,49 @@ async function main() {
     [],
     "reviewing a member invitation cannot open a financial tally",
   );
+  assert.deepEqual(membership.memberAccepts, [], "opening details alone does not grant consent");
+  await settleUI();
   membership.hooks.unmount();
+  for (const [full, action] of [
+    [false, "accept"],
+    [true, "accept"],
+    [false, "reject"],
+    [true, "reject"],
+    [false, "stale"],
+  ] as const) {
+    const invite = fixture(full);
+    invite.memberRequests.rows = [member];
+    invite.render();
+    if (!full) {
+      invite.open();
+      invite.measure();
+    }
+    const label = action === "reject" ? "tab.reject" : "tab.accept";
+    const button = nodes(invite.hooks.tree).find(
+      (node) => node.type === "Button" && node.props.label === label,
+    )!;
+    button.props.onPress();
+    button.props.onPress();
+    assert.deepEqual(invite.routes, [], "accept waits for the scoped handoff");
+    if (action === "stale") invite.invalidateMembers();
+    invite.flushTimers();
+    await settleUI();
+    assert.deepEqual(invite.memberAccepts, action === "accept" ? [member.token] : []);
+    assert.deepEqual(invite.memberRejects, action === "reject" ? [member.id] : []);
+    assert.deepEqual(
+      invite.routes,
+      action === "accept"
+        ? [
+            {
+              pathname: "/invite/[token]",
+              params: { token: member.token, acceptance: "in-app-consent" },
+            },
+          ]
+        : [],
+    );
+    if (action === "reject") assert.deepEqual(invite.memberRequests.rows, []);
+    invite.hooks.unmount();
+  }
   const accepted = {
     id: "42",
     tab_id: "",
