@@ -2466,6 +2466,23 @@ async function singleCurrencyBalanceTests() {
   await flush();
   assert.equal(find("SharedAccountBadge"), undefined, "unknown join state cannot show blue");
   assert.ok(byId("customer-link-waiting"));
+  link.invite_url = "https://kaata.af/t/old";
+  link.invitation_declined_at = 950;
+  tabListeners.forEach((fn) => fn({ relationshipId: "relationship", origin: "pull" }));
+  await flush();
+  assert.equal(byId("customer-link-waiting"), undefined);
+  assert.equal(words(byId("customer-link-declined")), "tab.chip.declined");
+  const declinedManagement = nodes(tree).find(
+    (node) => node.type === "BottomSheet" && node.props.visible,
+  );
+  assert.ok(declinedManagement);
+  assert.deepEqual(
+    declinedManagement.props.actions.map((action: { label: string }) => action.label),
+    ["tab.invite.cancel"],
+    "the old invitation can be cleared but cannot be resent or regenerated",
+  );
+  assert.equal(words(byId("customer-balance-value-AFN")), beforeJoinMoney);
+  assert.equal(JSON.stringify(entries), beforeJoinEntries, "rejection does not touch tallies");
   link.other_joined_at = 900;
   link.closed_at = 1000;
   await ledgerRefresh();

@@ -10,7 +10,7 @@ import (
 
 // This is a summary for the viewer's selected Kaata. A friendship itself
 // never provides access to any of these records. No tokens or balances leave
-// the server, and pending invites are only summarized for their own sender.
+// the server, and unjoined invites are only summarized for their own sender.
 type PersonProfileActivity struct {
 	SharedTally            string `json:"shared_tally,omitempty"`
 	KaataInvitationRole    string `json:"kaata_invitation_role,omitempty"`
@@ -36,7 +36,8 @@ func (s *Service) loadPersonProfileActivity(ctx context.Context, viewer, target,
        AND g.b_account_id IS NOT NULL THEN 'active'
       WHEN g.closed_at IS NULL AND g.b_joined_at IS NULL AND NOT g.b_account_bound_once
        AND r.sender_account_id=$1::uuid AND r.recipient_account_id=$2::uuid
-       AND r.declined_at IS NULL AND r.expires_at>NOW() THEN 'pending'
+       THEN CASE WHEN r.declined_at IS NOT NULL THEN 'declined'
+                 WHEN r.expires_at>NOW() THEN 'pending' ELSE '' END
       ELSE '' END AS state,
  g.created_at,g.id
  FROM authorized v JOIN tab_groups g ON g.a_vault_id=v.vault_id OR g.b_vault_id=v.vault_id
@@ -46,7 +47,7 @@ func (s *Service) loadPersonProfileActivity(ctx context.Context, viewer, target,
     OR (g.b_vault_id=v.vault_id AND g.a_account_id=$2::uuid)
 ), chosen_group AS (
  SELECT relationship_id,state FROM pair_groups
- ORDER BY CASE state WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,created_at DESC,id DESC LIMIT 1
+ ORDER BY CASE state WHEN 'active' THEN 0 WHEN 'pending' THEN 1 WHEN 'declined' THEN 2 ELSE 3 END,created_at DESC,id DESC LIMIT 1
 )
 SELECT COALESCE((SELECT state FROM chosen_group),''),
  COALESCE((SELECT relationship_id FROM chosen_group),''),

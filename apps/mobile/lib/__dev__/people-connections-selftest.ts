@@ -383,6 +383,7 @@ function confirmationFixture(restored = false) {
       resolveShareLang: () => "en",
     },
     "../lib/tabs/db": { listOpenTabLinksForPerson: async () => [fresh] },
+    "../lib/tabs/link-status": require("../tabs/link-status"),
     "../lib/tabs/link": {
       getPendingContactGroupSettings: async () => null,
       linkContactGroup: async (...args: unknown[]) => {

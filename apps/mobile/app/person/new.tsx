@@ -443,8 +443,10 @@ export default function PersonAddOrFindScreen() {
             <Text style={[styles.rowSub, textDir(isRTL)]} numberOfLines={1}>
               {isFriend ? `${t("peopleSearch.friend")} · ${phoneLabel}` : phoneLabel}
             </Text>
-            {sharedStatus === "waiting" ? (
-              <Text style={[styles.rowSub, textDir(isRTL)]}>{t("tab.chip.waiting")}</Text>
+            {sharedStatus === "waiting" || sharedStatus === "declined" ? (
+              <Text style={[styles.rowSub, textDir(isRTL)]}>
+                {t(sharedStatus === "declined" ? "tab.chip.declined" : "tab.chip.waiting")}
+              </Text>
             ) : null}
           </View>
           <RightAmount

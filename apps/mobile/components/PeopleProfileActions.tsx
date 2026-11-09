@@ -163,12 +163,14 @@ export function PeopleProfileActions(props: {
   const shown = snapshot?.scope === scope && current() ? snapshot : null;
   const active = shown?.activity?.shared_tally === "active";
   const pending = shown?.activity?.shared_tally === "pending";
+  const declined = shown?.activity?.shared_tally === "declined";
+  const opensLedger = active || declined;
   const memberRole = shown?.activity?.kaata_invitation_role;
   const ready = !!shown && !!vaultId && current() && !acting && dialog !== scope;
   const canShare =
     ready &&
     !pending &&
-    (active ? !!shown.localPersonId : permissions.current.share && shown.canReceiveRequests);
+    (opensLedger ? !!shown.localPersonId : permissions.current.share && shown.canReceiveRequests);
   const canAddMember =
     ready && !memberRole && permissions.current.invite && shown.canReceiveRequests;
 
@@ -190,7 +192,9 @@ export function PeopleProfileActions(props: {
       if (
         !current() ||
         generation.current !== run ||
-        (kind === "share" ? !active && !permissions.current.share : !permissions.current.invite)
+        (kind === "share"
+          ? !opensLedger && !permissions.current.share
+          : !permissions.current.invite)
       )
         return;
       if (kind === "member") {
@@ -198,7 +202,7 @@ export function PeopleProfileActions(props: {
           pathname: "/vault/invite",
           params: { profileAccountId: props.person.account_id },
         });
-      } else if (active && shown.localPersonId) {
+      } else if (opensLedger && shown.localPersonId) {
         if (props.onOpenLedger) props.onOpenLedger(shown.localPersonId);
         else router.push({ pathname: "/person/[id]", params: { id: shown.localPersonId } });
       } else {
@@ -245,25 +249,29 @@ export function PeopleProfileActions(props: {
         label={t(
           pending
             ? "peopleProfile.tallyPending"
-            : active
-              ? "peopleProfile.openTally"
-              : "peopleProfile.shareTally",
+            : declined
+              ? "tab.chip.declined"
+              : active
+                ? "peopleProfile.openTally"
+                : "peopleProfile.shareTally",
         )}
         hint={
           pending
             ? t("peopleProfile.tallyPendingHint")
-            : active && !shown?.localPersonId
+            : opensLedger && !shown?.localPersonId
               ? t("peopleProfile.tallySyncHint")
-              : shown && !active && !shown.canReceiveRequests
-                ? t("peopleProfile.friendRequired")
-                : shown
-                  ? t(
-                      permissions.current.share || active
-                        ? "peopleProfile.shareTallyHint"
-                        : "peopleProfile.actionUnavailable",
-                      { kaata: shown.vaultName },
-                    )
-                  : undefined
+              : declined
+                ? t("tab.invite.declinedHint")
+                : shown && !active && !shown.canReceiveRequests
+                  ? t("peopleProfile.friendRequired")
+                  : shown
+                    ? t(
+                        permissions.current.share || active
+                          ? "peopleProfile.shareTallyHint"
+                          : "peopleProfile.actionUnavailable",
+                        { kaata: shown.vaultName },
+                      )
+                    : undefined
         }
         onPress={() => void act("share")}
         disabled={!canShare}

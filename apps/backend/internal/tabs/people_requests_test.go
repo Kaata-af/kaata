@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -174,10 +175,54 @@ func TestPeopleRequestDeclineExpiryAndPublication(t *testing.T) {
 		if _, err := f.svc.PreviewGroup(t.Context(), token, f.acctB); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("declined preview: %v", err)
 		}
+		join := joinGroupInput(f, in)
+		join.Token = token
+		if _, err := f.svc.JoinGroup(t.Context(), created.Group.ID, join); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("stale join after decline: %v", err)
+		}
 	}
 	list, err := f.svc.ListPeopleRequests(t.Context(), f.acctB)
 	if err != nil || len(list) != 0 {
 		t.Fatalf("declined list %+v %v", list, err)
+	}
+	var declinedAt time.Time
+	if err := f.pool.QueryRow(t.Context(), `SELECT declined_at FROM people_requests WHERE id=$1::uuid`, request.ID).Scan(&declinedAt); err != nil {
+		t.Fatal(err)
+	}
+	declinedAtMS := declinedAt.UnixMilli()
+	if err := f.svc.DeclinePeopleRequest(t.Context(), f.acctB, request.ID); err != nil {
+		t.Fatalf("repeated decline: %v", err)
+	}
+	sender, err := f.svc.GetGroup(t.Context(), created.Group.ID, f.acctA, "a")
+	if err != nil || len(sender.Tabs) != len(created.Tabs) {
+		t.Fatalf("sender group after decline: %+v %v", sender, err)
+	}
+	mine, err := f.svc.Mine(t.Context(), f.acctA)
+	if err != nil || len(mine.Tabs) != len(created.Tabs) {
+		t.Fatalf("sender discovery after decline: %+v %v", mine, err)
+	}
+	for _, item := range mine.Tabs {
+		if item.Tab.InvitationDeclinedAtMS == nil || *item.Tab.InvitationDeclinedAtMS != declinedAtMS {
+			t.Fatalf("sender discovery omitted decline: %+v", item)
+		}
+	}
+	for i, item := range sender.Tabs {
+		before := created.Tabs[i].Tab
+		if item.Tab.InvitationDeclinedAtMS == nil || *item.Tab.InvitationDeclinedAtMS != declinedAtMS ||
+			item.Tab.ClosedAtMS != nil || !item.Tab.UnjoinedInvitation || item.Tab.Rev != before.Rev {
+			t.Fatalf("decline changed financial state or was omitted: before=%+v after=%+v", before, item.Tab)
+		}
+		p, err := partyByAccountRoleQuery(t.Context(), f.pool, before.ID, f.acctA, "a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		pull, err := f.svc.Get(t.Context(), p, before.Rev)
+		if err != nil || len(pull.Entries) != 0 || pull.Tab.InvitationDeclinedAtMS == nil || *pull.Tab.InvitationDeclinedAtMS != declinedAtMS {
+			t.Fatalf("delta pull at an unchanged revision omitted decline: %+v %v", pull, err)
+		}
+	}
+	if mine, err := f.svc.Mine(t.Context(), f.acctB); err != nil || len(mine.Tabs) != 0 {
+		t.Fatalf("decline granted recipient financial access: %+v %v", mine, err)
 	}
 	// Creating another financial group does not bypass a recipient's cooldown.
 	next := in
@@ -194,6 +239,51 @@ func TestPeopleRequestDeclineExpiryAndPublication(t *testing.T) {
 	}
 	if _, err := f.svc.SendPeopleRequest(t.Context(), f.acctA, created.Group.ID, f.acctB); !errors.Is(err, ErrPeopleRequestLimited) {
 		t.Fatalf("cooldown: %v", err)
+	}
+}
+
+func TestPeopleRequestJoinAndDeclineSerialize(t *testing.T) {
+	f := newTabFixture(t)
+	publishRequestRecipient(t, f)
+	in := groupInput(t, f, "notify")
+	created, err := f.svc.CreateGroup(t.Context(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := f.svc.SendPeopleRequest(t.Context(), f.acctA, created.Group.ID, f.acctB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	join := joinGroupInput(f, in)
+	join.Token = request.Token
+	start := make(chan struct{})
+	joined, declined := make(chan error, 1), make(chan error, 1)
+	go func() {
+		<-start
+		_, err := f.svc.JoinGroup(t.Context(), created.Group.ID, join)
+		joined <- err
+	}()
+	go func() {
+		<-start
+		declined <- f.svc.DeclinePeopleRequest(t.Context(), f.acctB, request.ID)
+	}()
+	close(start)
+	joinErr, declineErr := <-joined, <-declined
+	switch {
+	case joinErr == nil && errors.Is(declineErr, ErrGroupChanged):
+	case declineErr == nil && errors.Is(joinErr, ErrNotFound):
+	default:
+		t.Fatalf("expected exactly one decision, got join %v, decline %v", joinErr, declineErr)
+	}
+	current, err := f.svc.GetGroup(t.Context(), created.Group.ID, f.acctA, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range current.Tabs {
+		if (item.Tab.InvitationDeclinedAtMS != nil) != (declineErr == nil) ||
+			(item.Tab.Parties["b"].JoinedAtMS != nil) != (joinErr == nil) {
+			t.Fatalf("sender state disagrees with winning decision: %+v", item.Tab)
+		}
 	}
 }
 

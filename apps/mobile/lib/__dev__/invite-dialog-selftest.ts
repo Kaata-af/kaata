@@ -176,6 +176,7 @@ const mocks: Record<string, any> = {
     },
   },
   "../lib/tabs/errors": require("../tabs/errors"),
+  "../lib/tabs/link-status": require("../tabs/link-status"),
   "../lib/tabs/types": {},
   "../lib/tokens": { radius: {}, TOUCH_MIN: 44, typography: {} },
 };
@@ -266,6 +267,22 @@ function assertOneModal() {
 }
 
 async function main() {
+  reset(null, "auto", { ...fresh, other_joined_at: null, invitation_declined_at: 1000 });
+  props.recipientAccountId = "remote-person";
+  render();
+  await settle();
+  assert.ok(nodes(tree).some((node) => node.props.children === "tab.chip.declined"));
+  assert.equal(
+    nodes(tree).some(
+      (node) =>
+        node.type === "Button" &&
+        ["peopleSearch.send", "tab.share.copy", "tab.share.whatsapp"].includes(node.props.label),
+    ),
+    false,
+    "a declined invitation offers no dead delivery options",
+  );
+  assert.equal(createCalls + directDeliveries.length + shares.length + copied.length, 0);
+
   for (const [status, code, key] of [
     [404, "person_unavailable", "peopleSearch.unavailable"],
     [409, "contact_archived", "peopleSearch.archived"],

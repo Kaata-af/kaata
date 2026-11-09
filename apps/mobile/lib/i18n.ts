@@ -2629,6 +2629,12 @@ const en = {
   "tab.unlinked": "Unlinked",
   "tab.chip.linked": "Linked · {name}",
   "tab.chip.waiting": "Waiting to join",
+  "tab.chip.declined": "Invite declined",
+  "tab.invite.declinedHint": "Open the contact’s sharing options to clear this invitation.",
+  "tab.invite.cancel": "Cancel invitation",
+  "tab.invite.cancelBody":
+    "This closes the invitation. Your tallies and balances stay in your Kaata.",
+  "tab.invite.cancelled": "Invitation cancelled",
   // Fold row over the pre-link local rows (D8: visible, excluded from the balance).
   "tab.beforeLinking": "Before linking · {count}",
   "tab.notSent": "Not sent · {count}",
@@ -5208,6 +5214,11 @@ const fa: Partial<Record<Key, string>> = {
   "tab.unlinked": "پیوند قطع شد",
   "tab.chip.linked": "پیوند شده · {name}",
   "tab.chip.waiting": "در انتظار پیوستن",
+  "tab.chip.declined": "دعوت رد شد",
+  "tab.invite.declinedHint": "برای پاک کردن این دعوت، گزینه‌های اشتراک مخاطب را باز کنید.",
+  "tab.invite.cancel": "لغو دعوت",
+  "tab.invite.cancelBody": "این دعوت بسته می‌شود. ثبت‌ها و مانده‌های شما در کاتای خودتان می‌مانند.",
+  "tab.invite.cancelled": "دعوت لغو شد",
   "tab.beforeLinking": "پیش از پیوند · {count}",
   "tab.notSent": "فرستاده نشد · {count}",
   "tab.notSent.body":
@@ -7074,6 +7085,12 @@ const ps: Record<Key, string> = {
   "tab.unlinked": "اړیکه پرې شوه",
   "tab.chip.linked": "نښلول شوی · {name}",
   "tab.chip.waiting": "د یوځای کېدو په تمه",
+  "tab.chip.declined": "بلنه رد شوه",
+  "tab.invite.declinedHint": "د دې بلنې د لرې کولو لپاره د اړیکې د شریکولو غوراوي پرانیزئ.",
+  "tab.invite.cancel": "بلنه لغوه کړئ",
+  "tab.invite.cancelBody":
+    "دا بلنه تړل کېږي. ستاسو راکړې ورکړې او پاتې حسابونه ستاسو په کاټه کې پاتې کېږي.",
+  "tab.invite.cancelled": "بلنه لغوه شوه",
   "tab.beforeLinking": "تر نښلولو مخکې · {count}",
   "tab.notSent": "نه دي لېږل شوې · {count}",
   "tab.notSent.body":

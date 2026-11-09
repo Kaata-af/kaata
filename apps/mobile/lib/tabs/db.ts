@@ -355,8 +355,9 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
   const result = await db.runAsync(
     `INSERT INTO tab_links (tab_id, vault_id, relationship_id, role, currency, party_token,
                             my_label, other_label, other_joined_at, invite_url, rev, closed_at,
-                            linked_at, last_synced_at, last_error, history_order, unjoined_invitation, recording_mode, recording_mode_known)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            linked_at, last_synced_at, last_error, history_order, unjoined_invitation, recording_mode, recording_mode_known,
+                            invitation_declined_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(tab_id) DO UPDATE SET
        vault_id = excluded.vault_id, relationship_id = excluded.relationship_id,
        role = excluded.role, currency = excluded.currency, party_token = excluded.party_token,
@@ -366,6 +367,7 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
        last_synced_at = excluded.last_synced_at, last_error = excluded.last_error,
        history_order = COALESCE(excluded.history_order, tab_links.history_order),
        unjoined_invitation = excluded.unjoined_invitation, recording_mode = excluded.recording_mode,
+       invitation_declined_at = COALESCE(tab_links.invitation_declined_at, excluded.invitation_declined_at),
        recording_mode_known = CASE WHEN tab_links.recording_mode_known=1 THEN 1 ELSE excluded.recording_mode_known END
      WHERE tab_links.recording_mode_known=0 OR tab_links.recording_mode=excluded.recording_mode`,
     link.tab_id,
@@ -387,6 +389,7 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
     link.unjoined_invitation ?? null,
     link.recording_mode ?? "review",
     link.recording_mode_known ?? 1,
+    link.invitation_declined_at ?? null,
   );
   if (result.changes === 0)
     throw new TabApiError(
@@ -741,6 +744,10 @@ export async function upsertTabFromWire(
       my_label: resp.tab.parties[me].label,
       other_label: resp.tab.parties[them].label,
       other_joined_at: resp.tab.parties[them].joined_at_ms,
+      // Rejection is terminal for this invitation. A same-revision response
+      // sent before it (or by an older server) cannot turn it back into waiting.
+      invitation_declined_at:
+        stored.invitation_declined_at ?? resp.tab.invitation_declined_at_ms ?? null,
       unjoined_invitation:
         // Participation is irreversible. A late equal-revision metadata
         // response must never make a once-bound invitation private again.
@@ -765,6 +772,7 @@ export async function upsertTabFromWire(
       meta.my_label !== stored.my_label ||
       meta.other_label !== stored.other_label ||
       meta.other_joined_at !== stored.other_joined_at ||
+      meta.invitation_declined_at !== (stored.invitation_declined_at ?? null) ||
       meta.recording_mode !== (stored.recording_mode ?? "review") ||
       meta.recording_mode_known !== (stored.recording_mode_known ?? 1) ||
       meta.unjoined_invitation !== (stored.unjoined_invitation ?? null) ||
@@ -779,7 +787,7 @@ export async function upsertTabFromWire(
     await db.runAsync(
       `UPDATE tab_links
           SET rev = MAX(rev, ?), currency = ?, my_label = ?, other_label = ?,
-              other_joined_at = ?, closed_at = ?, closed_reason = ?, last_synced_at = ?, last_error = NULL,
+              other_joined_at = ?, invitation_declined_at = ?, closed_at = ?, closed_reason = ?, last_synced_at = ?, last_error = NULL,
               history_order = COALESCE(?, history_order), unjoined_invitation = ?, recording_mode = ?, recording_mode_known = ?
         WHERE tab_id = ?`,
       advanceCursor ? resp.tab.rev : stored.rev,
@@ -787,6 +795,7 @@ export async function upsertTabFromWire(
       meta.my_label,
       meta.other_label,
       meta.other_joined_at,
+      meta.invitation_declined_at,
       meta.closed_at,
       meta.closed_reason,
       now,

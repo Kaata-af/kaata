@@ -35,6 +35,7 @@ const jwt = (account: string) =>
 const handles = new Set<Database.Database>();
 const tallyNotesMigration = "052_tally_notes";
 const tallyNoteNumbersMigration = "053_tally_note_number";
+const sharedInvitationDeclineMigration = "054_shared_invitation_decline";
 const migrationNames = [
   ...readFileSync(require.resolve("../db"), "utf8").matchAll(/const MIGRATION_\d+ = "([^"]+)"/g),
 ].map((match) => match[1]);
@@ -61,12 +62,15 @@ CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT REFERENCES tab_links(ta
 CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,attempts INTEGER,next_at INTEGER,last_error TEXT,payload TEXT);
 CREATE TABLE tab_failed_ops(id TEXT PRIMARY KEY,tab_id TEXT,last_error TEXT);
 CREATE TABLE customer_groups(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id));`;
-function fixture(name: string, account: string | null = null, schemaVersion = 53) {
+function fixture(name: string, account: string | null = null, schemaVersion = 54) {
   const dir = path.join(temporaryRoot, name);
   mkdirSync(dir);
   const dbPath = path.join(dir, "kaata.db");
   const raw = new Database(dbPath);
   raw.exec(schema);
+  if (schemaVersion < 54)
+    raw.prepare("DELETE FROM schema_migrations WHERE name=?").run(sharedInvitationDeclineMigration);
+  else raw.exec("ALTER TABLE tab_links ADD COLUMN invitation_declined_at INTEGER");
   if (schemaVersion < 53) {
     raw.prepare("DELETE FROM schema_migrations WHERE name=?").run(tallyNoteNumbersMigration);
   }
@@ -332,7 +336,7 @@ async function main() {
   source.sql("INSERT INTO pending_invitations VALUES('INVITE_SECRET_789')");
   source.sql("INSERT INTO vault_credentials VALUES('VMC_SECRET_987')");
   source.sql(
-    "INSERT INTO tab_links VALUES('shared',?,'TOKEN_SECRET_654','URL_SECRET_321',NULL,1,99)",
+    "INSERT INTO tab_links(tab_id,vault_id,party_token,invite_url,last_synced_at,rev,invitation_declined_at) VALUES('shared',?,'TOKEN_SECRET_654','URL_SECRET_321',1,99,1234)",
     VAULT,
   );
   source.sql("INSERT INTO tab_entries VALUES('shared-tally','shared','Shared history')");
@@ -391,6 +395,11 @@ async function main() {
     (target.rows("SELECT party_token,invite_url FROM tab_links")[0] as any).party_token === null,
     "bearer token not restored",
   );
+  ok(
+    (target.rows("SELECT invitation_declined_at FROM tab_links")[0] as any)
+      .invitation_declined_at === 1234,
+    "portable restore retains the declined invitation status",
+  );
   ok(!target.exists("kaata.personal.restore.json"), "successful restore clears pending receipt");
   await errorCode(() => target.module.stagePersonalBackupRestore(bytes), "notEmpty");
   const oldSource = fixture("before-tally-notes", null, 51);
@@ -409,6 +418,16 @@ async function main() {
   ok(
     (upgraded.rows("SELECT note FROM tally_notes")[0] as any).note === "A text-only note",
     "text-only tally note backups restore on update",
+  );
+  const beforeDecline = fixture("before-invitation-decline", null, 53);
+  beforeDecline.seed();
+  beforeDecline.sql("INSERT INTO tab_links(tab_id,vault_id,rev) VALUES('old-tab',?,0)", VAULT);
+  const afterDecline = fixture("after-invitation-decline");
+  await afterDecline.module.stagePersonalBackupRestore(await exported(beforeDecline));
+  await afterDecline.boot();
+  ok(
+    afterDecline.rows("SELECT * FROM tab_links WHERE tab_id='old-tab'").length === 1,
+    "shared links from a backup without decline metadata restore on update",
   );
   const signed = fixture("signed-source", ACCOUNT);
   signed.seed();
@@ -492,7 +511,10 @@ async function main() {
     TARGET,
     JSON.stringify({ note: "PRIVATE_JOINED_EVENT" }),
   );
-  mixed.sql("INSERT INTO tab_links VALUES('joined-tab',?,'PRIVATE_JOINED_TOKEN',NULL,NULL,1,1)", TARGET);
+  mixed.sql(
+    "INSERT INTO tab_links(tab_id,vault_id,party_token,last_synced_at,rev) VALUES('joined-tab',?,'PRIVATE_JOINED_TOKEN',1,1)",
+    TARGET,
+  );
   mixed.sql("INSERT INTO tab_entries VALUES('joined-tab-entry','joined-tab','PRIVATE_JOINED_SHARED_TALLY')");
   mixed.sql(
     "INSERT INTO tab_outbox VALUES('joined-op','joined-tab',0,NULL,NULL,?)",
@@ -679,6 +701,21 @@ async function main() {
     () =>
       missingNumberColumn.module.stagePersonalBackupRestore(
         alterBytes("ALTER TABLE tally_notes DROP COLUMN number_text"),
+      ),
+    "unsupported",
+  );
+  const inconsistentDecline = fixture("inconsistent-invitation-decline");
+  await errorCode(
+    () =>
+      inconsistentDecline.module.stagePersonalBackupRestore(
+        alterBytes("ALTER TABLE tab_links DROP COLUMN invitation_declined_at"),
+      ),
+    "unsupported",
+  );
+  await errorCode(
+    () =>
+      inconsistentDecline.module.stagePersonalBackupRestore(
+        alterBytes("DELETE FROM schema_migrations WHERE name='054_shared_invitation_decline'"),
       ),
     "unsupported",
   );

@@ -226,6 +226,21 @@ async function main() {
     assert.match(f.row("peopleProfile.memberPending").props.hint, /clerk/);
   }
   {
+    const f = fixture({
+      activity: { shared_tally: "declined" },
+      local: "saved-contact",
+      canReceiveRequests: false,
+    });
+    await f.settle();
+    const row = f.row("tab.chip.declined");
+    assert.equal(row.props.disabled, false);
+    assert.equal(row.props.hint, "tab.invite.declinedHint");
+    row.props.onPress();
+    await f.settle();
+    assert.deepEqual(f.opened, ["saved-contact"]);
+    assert.ok(!f.all().some((n) => n.type === "TallyDialog"));
+  }
+  {
     const f = fixture();
     await f.settle();
     f.row("peopleProfile.inviteMember").props.onPress();

@@ -153,6 +153,7 @@ const MIGRATION_050 = "050_credit_limit_notifications";
 const MIGRATION_051 = "051_tally_removal_requests";
 const MIGRATION_052 = "052_tally_notes";
 const MIGRATION_053 = "053_tally_note_number";
+const MIGRATION_054 = "054_shared_invitation_decline";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -600,6 +601,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_051))) await runMigration051(db);
   if (!(await hasRunMigration(db, MIGRATION_052))) await runMigration052(db);
   if (!(await hasRunMigration(db, MIGRATION_053))) await runMigration053(db);
+  if (!(await hasRunMigration(db, MIGRATION_054))) await runMigration054(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3298,6 +3300,7 @@ async function runMigration028(db: SQLite.SQLiteDatabase): Promise<void> {
         my_label        TEXT NOT NULL DEFAULT '',
         other_label     TEXT NOT NULL DEFAULT '',
         other_joined_at INTEGER,
+        invitation_declined_at INTEGER,
         unjoined_invitation INTEGER,
         recording_mode TEXT NOT NULL DEFAULT 'review',
         recording_mode_known INTEGER NOT NULL DEFAULT 1,
@@ -3923,6 +3926,18 @@ async function runMigration053(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.runAsync(
       "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
       MIGRATION_053,
+      Date.now(),
+    );
+  });
+}
+
+async function runMigration054(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    if (!(await columnExists(db, "tab_links", "invitation_declined_at")))
+      await db.execAsync("ALTER TABLE tab_links ADD COLUMN invitation_declined_at INTEGER");
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_054,
       Date.now(),
     );
   });
@@ -4641,6 +4656,7 @@ const TAB_PERSON_COLUMNS = `
             (${effectivePendingBalanceSql()}) / 100.0 AS tab_pending_balance,
             tl.closed_at AS tab_closed_at,
             CASE WHEN tl.other_joined_at IS NOT NULL THEN 1 ELSE 0 END AS tab_other_joined,
+            tl.invitation_declined_at AS tab_invitation_declined_at,
             CASE WHEN tl.tab_id IS NOT NULL AND ((${unknownHistorySql()}) OR EXISTS (
               SELECT 1 FROM tab_links history WHERE history.vault_id=tl.vault_id
                 AND history.relationship_id=tl.relationship_id AND history.currency=tl.currency

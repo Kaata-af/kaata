@@ -37,6 +37,7 @@ import {
   TabAuthUnavailableError,
   TabPermissionError,
 } from "../lib/tabs/errors";
+import { sharedAccountLinkStatus } from "../lib/tabs/link-status";
 import type { TabLink, TabRecordingMode } from "../lib/tabs/types";
 import { radius, TOUCH_MIN, typography } from "../lib/tokens";
 import { getCurrentCurrencyCode, getCurrencyLabel } from "../lib/currency";
@@ -97,6 +98,9 @@ export function LinkAccountDialog(props: {
   const [deliveryReady, setDeliveryReady] = useState(false);
   const recipientAccountId = props.recipientAccountId || savedRecipient;
   const target = useRef<TabLink | null>(null);
+  const declined =
+    sharedAccountLinkStatus(props.link) === "declined" ||
+    sharedAccountLinkStatus(target.current) === "declined";
   const preparedPerson = useRef<string | null>(null);
   const modeVersion = useRef(0);
   const pendingMode = useRef<TabRecordingMode | null>(null);
@@ -202,6 +206,7 @@ export function LinkAccountDialog(props: {
       !languageReady ||
       !pendingSettingsReady ||
       !deliveryReady ||
+      declined ||
       !props.visible ||
       !(props.isCurrent?.() ?? true) ||
       currentContext.current !== context ||
@@ -270,6 +275,10 @@ export function LinkAccountDialog(props: {
         target.current = fresh;
         setReady(!!fresh.invite_url || !!recipientAccountId);
         props.onLinked(fresh);
+      }
+      if (sharedAccountLinkStatus(fresh) === "declined") {
+        setReady(true);
+        return;
       }
       if (recipientAccountId) {
         if (!fresh.group_id)
@@ -400,38 +409,42 @@ export function LinkAccountDialog(props: {
                 keyboardDismissMode="on-drag"
               >
                 <Text accessibilityRole="header" style={[styles.title, textDir(rtl)]}>
-                  {recipientAccountId
-                    ? t("peopleSearch.connectTitle", { name: props.person.name })
-                    : t(ready ? "tab.link.ready" : "tab.link.confirm.title")}
+                  {declined
+                    ? t("tab.chip.declined")
+                    : recipientAccountId
+                      ? t("peopleSearch.connectTitle", { name: props.person.name })
+                      : t(ready ? "tab.link.ready" : "tab.link.confirm.title")}
                 </Text>
-                {props.recipientUsername ? (
+                {!declined && props.recipientUsername ? (
                   <Text style={[styles.description, textDir(rtl)]}>
                     {ltrIsolate(`@${props.recipientUsername}`)}
                   </Text>
                 ) : null}
-                {recipientAccountId ? (
+                {!declined && recipientAccountId ? (
                   <Text style={[styles.description, textDir(rtl)]}>
                     {t("peopleSearch.connectHint")}
                   </Text>
                 ) : null}
-                {props.contactChoice?.(busy || ready)}
+                {!declined && props.contactChoice?.(busy || ready)}
                 <Text style={[styles.description, textDir(rtl)]}>
                   {t(
-                    ready
-                      ? groupMode
-                        ? "tab.group.readyBody"
-                        : "tab.link.readyBody"
-                      : groupMode
-                        ? recordingMode === "notify_one_way"
-                          ? "tab.group.confirm.oneWayBody"
-                          : recordingMode === "notify"
-                            ? "tab.group.confirm.notifyBody"
-                            : "tab.group.confirm.reviewBody"
-                        : recordingMode === "notify_one_way"
-                          ? "tab.link.confirm.oneWayBody"
-                          : recordingMode === "notify"
-                            ? "tab.link.confirm.notifyBody"
-                            : "tab.link.confirm.body",
+                    declined
+                      ? "tab.invite.declinedHint"
+                      : ready
+                        ? groupMode
+                          ? "tab.group.readyBody"
+                          : "tab.link.readyBody"
+                        : groupMode
+                          ? recordingMode === "notify_one_way"
+                            ? "tab.group.confirm.oneWayBody"
+                            : recordingMode === "notify"
+                              ? "tab.group.confirm.notifyBody"
+                              : "tab.group.confirm.reviewBody"
+                          : recordingMode === "notify_one_way"
+                            ? "tab.link.confirm.oneWayBody"
+                            : recordingMode === "notify"
+                              ? "tab.link.confirm.notifyBody"
+                              : "tab.link.confirm.body",
                     {
                       name: props.person.name,
                     },
@@ -447,7 +460,7 @@ export function LinkAccountDialog(props: {
                     })}
                   </Text>
                 ) : null}
-                {ready ? (
+                {declined ? null : ready ? (
                   <Text style={[styles.description, textDir(rtl)]}>
                     {target.current?.recording_mode_known === 0
                       ? t("tab.recordingMode.unknown")
@@ -524,7 +537,7 @@ export function LinkAccountDialog(props: {
                     ))}
                   </View>
                 )}
-                {askLanguage && !recipientAccountId ? (
+                {askLanguage && !recipientAccountId && !declined ? (
                   <View style={styles.language}>
                     <Text style={[styles.hint, textDir(rtl)]}>{t("share.askLang.title")}</Text>
                     <View style={[styles.languageOptions, rowDir(rtl)]}>
@@ -552,29 +565,31 @@ export function LinkAccountDialog(props: {
                   </Text>
                 ) : null}
                 <View style={styles.actions}>
-                  <Button
-                    fullWidth
-                    loading={busy}
-                    disabled={!languageReady || !pendingSettingsReady || !deliveryReady}
-                    label={t(
-                      recipientAccountId
-                        ? "peopleSearch.send"
-                        : ready
-                          ? "tab.share.whatsapp"
-                          : hasPhone
-                            ? "tab.link.whatsapp"
-                            : "tab.link.action",
-                    )}
-                    icon={
-                      recipientAccountId
-                        ? "person-add-outline"
-                        : hasPhone || ready
-                          ? "logo-whatsapp"
-                          : "link-outline"
-                    }
-                    onPress={() => void run(ready ? "whatsapp" : "create")}
-                  />
-                  {!recipientAccountId && ready && (!hasPhone || shareFailed) ? (
+                  {!declined ? (
+                    <Button
+                      fullWidth
+                      loading={busy}
+                      disabled={!languageReady || !pendingSettingsReady || !deliveryReady}
+                      label={t(
+                        recipientAccountId
+                          ? "peopleSearch.send"
+                          : ready
+                            ? "tab.share.whatsapp"
+                            : hasPhone
+                              ? "tab.link.whatsapp"
+                              : "tab.link.action",
+                      )}
+                      icon={
+                        recipientAccountId
+                          ? "person-add-outline"
+                          : hasPhone || ready
+                            ? "logo-whatsapp"
+                            : "link-outline"
+                      }
+                      onPress={() => void run(ready ? "whatsapp" : "create")}
+                    />
+                  ) : null}
+                  {!declined && !recipientAccountId && ready && (!hasPhone || shareFailed) ? (
                     <Button
                       fullWidth
                       variant="secondary"
@@ -590,7 +605,9 @@ export function LinkAccountDialog(props: {
                     accessibilityRole="button"
                     style={styles.cancel}
                   >
-                    <Text style={styles.optionText}>{t("common.cancel")}</Text>
+                    <Text style={styles.optionText}>
+                      {t(declined ? "common.close" : "common.cancel")}
+                    </Text>
                   </Pressable>
                 </View>
               </ScrollView>

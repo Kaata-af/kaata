@@ -261,6 +261,9 @@ type Tab struct {
 	RecordedBalance map[string]string `json:"recorded_balance"`
 	PendingBalance  map[string]string `json:"pending_balance"`
 	PendingForYou   int               `json:"pending_for_you"`
+	// InvitationDeclinedAtMS exposes the account-targeted invitation's
+	// decision to its creator side without changing the financial revision.
+	InvitationDeclinedAtMS *int64 `json:"invitation_declined_at_ms,omitempty"`
 }
 
 type TabAccess struct {
@@ -741,6 +744,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		t                                         Tab
 		createdAt                                 time.Time
 		closedAt                                  *time.Time
+		invitationDeclinedAt                      *time.Time
 		aLabel, bLabel                            string
 		aName, bName                              string
 		aPhone, bPhone                            string
@@ -753,7 +757,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		closedBy                                  *string
 	)
 	err := q.QueryRow(ctx, `
-		SELECT t.group_id::text, `+tabstate.UnjoinedInvitationSQL+`, t.recording_mode, t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
+		SELECT t.group_id::text, `+tabstate.UnjoinedInvitationSQL+`, invite.declined_at, t.recording_mode, t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
 		       pa.label, pa.joined_at, pa.linked_at_ms,pa.history_order::text, pa.account_id IS NOT NULL, COALESCE(aa.display_name, aa.name, ''), COALESCE(aa.phone_e164, ''),
 		       pb.label, pb.joined_at,pb.linked_at_ms, pb.history_order::text, pb.account_id IS NOT NULL, COALESCE(ab.display_name, ab.name, ''), COALESCE(ab.phone_e164, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
@@ -776,8 +780,9 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		  JOIN tab_parties pb ON pb.tab_id = t.id AND pb.role = 'b'
 		  LEFT JOIN accounts aa ON aa.id=pa.account_id
 		  LEFT JOIN accounts ab ON ab.id=pb.account_id
+		  LEFT JOIN people_requests invite ON invite.group_id=t.group_id AND $2='a'
 		 WHERE t.id = $1::uuid
-	`, tabID, you).Scan(&t.GroupID, &t.UnjoinedInvitation, &t.RecordingMode, &t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
+	`, tabID, you).Scan(&t.GroupID, &t.UnjoinedInvitation, &invitationDeclinedAt, &t.RecordingMode, &t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
 		&aLabel, &aJoined, &aLinked, &aHistoryOrder, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bLinked, &bHistoryOrder, &bBound, &bName, &bPhone, &balanceA, &confirmedA, &recordedA, &pendingA, &pending)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -787,6 +792,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	}
 	t.ID = tabID
 	t.CreatedAtMS = createdAt.UnixMilli()
+	t.InvitationDeclinedAtMS = msPtr(invitationDeclinedAt)
 	t.ClosedAtMS = msPtr(closedAt)
 	t.ClosedBy = closedBy
 	t.You = you

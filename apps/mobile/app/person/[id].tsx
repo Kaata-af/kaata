@@ -48,7 +48,7 @@ import { SelectionToolbar } from "../../components/SelectionToolbar";
 import { SettledHistoryToggle } from "../../components/SettledHistoryToggle";
 import { personCurrencyRows, selectedEntriesByCurrency } from "../../lib/multi-currency-view";
 import { getPersonEnabledCurrencies } from "../../lib/person-currency";
-import { sharedAccountLinkStatus } from "../../lib/tabs/link-status";
+import { combinedSharedAccountStatus, sharedAccountLinkStatus } from "../../lib/tabs/link-status";
 import { canWriteSharedTallies, isNotificationOnlyMode } from "../../lib/tabs/recording-mode";
 import { useCustomerGroups } from "../../lib/use-customer-groups";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
@@ -717,13 +717,11 @@ export default function PersonDetailScreen() {
   const financialTabHistory =
     (currencyPeriods.find((period) => period.currency === selectedCurrency) ?? currencyPeriods[0])
       ?.financialTab ?? null;
-  const sharedAccountStatus = currencyPeriods.some(
-    (period) => sharedAccountLinkStatus(period.tab) === "joined",
-  )
-    ? "joined"
-    : currencyPeriods.some((period) => sharedAccountLinkStatus(period.tab) === "waiting")
-      ? "waiting"
-      : "none";
+  const sharedAccountStatus = combinedSharedAccountStatus(
+    currencyPeriods.map((period) => sharedAccountLinkStatus(period.tab)),
+  );
+  const showInvitationStatus =
+    sharedAccountStatus === "waiting" || sharedAccountStatus === "declined";
   const [preLink, setPreLink] = useState<Entry[]>([]);
   const [preLinkOpen, setPreLinkOpen] = useState(false);
   const [failedTallies, setFailedTallies] = useState<Entry[]>([]);
@@ -755,6 +753,7 @@ export default function PersonDetailScreen() {
     managementCurrency == null
       ? (openGroupLink ?? link)
       : (currencyPeriods.find((period) => period.currency === managementCurrency)?.tab ?? null);
+  const managementDeclined = sharedAccountLinkStatus(managementLink) === "declined";
   const managementCurrencies = managementLink?.group_id
     ? currencyPeriods
         .filter((period) => period.tab?.group_id === managementLink.group_id)
@@ -2172,7 +2171,7 @@ export default function PersonDetailScreen() {
   // new URL is what gets shared next, using the same invitation dialog.
   async function onRegenerate() {
     setConfirmRegenerate(false);
-    if (!managementLink || !screenIsCurrent()) return;
+    if (!managementLink || managementDeclined || !screenIsCurrent()) return;
     try {
       await regenerateInviteLink(managementLink);
       if (!screenIsCurrent()) return;
@@ -2202,7 +2201,7 @@ export default function PersonDetailScreen() {
     try {
       await unlinkContact(managementLink);
       if (!screenIsCurrent()) return;
-      toast.push(t("tab.unlinked"), "success");
+      toast.push(t(managementDeclined ? "tab.invite.cancelled" : "tab.unlinked"), "success");
       await load();
     } catch (err) {
       console.warn("[person] unlinkContact failed", err);
@@ -2954,7 +2953,8 @@ export default function PersonDetailScreen() {
                               : t("tab.link.title"),
                           icon: "link-outline" as const,
                           onPress: () => {
-                            if (!screenIsCurrent() || !canAmendShared || selectionBusyRef.current) return;
+                            if (!screenIsCurrent() || !canAmendShared || selectionBusyRef.current)
+                              return;
                             if (openGroupLink) {
                               setManagementCurrency(openGroupLink.currency);
                               setLinkedSheetVisible(true);
@@ -3127,15 +3127,19 @@ export default function PersonDetailScreen() {
                         }
                       />
                     ) : null}
-                    {sharedAccountStatus === "waiting" || personGroupNames.length > 0 ? (
+                    {showInvitationStatus || personGroupNames.length > 0 ? (
                       <View testID="customer-metadata" style={[styles.metadataRow, rowDir(isRTL)]}>
-                        {sharedAccountStatus === "waiting" ? (
+                        {showInvitationStatus ? (
                           <Text
-                            testID="customer-link-waiting"
+                            testID={`customer-link-${sharedAccountStatus}`}
                             style={[styles.linkWaiting, textDir(isRTL)]}
                             numberOfLines={1}
                           >
-                            {t("tab.chip.waiting")}
+                            {t(
+                              sharedAccountStatus === "declined"
+                                ? "tab.chip.declined"
+                                : "tab.chip.waiting",
+                            )}
                           </Text>
                         ) : null}
                         {personGroupNames.length > 0 ? (
@@ -3212,6 +3216,9 @@ export default function PersonDetailScreen() {
                             const tabHistory = period?.tab;
                             const financialTabHistory = period?.financialTab;
                             const link = tabHistory?.closed_at == null ? tabHistory : null;
+                            const linkStatus = sharedAccountLinkStatus(link);
+                            const showLinkStatus =
+                              linkStatus === "waiting" || linkStatus === "declined";
                             const abs = Math.abs(person.balance);
                             const chipLabel =
                               person.balance > 0
@@ -3261,7 +3268,7 @@ export default function PersonDetailScreen() {
                                     !sharedReviewPending &&
                                     unsettledOriginalCount === 0) ||
                                   displayedEntries.length > 0)) ||
-                              sharedAccountLinkStatus(link) === "waiting";
+                              showLinkStatus;
                             return (
                               <View key={code} style={styles.balanceOverview}>
                                 <BalanceCardGlass
@@ -3351,8 +3358,7 @@ export default function PersonDetailScreen() {
                                             variant="outline"
                                           />
                                         ) : null}
-                                        {sharedAccountLinkStatus(link) === "waiting" ? (
-                                          // Keep the invitation-waiting cue until the other side joins.
+                                        {showLinkStatus ? (
                                           // Once linked, the name badge is enough; no duplicate chip.
                                           <Pressable
                                             onPress={
@@ -3380,7 +3386,11 @@ export default function PersonDetailScreen() {
                                               allowFontScaling={false}
                                               numberOfLines={1}
                                             >
-                                              {t("tab.chip.waiting")}
+                                              {t(
+                                                linkStatus === "declined"
+                                                  ? "tab.chip.declined"
+                                                  : "tab.chip.waiting",
+                                              )}
                                             </Text>
                                           </Pressable>
                                         ) : null}
@@ -4211,21 +4221,23 @@ export default function PersonDetailScreen() {
         visible={linkedSheetVisible}
         title={`${person.name} · ${managementCurrencyLabel}`}
         description={
-          managementLink?.recording_mode_known === 0
-            ? t("tab.recordingMode.unknown")
-            : t("tab.recordingMode.fixed", {
-                mode: t(
-                  managementLink?.recording_mode === "notify_one_way"
-                    ? "tab.recordingMode.oneWayFixed"
-                    : managementLink?.recording_mode === "notify"
-                      ? "tab.recordingMode.notify"
-                      : "tab.recordingMode.review",
-                ),
-              })
+          managementDeclined
+            ? t("tab.chip.declined")
+            : managementLink?.recording_mode_known === 0
+              ? t("tab.recordingMode.unknown")
+              : t("tab.recordingMode.fixed", {
+                  mode: t(
+                    managementLink?.recording_mode === "notify_one_way"
+                      ? "tab.recordingMode.oneWayFixed"
+                      : managementLink?.recording_mode === "notify"
+                        ? "tab.recordingMode.notify"
+                        : "tab.recordingMode.review",
+                  ),
+                })
         }
         onDismiss={() => setLinkedSheetVisible(false)}
         actions={[
-          ...(managementLink?.role === "a" && managementLink.invite_url
+          ...(managementLink?.role === "a" && !managementDeclined && managementLink.invite_url
             ? [
                 {
                   label: t("tab.share.again"),
@@ -4234,7 +4246,7 @@ export default function PersonDetailScreen() {
                 },
               ]
             : []),
-          ...(managementLink?.role === "a"
+          ...(managementLink?.role === "a" && !managementDeclined
             ? [
                 {
                   label: t("tab.regenerate"),
@@ -4244,7 +4256,7 @@ export default function PersonDetailScreen() {
               ]
             : []),
           {
-            label: t("tab.unlink"),
+            label: t(managementDeclined ? "tab.invite.cancel" : "tab.unlink"),
             icon: "unlink-outline",
             destructive: true,
             onPress: () => setConfirmUnlink(true),
@@ -4261,9 +4273,17 @@ export default function PersonDetailScreen() {
       />
       <ConfirmDialog
         visible={confirmUnlink}
-        title={t("tab.unlink.title", { name: person.name })}
-        description={`${managementCurrencyLabel} · ${t(managementLink?.group_id ? "tab.group.unlinkBody" : "tab.unlink.body")}`}
-        confirmLabel={t("tab.unlink")}
+        title={t(managementDeclined ? "tab.invite.cancel" : "tab.unlink.title", {
+          name: person.name,
+        })}
+        description={`${managementCurrencyLabel} · ${t(
+          managementDeclined
+            ? "tab.invite.cancelBody"
+            : managementLink?.group_id
+              ? "tab.group.unlinkBody"
+              : "tab.unlink.body",
+        )}`}
+        confirmLabel={t(managementDeclined ? "tab.invite.cancel" : "tab.unlink")}
         destructive
         onConfirm={() => void onUnlink()}
         onCancel={() => setConfirmUnlink(false)}

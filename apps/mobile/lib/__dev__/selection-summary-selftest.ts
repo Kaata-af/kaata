@@ -24,7 +24,7 @@ sql.exec(`
   CREATE TABLE kaata_credit_defaults(vault_id TEXT,max_collect_minor INTEGER,max_pay_minor INTEGER,
     mode TEXT,updated_at_ms INTEGER,restrict_editors INTEGER);
   CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY, vault_id TEXT, relationship_id TEXT, role TEXT, linked_at INTEGER, closed_at INTEGER, last_synced_at INTEGER,
-    other_account_name TEXT DEFAULT '', other_joined_at INTEGER, history_order TEXT, currency TEXT DEFAULT 'AFN', unjoined_invitation INTEGER);
+    other_account_name TEXT DEFAULT '', other_joined_at INTEGER, history_order TEXT, currency TEXT DEFAULT 'AFN', unjoined_invitation INTEGER, invitation_declined_at INTEGER);
   CREATE INDEX tab_links_relationship ON tab_links(relationship_id);
   CREATE INDEX tab_links_vault ON tab_links(vault_id);
   CREATE INDEX tab_links_scope_order ON tab_links(vault_id,relationship_id,history_order);
@@ -73,6 +73,7 @@ const { listAllPeopleForSearch, getPerson } = compileUI("../db", {
   "./group-memberships": {},
   "./money-sql": require("../money-sql"),
   "./entry-date": require("../entry-date"),
+  "./customer-note": require("../customer-note"),
   "./currency-scope": require("../currency-scope"),
   "./tabs/db": {},
   "./tabs/direction": require("../tabs/direction"),

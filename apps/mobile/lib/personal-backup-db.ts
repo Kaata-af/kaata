@@ -47,6 +47,7 @@ const INFO = "personal_backup_info";
 const ORIGINAL_SCHEMA = "051_tally_removal_requests";
 const TALLY_NOTES_SCHEMA = "052_tally_notes";
 const TALLY_NOTE_NUMBERS_SCHEMA = "053_tally_note_number";
+const SHARED_INVITATION_DECLINE_SCHEMA = "054_shared_invitation_decline";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MEMBER_ROLES = new Set(["manager", "editor", "clerk", "viewer"]);
 const TABLES = new Set([
@@ -340,11 +341,21 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
   }>("SELECT name FROM schema_migrations");
   const hasTallyNotes = migrations.some((row) => row.name === TALLY_NOTES_SCHEMA);
   const hasTallyNoteNumbers = migrations.some((row) => row.name === TALLY_NOTE_NUMBERS_SCHEMA);
-  const expectedMigrations = hasTallyNoteNumbers ? 53 : hasTallyNotes ? 52 : 51;
+  const hasSharedInvitationDecline = migrations.some(
+    (row) => row.name === SHARED_INVITATION_DECLINE_SCHEMA,
+  );
+  const expectedMigrations = hasSharedInvitationDecline
+    ? 54
+    : hasTallyNoteNumbers
+      ? 53
+      : hasTallyNotes
+        ? 52
+        : 51;
   if (
     migrations.length !== expectedMigrations ||
     !migrations.some((row) => row.name === ORIGINAL_SCHEMA) ||
     (hasTallyNoteNumbers && !hasTallyNotes) ||
+    (hasSharedInvitationDecline && !hasTallyNoteNumbers) ||
     names.has("tally_notes") !== hasTallyNotes ||
     new Set(migrations.map((r) => r.name.slice(0, 3))).size !== expectedMigrations ||
     migrations.some(
@@ -360,8 +371,14 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
     if (columns.some((column) => column.name === "number_text") !== hasTallyNoteNumbers)
       fail("unsupported");
   }
+  const tabLinkColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_xinfo(tab_links)");
+  if (
+    tabLinkColumns.some((column) => column.name === "invitation_declined_at") !==
+    hasSharedInvitationDecline
+  )
+    fail("unsupported");
   if (trusted) {
-    // Older backups keep their original note schema until initDb upgrades it.
+    // Older backups keep their original schema until initDb upgrades it.
     const known = (await catalog(trusted)).filter(
       (row) => hasTallyNotes || row.tbl_name !== "tally_notes",
     );
@@ -374,7 +391,10 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
         trustedMigrations
           .map((row) => row.name)
           .filter((name) => hasTallyNotes || name !== TALLY_NOTES_SCHEMA)
-          .filter((name) => hasTallyNoteNumbers || name !== TALLY_NOTE_NUMBERS_SCHEMA),
+          .filter((name) => hasTallyNoteNumbers || name !== TALLY_NOTE_NUMBERS_SCHEMA)
+          .filter(
+            (name) => hasSharedInvitationDecline || name !== SHARED_INVITATION_DECLINE_SCHEMA,
+          ),
       )
     )
       fail("unsupported");
@@ -390,22 +410,27 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
       if (!prior) fail("unsupported");
       // Includes CHECK, FK, UNIQUE, STRICT and table options, not just columns.
       if (item.type === "table") {
-        const legacyNotes = item.name === "tally_notes" && !hasTallyNoteNumbers;
-        if (
-          tableDefinition(prior.sql, legacyNotes ? "number_text text" : undefined) !==
-          tableDefinition(item.sql)
-        )
+        const omittedColumn =
+          item.name === "tally_notes" && !hasTallyNoteNumbers
+            ? { name: "number_text", definition: "number_text text" }
+            : item.name === "tab_links" && !hasSharedInvitationDecline
+              ? { name: "invitation_declined_at", definition: "invitation_declined_at integer" }
+              : undefined;
+        if (tableDefinition(prior.sql, omittedColumn?.definition) !== tableDefinition(item.sql))
           fail("unsupported");
-        const shape = async (handle: DB, omitNoteNumber = false) =>
+        const shape = async (handle: DB, omittedName?: string) =>
           (
             await handle.getAllAsync<Record<string, unknown>>(
               `PRAGMA table_xinfo(${quote(item.name)})`,
             )
           )
-            .filter((row) => !omitNoteNumber || row.name !== "number_text")
+            .filter((row) => row.name !== omittedName)
             .map(({ cid, ...row }) => row)
             .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-        if (JSON.stringify(await shape(db)) !== JSON.stringify(await shape(trusted, legacyNotes)))
+        if (
+          JSON.stringify(await shape(db)) !==
+          JSON.stringify(await shape(trusted, omittedColumn?.name))
+        )
           fail("unsupported");
       } else if (normalizedSQL(prior.sql) !== normalizedSQL(item.sql)) fail("unsupported");
     }

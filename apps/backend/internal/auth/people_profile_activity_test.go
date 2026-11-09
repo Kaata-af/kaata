@@ -45,6 +45,11 @@ func TestPersonProfileActivityScopesAndSeparatesRequests(t *testing.T) {
 	check(viewer, stranger, book, nil)
 	check(manager, peer, book, nil) // another member cannot read the sender's pending requests
 	check(peer, viewer, peerBook, nil)
+	exec(`UPDATE people_requests SET declined_at=NOW() WHERE id=$1`, request)
+	check(viewer, peer, book, &PersonProfileActivity{SharedTally: "declined", KaataInvitationRole: "clerk", ExistingRelationshipID: relA})
+	check(manager, peer, book, nil)
+	check(peer, viewer, peerBook, nil)
+	exec(`UPDATE people_requests SET declined_at=NULL WHERE id=$1`, request)
 	exec(`UPDATE tab_groups SET b_account_id=$2,b_vault_id=$3,b_relationship_id=$4,b_joined_at=NOW() WHERE id=$1`, group, peer, peerBook, relB)
 	check(viewer, peer, book, &PersonProfileActivity{SharedTally: "active", KaataInvitationRole: "clerk", ExistingRelationshipID: relA})
 	check(peer, viewer, peerBook, &PersonProfileActivity{SharedTally: "active", ExistingRelationshipID: relB})

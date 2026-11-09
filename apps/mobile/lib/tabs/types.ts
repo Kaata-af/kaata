@@ -95,6 +95,8 @@ export type WireTab = {
   confirmed_balance?: Record<TabRole, string>;
   /** Authoritative proof that the invited party has never participated. */
   unjoined_invitation?: boolean;
+  /** Sender-side outcome of an account-targeted invitation. */
+  invitation_declined_at_ms?: number;
   id: string;
   currency: string;
   rev: number;
@@ -280,6 +282,7 @@ export type TabLink = {
   my_label: string;
   other_label: string;
   other_joined_at: number | null;
+  invitation_declined_at?: number | null;
   /** Party a keeps B's link for re-sharing; NULL on party b. */
   invite_url: string | null;
   /** Pull cursor = highest rev applied. */

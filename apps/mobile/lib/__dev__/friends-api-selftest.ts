@@ -175,8 +175,15 @@ async function main() {
     await assert.rejects(f.api.getPersonProfile(peer), { code: "invalid_response" });
     f.replies.push(() => result({ ...profile, can_receive_requests: "true" }));
     assert.equal((await f.api.getPersonProfile(peer)).can_receive_requests, false);
+    f.replies.push(() =>
+      result({ ...profile, activity: { ...profile.activity, shared_tally: "declined" } }),
+    );
+    assert.equal(
+      (await f.api.getPersonProfile(peer, f.session(), vault)).activity?.shared_tally,
+      "declined",
+    );
     await assert.rejects(f.api.getPersonProfile("../../friends"), { status: 404 });
-    assert.equal(f.calls.length, 4);
+    assert.equal(f.calls.length, 5);
   }
   {
     const f = fixture();

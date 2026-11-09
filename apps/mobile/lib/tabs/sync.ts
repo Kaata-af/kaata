@@ -687,6 +687,8 @@ async function runReconcileTabsFromServer(): Promise<void> {
           const participationChanged =
             typeof t.tab.unjoined_invitation === "boolean" &&
             (t.tab.unjoined_invitation ? 1 : 0) !== (existing.unjoined_invitation ?? null);
+          const invitationDeclined =
+            t.tab.invitation_declined_at_ms != null && existing.invitation_declined_at == null;
           const modeChanged =
             t.tab.recording_mode != null &&
             (t.tab.recording_mode !== (existing.recording_mode ?? "review") ||
@@ -697,6 +699,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
             t.tab.rev > existing.rev ||
             orderChanged ||
             participationChanged ||
+            invitationDeclined ||
             modeChanged ||
             groupChanged ||
             (t.tab.closed_at_ms != null && existing.closed_at == null)
@@ -741,6 +744,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
             my_label: t.tab.parties[me].label,
             other_label: t.tab.parties[them].label,
             other_joined_at: t.tab.parties[them].joined_at_ms,
+            invitation_declined_at: t.tab.invitation_declined_at_ms ?? null,
             unjoined_invitation:
               t.tab.recording_mode != null && typeof t.tab.unjoined_invitation === "boolean"
                 ? t.tab.unjoined_invitation

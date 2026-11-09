@@ -137,7 +137,7 @@ for (rowRTL of [false, true]) {
 rowRTL = false;
 
 for (rowRTL of [false, true]) {
-  for (const status of ["joined", "waiting", "none"] as const) {
+  for (const status of ["joined", "waiting", "declined", "none"] as const) {
     const usd = { ...a, currency: "USD", balance: -25, tab_id: null };
     const contact = {
       ...a,
@@ -150,6 +150,7 @@ for (rowRTL of [false, true]) {
           tab_id: "afn-shared",
           tab_closed_at: status === "none" ? 100 : null,
           tab_other_joined: status === "joined" ? 1 : 0,
+          tab_invitation_declined_at: status === "declined" ? 123 : null,
         },
         usd,
       ],
@@ -169,6 +170,11 @@ for (rowRTL of [false, true]) {
       status === "waiting",
       "full-contact waiting identity survives projection without changing confirmed badge semantics",
     );
+    assert.equal(
+      JSON.stringify(row!).includes("tab.chip.declined"),
+      status === "declined",
+      "a declined invitation remains visible when the displayed balance is in another currency",
+    );
     const amounts = nodes(row!).filter(
       (node) => node.type === "Text" && node.props.accessibilityLabel,
     );
@@ -184,6 +190,17 @@ for (rowRTL of [false, true]) {
     );
     checks++;
   }
+}
+const declinedCurrency = { ...a, tab_id: "declined", tab_invitation_declined_at: 123 };
+for (const [other, status] of [
+  [{ tab_id: "other" }, "waiting"],
+  [{ tab_id: "other", tab_other_joined: 1 }, "joined"],
+] as const) {
+  assert.equal(
+    personSharedAccountStatus({ currency_balances: [declinedCurrency, other] }),
+    status,
+    "a joined or still-pending currency takes priority over a declined currency",
+  );
 }
 const projectedWaiting = {
   ...a,

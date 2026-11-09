@@ -167,6 +167,7 @@ export type PersonWithBalance = Person & {
   tab_account_name?: string | null;
   tab_pending: number;
   tab_other_joined: 0 | 1;
+  tab_invitation_declined_at?: number | null;
   // 1 while a link found by discovery (a restore, a second phone) has never
   // been pulled: its balance is not known yet, and showing the bare post-link
   // local sum (usually 0) as the shared balance would be false (audit #8).

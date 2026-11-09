@@ -379,6 +379,7 @@ const server = {
     relationship_id: string | null;
     linked_at_ms?: number;
   }>,
+  invitationDeclinedAt: undefined as number | undefined,
   reset() {
     this.rev = 0;
     this.closedAt = null;
@@ -392,6 +393,7 @@ const server = {
     this.calls = [];
     this.failNext = null;
     this.mine = [];
+    this.invitationDeclinedAt = undefined;
   },
   seed(
     entry: Partial<ServerEntry> & Pick<ServerEntry, "created_by" | "direction" | "amount">,
@@ -427,6 +429,7 @@ const server = {
       id: TAB,
       recording_mode: "review",
       currency: "AFN",
+      invitation_declined_at_ms: you === "a" ? this.invitationDeclinedAt : undefined,
       rev: this.rev,
       created_at_ms: 1_000,
       closed_at_ms: this.closedAt,
@@ -1337,6 +1340,7 @@ async function main(): Promise<void> {
       "my_label",
       "other_label",
       "other_joined_at",
+      "invitation_declined_at",
       "unjoined_invitation",
       "recording_mode",
       "recording_mode_known",
@@ -3223,6 +3227,43 @@ async function main(): Promise<void> {
     } finally {
       stop();
     }
+  });
+
+  await test("a prior invite decline refreshes the sender at the same tally revision", async () => {
+    const tl = link();
+    session.jwt = "jwt-1";
+    await tabsDb.upsertTabLink(tl);
+    const opening = server.seed({
+      id: "pending-opening",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "70.25",
+      kind: "opening",
+    });
+    const waiting = server.view("a");
+    await tabsDb.upsertTabFromWire(tl, { tab: waiting, entries: [opening], full: true });
+    const before = (await db.getPerson(CONTACT))!;
+    const originalRows = fixture.prepare("SELECT * FROM tab_entries").all();
+    const refreshes = ledgerEmits.length;
+    assert.equal(personSharedAccountStatus(before), "waiting");
+
+    server.invitationDeclinedAt = 8_000;
+    server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+    await sync.reconcileTabsFromServer();
+    assert.ok(server.calls.includes(`GET /v1/tabs/${TAB}?after_rev=${waiting.rev}`));
+    assert.equal(storedLink().rev, waiting.rev);
+    assert.equal(storedLink().invitation_declined_at, 8_000);
+    assert.equal(sharedAccountLinkStatus(storedLink()), "declined");
+    const after = (await db.getPerson(CONTACT))!;
+    assert.equal(personSharedAccountStatus(after), "declined");
+    assert.equal(personSharedAccountStatus((await db.listAllPeople())[0]), "declined");
+    assert.equal(after.balance, before.balance);
+    assert.deepEqual(fixture.prepare("SELECT * FROM tab_entries").all(), originalRows);
+    assert.equal(ledgerEmits.length, refreshes + 1, "visible contacts refresh on the new status");
+
+    await tabsDb.upsertTabFromWire(tl, { tab: waiting, entries: [], full: false });
+    assert.equal(sharedAccountLinkStatus(storedLink()), "declined", "a stale pull cannot undo it");
+    assert.equal(ledgerEmits.length, refreshes + 1);
   });
 
   await test("read sites in the real lib/db.ts: linked contact reads the tab, unlinked stays byte-identical", async () => {
