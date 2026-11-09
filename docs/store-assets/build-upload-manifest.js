@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
+const { expo } = require("../../apps/mobile/app.json");
 const { formats, panels } = require("./store-design.js");
 const root = __dirname;
 const repo = path.resolve(root, "../..");
@@ -80,10 +81,10 @@ write("apple-screenshots-manifest.json", {
 });
 write("store-upload-manifest.json", {
   schema: 1,
-  version: "2.3.0",
-  androidCode: 82,
-  iosBuild: "48",
-  testedSource: "4057d982b98b8a67c75d847a7be4998866433a94",
+  version: expo.version,
+  androidCode: expo.android.versionCode,
+  iosBuild: expo.ios.buildNumber,
+  sourceReference: "239cbe9111e8eca9a6891c50f094519661989812",
   contentLanguage: "fa-AF",
   storeLocale: "en-US",
   provenance:

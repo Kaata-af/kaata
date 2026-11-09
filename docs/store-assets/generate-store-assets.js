@@ -21,9 +21,12 @@ function page(panel, format) {
   const artHeight = format.height / scale;
   const compact = artHeight < 1700;
   const iphone = format.platform === "ios" && format.kind === "phone";
+  const legacyIphone = format.id === "iphone-legacy";
+  const tablet = format.kind === "tablet";
   const top = compact ? 370 : iphone ? 600 : 490;
   const deviceHeight = artHeight - top - 82;
-  const bezel = format.kind === "tablet" ? 12 : 11;
+  const bezel = tablet ? 13 : 9;
+  const corner = tablet ? 30 : iphone ? 48 : 39;
   const k = (deviceHeight - bezel * 2) / format.dpHeight;
   const screenWidth = format.dpWidth * k;
   const deviceWidth = screenWidth + bezel * 2;
@@ -39,13 +42,24 @@ html,body{width:${format.width}px;height:${format.height}px;overflow:hidden;back
 .campaign-copy h1{font-size:${compact ? 58 : 72}px;line-height:1.5;font-weight:700;letter-spacing:0;}
 .campaign-copy em{color:${P.blue};font-style:normal;}
 .campaign-copy p{font-size:${compact ? 24 : 27}px;line-height:1.75;margin-top:${compact ? 12 : 20}px;color:${P.muted};}
-.store-device{position:absolute;top:${top}px;left:50%;transform:translateX(-50%);width:${deviceWidth}px;height:${deviceHeight}px;padding:${bezel}px;background:#222;border-radius:${format.kind === "tablet" ? 35 : 64}px;box-shadow:0 18px 40px #00000017,0 0 0 2px #b2b2b2,inset 0 0 0 3px #4a4a4a;}
-.store-screen{position:relative;width:100%;height:100%;overflow:hidden;border-radius:${format.kind === "tablet" ? 24 : 54}px;background:#fff;font-family:"Vaz",sans-serif;color:${S.app.textEmphasis};--k:${k};--ib:${format.platform === "ios" ? 24 : 18}px;--sbar:calc(var(--k)*48px);}
+.store-device{position:absolute;top:${top}px;left:50%;transform:translateX(-50%);width:${deviceWidth}px;height:${deviceHeight}px;padding:${bezel}px;border-radius:${corner}px;background:linear-gradient(112deg,#8e9297,#c5c8cb 13%,#777d84 36%,#a2a6ac 83%,#676c73);box-shadow:0 1px 2px #17212e35,0 20px 32px -15px #17212e28,0 43px 68px -38px #17212e37,inset 0 0 0 1px #686d74;}
+.store-device.android{background:linear-gradient(112deg,#474d55,#9399a1 14%,#4d535a 33%,#7e858d 83%,#353a41);}
+.store-device::before{content:"";position:absolute;inset:3px;border-radius:${corner - 3}px;background:#111317;box-shadow:0 0 0 1px #23262b65,inset 0 1px 1px #fff2;}
+.device-key{position:absolute;display:block;width:3px;border-radius:2px;background:linear-gradient(90deg,#5c626a,#a4aab1 56%,#565b63);box-shadow:0 0 0 1px #3d424759;}
+.device-key.primary{right:-2px;top:22%;height:6.5%;}
+.device-key.volume{left:-2px;top:16%;height:4%;box-shadow:0 0 0 1px #3d424759,0 ${Math.round(deviceHeight * 0.052)}px #848a91;}
+.store-device.android .device-key.volume{left:auto;right:-2px;top:30%;height:9%;box-shadow:0 0 0 1px #3d424759;}
+.store-screen{position:relative;z-index:1;width:100%;height:100%;overflow:hidden;border-radius:${corner - bezel}px;background:#fff;font-family:"Vaz",sans-serif;color:${S.app.textEmphasis};--k:${k};--ib:${format.platform === "ios" ? 24 : 18}px;--sbar:calc(var(--k)*48px);}
 .store-screen .sbar{height:var(--sbar);padding:calc(var(--k)*12px) calc(var(--k)*26px) 0;direction:ltr;}
 .store-screen .sb-time{font-size:calc(var(--k)*13px);}
 .store-screen .sb-right{transform:scale(${k / 1.6});transform-origin:right center;}
-.store-device.ios.phone::after{content:"";position:absolute;top:${bezel + k * 10}px;left:50%;transform:translateX(-50%);width:${k * 91}px;height:${k * 24}px;border-radius:40px;background:#090909;}
-.store-device.android.phone::after{content:"";position:absolute;top:${bezel + k * 10}px;left:50%;transform:translateX(-50%);width:${k * 9}px;height:${k * 9}px;border-radius:50%;background:#161616;}
+.phone .device-sensor{position:absolute;z-index:2;top:${bezel + k * 10}px;left:50%;transform:translateX(-50%);border-radius:100px;background:#0c0e10;}
+.ios.phone .device-sensor{width:${k * 95}px;height:${k * 25}px;box-shadow:inset 0 1px 2px #4448;}
+.ios.phone .device-sensor::after{content:"";position:absolute;top:50%;right:${k * 7}px;transform:translateY(-50%);width:${k * 8}px;height:${k * 8}px;border-radius:50%;background:radial-gradient(circle at 36% 33%,#40536a,#151a24 41%,#08090b 70%);}
+.ios.face-id-notch .device-sensor{top:${bezel - 1}px;width:${k * 152}px;height:${k * 28}px;border-radius:0 0 ${k * 13}px ${k * 13}px;box-shadow:0 1px 1px #0003;}
+.ios.face-id-notch .device-sensor::before{content:"";position:absolute;top:${k * 3}px;left:50%;transform:translateX(-50%);width:${k * 40}px;height:${k * 2}px;border-radius:2px;background:#37393c;}
+.ios.face-id-notch .device-sensor::after{left:${k * 19}px;right:auto;width:${k * 8}px;height:${k * 8}px;}
+.android.phone .device-sensor{width:${k * 8}px;height:${k * 8}px;background:radial-gradient(circle at 34% 32%,#465366,#17191d 45%,#0a0b0d 70%);}
 .home-indicator{position:absolute;bottom:${k * 7}px;left:50%;transform:translateX(-50%);width:${k * 110}px;height:${k * 4}px;border-radius:20px;background:#171717;z-index:25;}
 .store-screen .keypad{display:none;}
 .store-screen .ob,.store-screen .ob-foot,.store-screen .ob-brand{max-width:calc(var(--k)*480px);margin-left:auto;margin-right:auto;}
@@ -55,7 +69,7 @@ html,body{width:${format.width}px;height:${format.height}px;overflow:hidden;back
   return documentPage(
     panel.label,
     css,
-    `<main class="store-art"><header class="campaign-top">${wordmark}<span class="campaign-label">${panel.label}</span></header><section class="campaign-copy"><h1>${panel.head}</h1><p>${panel.description}</p></section><div class="store-device ${format.platform} ${format.kind}"><div class="store-screen">${screen}<div class="home-indicator"></div></div></div>${strip}</main>`,
+    `<main class="store-art"><header class="campaign-top">${wordmark}<span class="campaign-label">${panel.label}</span></header><section class="campaign-copy"><h1>${panel.head}</h1><p>${panel.description}</p></section><div class="store-device ${format.platform} ${format.kind}${legacyIphone ? " face-id-notch" : ""}">${tablet ? "" : '<i class="device-key primary" aria-hidden="true"></i><i class="device-key volume" aria-hidden="true"></i><i class="device-sensor" aria-hidden="true"></i>'}<div class="store-screen">${screen}<div class="home-indicator"></div></div></div>${strip}</main>`,
   );
 }
 

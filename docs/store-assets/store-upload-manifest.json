@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "version": "2.3.0",
-  "androidCode": 82,
-  "iosBuild": "48",
-  "testedSource": "4057d982b98b8a67c75d847a7be4998866433a94",
+  "version": "2.3.2",
+  "androidCode": 93,
+  "iosBuild": "59",
+  "sourceReference": "239cbe9111e8eca9a6891c50f094519661989812",
   "contentLanguage": "fa-AF",
   "storeLocale": "en-US",
   "provenance": "Source-faithful promotional compositions using fictional data; not native device captures.",
@@ -11,7 +11,7 @@
   "allPassed": true,
   "pngBitDepth": 8,
   "pngColorType": 2,
-  "validationSha256": "59006603202195924e3f21409d9eea2eb225974788a6a9149d6f3d2573b6e92c",
+  "validationSha256": "551a26f8c1c5d1f7af6bb41597a4f161d062a2288b7014fd47a3b55d2a0f506f",
   "formats": [
     {
       "id": "play-phone",
@@ -24,42 +24,42 @@
         {
           "fileName": "01-home.png",
           "path": "docs/store-assets/screenshots/01-home.png",
-          "sha256": "03fc80405ec90ebd0c8ba7bdc8adbdee0acc31b22c971461cb6aa2d9e3a3d831",
+          "sha256": "5971ed4ab3511513d20b10da203f733036b97760ec9260aeb55a6cf71ccfcfdf",
           "width": 1080,
           "height": 1920
         },
         {
           "fileName": "02-person-detail.png",
           "path": "docs/store-assets/screenshots/02-person-detail.png",
-          "sha256": "130fe74876a17554d8471ac5e8f3add69060d87cb77703a80d90ebebfcab7658",
+          "sha256": "f677635c58388438218d32cfa7bd331596012621b70ae779d42a25f4b8f926f8",
           "width": 1080,
           "height": 1920
         },
         {
           "fileName": "03-add-entry.png",
           "path": "docs/store-assets/screenshots/03-add-entry.png",
-          "sha256": "9e61a645508744663cecb9e3a35cf7b3cf159c27289fc6ab18e1e2a3d3b92720",
+          "sha256": "6d500ea100326d9c46b53195f9634a3cea6bb02807de76d6661474dec9ffb2be",
           "width": 1080,
           "height": 1920
         },
         {
           "fileName": "04-search.png",
           "path": "docs/store-assets/screenshots/04-search.png",
-          "sha256": "3067341f5d99154f968c7a28f690590c2329c282903da524b3e4daa7ae7220b7",
+          "sha256": "257240cc4378a8e6fe76da3ae05e21b8ac036c250ae92c8e92fb1a8e9e2826ac",
           "width": 1080,
           "height": 1920
         },
         {
           "fileName": "05-app-lock.png",
           "path": "docs/store-assets/screenshots/05-app-lock.png",
-          "sha256": "e90f437a50b9ac387df8fd1ac0a81d29b54faef7ac555d330d1fe1732e0bb785",
+          "sha256": "765268048f4a1a439e5b2381eded0eff13153ffe50b371b3b611e2e715c3e813",
           "width": 1080,
           "height": 1920
         },
         {
           "fileName": "06-reminder.png",
           "path": "docs/store-assets/screenshots/06-reminder.png",
-          "sha256": "e8518f5b131baa44482c026d666a2474c7e2cb2ee1ccec17ee336ac758a58574",
+          "sha256": "2e0706ad87a23fc7c1425f61fcc20c8281f0b72ada83deff5b539e7fdd40ce00",
           "width": 1080,
           "height": 1920
         }
@@ -76,42 +76,42 @@
         {
           "fileName": "01-home.png",
           "path": "docs/store-assets/iphone-6.1/01-home.png",
-          "sha256": "5d52669594a0f9740779edd9a98b4108cf46f7f0198ffdb6de6a57691045b6de",
+          "sha256": "679a62ffe793c32ab0dda77edefaa808f2a8425d127b531063534397e67e5f3d",
           "width": 1206,
           "height": 2622
         },
         {
           "fileName": "02-person-detail.png",
           "path": "docs/store-assets/iphone-6.1/02-person-detail.png",
-          "sha256": "f48c9bfc8d8289817029e1ac635f3d26226dc7127f2f0ca38ca2e27b67af465b",
+          "sha256": "50c7e44992cf8f51505dcce4a7e4b71a7b9b69495f54ff985b47446cd4c4f3bc",
           "width": 1206,
           "height": 2622
         },
         {
           "fileName": "03-add-entry.png",
           "path": "docs/store-assets/iphone-6.1/03-add-entry.png",
-          "sha256": "2e4775c1800f47f02ffffac8964780971149b1345287f1b2cd3681b6a0b85df2",
+          "sha256": "ba8a8c7249e0e89985cf2c0c33c1bba568e25d05dcc315ab226d63c6afc9a465",
           "width": 1206,
           "height": 2622
         },
         {
           "fileName": "04-search.png",
           "path": "docs/store-assets/iphone-6.1/04-search.png",
-          "sha256": "b2532b9e29a06b90eb4063199e83dda8b286207c04ab8c2dc3914687b206bea8",
+          "sha256": "d25c5b427e028c89445e14e840bd6b20d0a398ee5fec5be8c112297c3059d643",
           "width": 1206,
           "height": 2622
         },
         {
           "fileName": "05-app-lock.png",
           "path": "docs/store-assets/iphone-6.1/05-app-lock.png",
-          "sha256": "522ed8b89d64a2e846e30363627dcb9917ba696e3a74a460d2c3074b8a245f0e",
+          "sha256": "1a3a8f43d0ac2492d18977a55652f96ecfba3ce5a17f2ed0badb02404404b66a",
           "width": 1206,
           "height": 2622
         },
         {
           "fileName": "06-reminder.png",
           "path": "docs/store-assets/iphone-6.1/06-reminder.png",
-          "sha256": "86a2470462d94af17e706019d86a0d8666074eda644394d67d3990d63c920843",
+          "sha256": "5dfa7ec16ffcdaa1d7de30eb1944cb2715a0f256ace8c750c24cef23e5ce7165",
           "width": 1206,
           "height": 2622
         }
@@ -128,42 +128,42 @@
         {
           "fileName": "01-home.png",
           "path": "docs/store-assets/iphone-6.5/01-home.png",
-          "sha256": "3311ebf6d85f082d14e25ad7a84dbcd6c406b723a1f449e075be79d8a2e33b1d",
+          "sha256": "88edc81569c565b40882d046fd4c714e70031abb81f1b998fab710c2fa4b1265",
           "width": 1284,
           "height": 2778
         },
         {
           "fileName": "02-person-detail.png",
           "path": "docs/store-assets/iphone-6.5/02-person-detail.png",
-          "sha256": "944359d4f506432464473b4a491ec1104e22e9d42c4656a8008466d112d8a84b",
+          "sha256": "cdf91c39891d6e58933e9eaa4a79eb0f8097968e1e8274618d1b9f59c257b7b2",
           "width": 1284,
           "height": 2778
         },
         {
           "fileName": "03-add-entry.png",
           "path": "docs/store-assets/iphone-6.5/03-add-entry.png",
-          "sha256": "f5fe44c60fe8317cd2d55ed7ae0f2b34733c8fa22285bf7b5415f90e2d4ab147",
+          "sha256": "c26dc496cd7044e01ebf6c28fd6618f0d02129187d8cfdac70780d6b05003a00",
           "width": 1284,
           "height": 2778
         },
         {
           "fileName": "04-search.png",
           "path": "docs/store-assets/iphone-6.5/04-search.png",
-          "sha256": "fe698a0442af1378cc30c5cb5b03767c7d4e92a6bdac0af19dc822e445e22f70",
+          "sha256": "d25f4f56546cd405747c50f4891a80724edd4c08c4e5caf3d527a95420488e62",
           "width": 1284,
           "height": 2778
         },
         {
           "fileName": "05-app-lock.png",
           "path": "docs/store-assets/iphone-6.5/05-app-lock.png",
-          "sha256": "c0f20aba32cf418049473b6d940b26c3c23cde4aeb625f73e5d6c5b76b977b8f",
+          "sha256": "76a3826f7ff2c3f15ea761a0cac132f9af19eb106d260a971cfe0cf2019de0a4",
           "width": 1284,
           "height": 2778
         },
         {
           "fileName": "06-reminder.png",
           "path": "docs/store-assets/iphone-6.5/06-reminder.png",
-          "sha256": "6e66467421444b6608dfdd475e17eec5fb204f0396bd7ee14747f5bc97a0d57e",
+          "sha256": "9d82f97dc0c3f9642e6de4339f520d5f55446049d711072cfc51df771f6060fe",
           "width": 1284,
           "height": 2778
         }
@@ -180,42 +180,42 @@
         {
           "fileName": "01-home.png",
           "path": "docs/store-assets/tablet-screenshots/7-inch/01-home.png",
-          "sha256": "ef97669d1a7597381733c101166248299c8fa7d45a270ce402f06f8b0a5f9fcf",
+          "sha256": "957fd20280d325cff08b1fd53f088253ce2dad8748259bb041ff9c4dcaa924c1",
           "width": 1260,
           "height": 2240
         },
         {
           "fileName": "02-person-detail.png",
           "path": "docs/store-assets/tablet-screenshots/7-inch/02-person-detail.png",
-          "sha256": "3334bf83cafcef62c9a2e41a2acf2215ae813a4c5f30259508a2ea373a4030ea",
+          "sha256": "64cb7cb777845012aac1afe983656ffdd274d80db3722e7753beab33fc2b29cd",
           "width": 1260,
           "height": 2240
         },
         {
           "fileName": "03-add-entry.png",
           "path": "docs/store-assets/tablet-screenshots/7-inch/03-add-entry.png",
-          "sha256": "bcfb2826a5374cfd5fa07aaa6c025b56d00a97e66c32310b20ce0fdfdd68295c",
+          "sha256": "96eaee3401a3ae93d3b5fac11ef8a4f32d85ae2fcb01545d7640654266621e06",
           "width": 1260,
           "height": 2240
         },
         {
           "fileName": "04-search.png",
           "path": "docs/store-assets/tablet-screenshots/7-inch/04-search.png",
-          "sha256": "e8aa347a41b923bb3b6a4e2e9781ba0a690f933481c3682701a9ebdf8d44f63b",
+          "sha256": "6af5540d89b97f898d070b192061751dfd79940dd4a561669c9f2dcaec1da8fd",
           "width": 1260,
           "height": 2240
         },
         {
           "fileName": "05-app-lock.png",
           "path": "docs/store-assets/tablet-screenshots/7-inch/05-app-lock.png",
-          "sha256": "75c4fcad0f6a4beaf38f82d8a48110a0b218a0010117f645dc576dfe69929ae3",
+          "sha256": "ec1067e668c254af3c72030c2ee993c0e63aac6924484d00e297ce2aedb616dc",
           "width": 1260,
           "height": 2240
         },
         {
           "fileName": "06-reminder.png",
           "path": "docs/store-assets/tablet-screenshots/7-inch/06-reminder.png",
-          "sha256": "9e3444cab89f97c6533b9477466e1ed9faaf40f4105a98af9b38b9ff6ca212e3",
+          "sha256": "83f604f12131808bafa8bbcc31848a095629818d8cd8886565409fd4ad566a63",
           "width": 1260,
           "height": 2240
         }
@@ -232,42 +232,42 @@
         {
           "fileName": "01-home.png",
           "path": "docs/store-assets/tablet-screenshots/10-inch/01-home.png",
-          "sha256": "782f717c6a51d5cfea7f6237ebbcaefcbc08becb58aa316fe2a3e225c33223fa",
+          "sha256": "6b57f7f1cdab8427987c698648905cf29aee6457b64d04b2cf825d38cf5ee95d",
           "width": 1620,
           "height": 2880
         },
         {
           "fileName": "02-person-detail.png",
           "path": "docs/store-assets/tablet-screenshots/10-inch/02-person-detail.png",
-          "sha256": "a69c4ac98ec155c51d831fe4844cc4a5d91229fb1b7ab685ac73b82e1aaa07bf",
+          "sha256": "f95490526a1b10dce775bdceebcc4c3df8043cf1b003ede79b69e77e8b1be1d0",
           "width": 1620,
           "height": 2880
         },
         {
           "fileName": "03-add-entry.png",
           "path": "docs/store-assets/tablet-screenshots/10-inch/03-add-entry.png",
-          "sha256": "a95f242cd0988bf15a29310f8881f0cb1b02850b77e19d79fc90552a711b3899",
+          "sha256": "76a33267ad6cf4358d4b9b1665465fdb280e33694c40ff696ed52082902a1b24",
           "width": 1620,
           "height": 2880
         },
         {
           "fileName": "04-search.png",
           "path": "docs/store-assets/tablet-screenshots/10-inch/04-search.png",
-          "sha256": "6bca055591c93d693eec28e7917c476a87732b8294da476d47ca0f7b7fafa96a",
+          "sha256": "a48e1d858a9cd903b692744f915560f08d257917a025b7ce31c5a456dccb1b30",
           "width": 1620,
           "height": 2880
         },
         {
           "fileName": "05-app-lock.png",
           "path": "docs/store-assets/tablet-screenshots/10-inch/05-app-lock.png",
-          "sha256": "5201472032b2dadd9acfe3f5e81d2302d401f5a1c17ff9fcdcb0b0f025f27430",
+          "sha256": "b0c2db6c5720eafc5555b8ac9c2861c98dc45101f299603a0d812282d19eead7",
           "width": 1620,
           "height": 2880
         },
         {
           "fileName": "06-reminder.png",
           "path": "docs/store-assets/tablet-screenshots/10-inch/06-reminder.png",
-          "sha256": "906071ea87bcdad9fa4b41dd2e44defd5619813cf578660723ce9c1aa90e7484",
+          "sha256": "52f1334f81d98f003ecc6ed6568424d39b2f8dd6e5ca8b975ad99e76dc64f2a2",
           "width": 1620,
           "height": 2880
         }
@@ -284,42 +284,42 @@
         {
           "fileName": "01-home.png",
           "path": "docs/store-assets/ipad-13/01-home.png",
-          "sha256": "4ae5e18abda673e6ae127f18cca921a35df04789c64ebcbccc9ab19feedcb831",
+          "sha256": "afe102e5ab120451b8f5d37e127ca671d60dcaa16e81fe108c2c6d06b21bdce6",
           "width": 2048,
           "height": 2732
         },
         {
           "fileName": "02-person-detail.png",
           "path": "docs/store-assets/ipad-13/02-person-detail.png",
-          "sha256": "b29dcc0b406aa35e662b0494eac27eea3adb57acf9b4548da32fd21557434d05",
+          "sha256": "cd7fcbf08f53a3948d3c9e6b5f31662925f230af4f479bb525fe088943138a94",
           "width": 2048,
           "height": 2732
         },
         {
           "fileName": "03-add-entry.png",
           "path": "docs/store-assets/ipad-13/03-add-entry.png",
-          "sha256": "a1cae8328fb8137535ae2b6633edff77275f4216b1c92651694c95cfc0a03b6e",
+          "sha256": "4b3588a3a586f0cd501bf6462eb907156dfeec1369efb87a4a923728adc2a9b9",
           "width": 2048,
           "height": 2732
         },
         {
           "fileName": "04-search.png",
           "path": "docs/store-assets/ipad-13/04-search.png",
-          "sha256": "c0093039c76c6501af8bcf6a12e608ef62fff4070714ec8797bd8569c71d8a15",
+          "sha256": "3fc258335e3430417d1ba1eeb4bb3b4876f87a43bdccb54f14859d2eab296287",
           "width": 2048,
           "height": 2732
         },
         {
           "fileName": "05-app-lock.png",
           "path": "docs/store-assets/ipad-13/05-app-lock.png",
-          "sha256": "c225ef1a470bf057248cbf99fbb00e1ae6941193dd64482796fdf17b03e17303",
+          "sha256": "a879592d309ee093036fd1e184d929dd6ed359376cd54f850a1a43ec6bd96f4a",
           "width": 2048,
           "height": 2732
         },
         {
           "fileName": "06-reminder.png",
           "path": "docs/store-assets/ipad-13/06-reminder.png",
-          "sha256": "2971290672592309a8a7353755706d08e39868af1ce93ce505b6dde98735fb53",
+          "sha256": "26f15dcde349ab26bf5ec1ba297d1f500c9ccb1a0f82a7121c470317511aa3d9",
           "width": 2048,
           "height": 2732
         }
