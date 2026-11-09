@@ -642,6 +642,30 @@ async function main() {
     assert.deepEqual(confirmations.reads, current ? ["42"] : []);
     confirmations.hooks.unmount();
   }
+  const rejected = {
+    ...accepted,
+    id: "43",
+    kind: "vault_invite_rejected",
+    body: "Peer declined your invitation to Demo Kaata.",
+  };
+  for (const full of [false, true]) {
+    const confirmations = fixture(full);
+    confirmations.inbox.page.items = [rejected];
+    confirmations.render();
+    if (!full) {
+      confirmations.open();
+      confirmations.measure();
+    }
+    const row = nodes(confirmations.hooks.tree).find((node) => node.props.item === rejected)!;
+    assert.ok(row, "a rejected invitation appears in the inbox");
+    row.props.onPress();
+    await settleUI();
+    assert.deepEqual(confirmations.reads, ["43"]);
+    assert.deepEqual(confirmations.opens, []);
+    assert.deepEqual(confirmations.routes, [], "reading a rejection never navigates");
+    if (!full) assert.equal(confirmations.find("Modal").props.visible, true);
+    confirmations.hooks.unmount();
+  }
   const friend = { id: "friend-request", from: { account_id: "peer-account", name: "Peer" } };
   for (const full of [false, true]) {
     const friendship = fixture(full);

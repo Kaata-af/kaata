@@ -59,7 +59,7 @@ func (h *Handler) Inbox(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	page, err := h.svc.listInbox(r.Context(), claims.AccountID, r.URL.Query().Get("locale"), before, r.URL.Query().Get("include_connections") == "1")
+	page, err := h.svc.listInbox(r.Context(), claims.AccountID, r.URL.Query().Get("locale"), before, inboxConnectionKinds(r))
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -67,7 +67,18 @@ func (h *Handler) Inbox(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, 200, page)
 }
 
-func (s *Service) listInbox(ctx context.Context, accountID, locale string, before int64, includeConnections bool) (InboxPage, error) {
+func inboxConnectionKinds(r *http.Request) []string {
+	query := r.URL.Query()
+	if query.Get("include_connections") != "1" {
+		return nil
+	}
+	if query.Get("include_vault_invite_results") == "1" {
+		return []string{"friend_accepted", "vault_invite_rejected"}
+	}
+	return []string{"friend_accepted"}
+}
+
+func (s *Service) listInbox(ctx context.Context, accountID, locale string, before int64, connectionKinds []string) (InboxPage, error) {
 	page := InboxPage{Items: []InboxItem{}}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -75,15 +86,15 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
 	}
 	defer tx.Rollback(ctx)
 	// Keep old clients' counts and cursors scoped to rows they can display.
-	err = tx.QueryRow(ctx, `SELECT tabs.unread+friends.unread,GREATEST(tabs.latest,friends.latest)::text FROM (
+	err = tx.QueryRow(ctx, `SELECT tabs.unread+connections.unread,GREATEST(tabs.latest,connections.latest)::text FROM (
  SELECT COUNT(*) FILTER (WHERE nr.notification_id IS NULL) AS unread,COALESCE(MAX(n.id),0) AS latest
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  LEFT JOIN tab_notification_reads nr ON nr.notification_id=n.id AND nr.account_id=$1::uuid
  WHERE `+inboxAccess+`
  ) tabs CROSS JOIN (
  SELECT COUNT(*) FILTER (WHERE n.read_at IS NULL) AS unread,COALESCE(MAX(n.id),0) AS latest
- FROM account_friend_notifications n WHERE $2::boolean AND n.recipient_account_id=$1::uuid
- ) friends`, accountID, includeConnections).Scan(&page.Unread, &page.LatestID)
+ FROM account_connection_notifications n WHERE n.recipient_account_id=$1::uuid AND n.event_kind=ANY($2::text[])
+ ) connections`, accountID, connectionKinds).Scan(&page.Unread, &page.LatestID)
 	if err != nil {
 		return page, err
 	}
@@ -94,18 +105,18 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
  (p.account_id=$1::uuid OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id
    AND vm.account_id=$1::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
    AND vm.role IN ('owner','manager','editor'))) AND t.recording_mode='review' AND COALESCE(e.status='pending',FALSE),
- ''::text
+ ''::text,''::text
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  JOIN tabs t ON t.id=n.tab_id LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
  LEFT JOIN tab_notification_reads nr ON nr.notification_id=n.id AND nr.account_id=$1::uuid
  WHERE `+inboxAccess+` AND ($2::bigint=0 OR n.id<$2) ORDER BY n.id DESC LIMIT 51
  ) UNION ALL (
- SELECT n.id,''::text,''::text,0,'friend_accepted',''::text,n.actor_label,n.created_at,n.read_at IS NOT NULL,
- 0,''::text,''::text,FALSE,n.actor_account_id::text
- FROM account_friend_notifications n
- WHERE $3::boolean AND n.recipient_account_id=$1::uuid AND ($2::bigint=0 OR n.id<$2)
+ SELECT n.id,''::text,''::text,0,n.event_kind,''::text,n.actor_label,n.created_at,n.read_at IS NOT NULL,
+ 0,''::text,''::text,FALSE,n.actor_account_id::text,COALESCE(n.vault_label,'')
+ FROM account_connection_notifications n
+ WHERE n.recipient_account_id=$1::uuid AND n.event_kind=ANY($3::text[]) AND ($2::bigint=0 OR n.id<$2)
  ORDER BY n.id DESC LIMIT 51
- ) ORDER BY id DESC LIMIT 51`, accountID, before, includeConnections)
+ ) ORDER BY id DESC LIMIT 51`, accountID, before, connectionKinds)
 	if err != nil {
 		return page, err
 	}
@@ -114,17 +125,20 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
 		var item InboxItem
 		var id int64
 		var at time.Time
-		var actor, direction, currency string
+		var actor, direction, currency, vault string
 		var amount int64
 		var canReview bool
-		if err = rows.Scan(&id, &item.TabID, &item.Role, &item.Rev, &item.Kind, &item.EntryID, &actor, &at, &item.Read, &amount, &direction, &currency, &canReview, &item.ActorAccountID); err != nil {
+		if err = rows.Scan(&id, &item.TabID, &item.Role, &item.Rev, &item.Kind, &item.EntryID, &actor, &at, &item.Read, &amount, &direction, &currency, &canReview, &item.ActorAccountID, &vault); err != nil {
 			return page, err
 		}
 		item.ID = strconv.FormatInt(id, 10)
 		item.CreatedAtMS = at.UnixMilli()
-		if item.Kind == "friend_accepted" {
+		switch item.Kind {
+		case "friend_accepted":
 			item.Body = friendAcceptedBody(locale, actor)
-		} else {
+		case "vault_invite_rejected":
+			item.Body = vaultInviteRejectedBody(locale, actor, vault)
+		default:
 			item.Body = detailedPushBody(item.Kind, locale, actor, amount, direction, currency, item.Role, canReview)
 		}
 		page.Items = append(page.Items, item)
@@ -184,12 +198,12 @@ func (h *Handler) ReadInbox(w http.ResponseWriter, r *http.Request) {
  WHERE ` + inboxAccess + ` AND ` + where + `
  ON CONFLICT DO NOTHING`
 	params := append([]any{claims.AccountID}, args...)
-	if req.TabID == "" && r.URL.Query().Get("include_connections") == "1" {
+	if kinds := inboxConnectionKinds(r); req.TabID == "" && len(kinds) > 0 {
 		var marked int64
-		err := h.svc.pool.QueryRow(r.Context(), `WITH tabs AS (`+markTabs+` RETURNING 1), friends AS (
- UPDATE account_friend_notifications n SET read_at=NOW()
- WHERE n.recipient_account_id=$1::uuid AND n.read_at IS NULL AND `+where+` RETURNING 1
- ) SELECT (SELECT COUNT(*) FROM tabs)+(SELECT COUNT(*) FROM friends)`, params...).Scan(&marked)
+		err := h.svc.pool.QueryRow(r.Context(), `WITH tabs AS (`+markTabs+` RETURNING 1), connections AS (
+ UPDATE account_connection_notifications n SET read_at=NOW()
+ WHERE n.recipient_account_id=$1::uuid AND n.read_at IS NULL AND n.event_kind=ANY($3::text[]) AND `+where+` RETURNING 1
+ ) SELECT (SELECT COUNT(*) FROM tabs)+(SELECT COUNT(*) FROM connections)`, append(params, kinds)...).Scan(&marked)
 		if err != nil {
 			writeServiceError(w, err)
 			return
@@ -291,6 +305,34 @@ func friendAcceptedBody(locale, actor string) string {
 			return "Your friend request was accepted."
 		}
 		return actor + " accepted your friend request."
+	}
+}
+
+func vaultInviteRejectedBody(locale, actor, vault string) string {
+	actor, vault = notificationLabel(actor), notificationLabel(vault)
+	if actor != "" {
+		actor = "\u2068" + actor + "\u2069"
+	}
+	if vault == "" {
+		vault = "Kaata"
+	}
+	vault = "\u2068" + vault + "\u2069"
+	switch applocale.Normalize(locale) {
+	case "fa":
+		if actor == "" {
+			return "دعوت شما برای پیوستن به " + vault + " رد شد."
+		}
+		return actor + " دعوت شما برای پیوستن به " + vault + " را رد کرد."
+	case "ps":
+		if actor == "" {
+			return vault + " ته ستاسو بلنه رد شوه."
+		}
+		return actor + " " + vault + " ته ستاسو بلنه رد کړه."
+	default:
+		if actor == "" {
+			return "Your invitation to " + vault + " was declined."
+		}
+		return actor + " declined your invitation to " + vault + "."
 	}
 }
 

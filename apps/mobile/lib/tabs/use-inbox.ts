@@ -20,7 +20,15 @@ import {
 
 const empty = (): InboxPage => ({ items: [], unread: 0, latest_id: "0", next_before: "" });
 const cacheKey = (account: string, locale: string) =>
-  "notification_inbox:" + account + ":" + locale;
+  "notification_inbox_v2:" + account + ":" + locale;
+
+// A rolled-back app can still read its own cache without seeing unknown notice kinds.
+async function readCachedInbox(account: string, locale: string) {
+  return (
+    (await getAppMeta(cacheKey(account, locale))) ??
+    getAppMeta("notification_inbox:" + account + ":" + locale)
+  );
+}
 
 // How long a reload waits for the queued marks to go out before it fetches.
 // Long enough for one round trip on shop 3G (the answer then already carries
@@ -86,14 +94,14 @@ onInboxReadsApplied((specs, source) => {
   if (source !== "handled") return;
   const account = getSessionAccountIdSync();
   if (!account) return;
-  const key = cacheKey(account, getLocale());
+  const locale = getLocale();
   void withCache(async () => {
-    const cached = await getAppMeta(key);
+    const cached = await readCachedInbox(account, locale);
     if (!cached) return;
     const parsed = JSON.parse(cached) as InboxPage;
     if (!Array.isArray(parsed.items)) return;
     const next = applyReads(parsed, specs);
-    if (next !== parsed) await setAppMeta(key, JSON.stringify(next));
+    if (next !== parsed) await setAppMeta(cacheKey(account, locale), JSON.stringify(next));
   }).catch(() => undefined);
 });
 
@@ -107,7 +115,7 @@ export function useInbox() {
   const generation = useRef(0);
   const busy = useRef(false);
   const refreshPending = useRef(false);
-  const observedAcceptances = useRef<IncomingRequestSnapshot | null>(null);
+  const observedResults = useRef<IncomingRequestSnapshot | null>(null);
   // The page as last committed, for the read listener: it runs outside a
   // render and must flip what is on screen, not what its closure captured.
   // Every state write goes through `commit` so the two never disagree.
@@ -125,7 +133,7 @@ export function useInbox() {
       const who = getSessionAccountIdSync();
       if (owner.current !== who) {
         owner.current = who;
-        observedAcceptances.current = null;
+        observedResults.current = null;
         commit(empty());
       }
       if (!who) return;
@@ -157,10 +165,12 @@ export function useInbox() {
         const next = await withPendingReads(fetched, who);
         if (!current()) return;
         if (!before) {
-          observedAcceptances.current = observeIncomingRequests(
-            observedAcceptances.current,
-            next.items.filter((item) => item.kind === "friend_accepted"),
-            "friend_accepted",
+          observedResults.current = observeIncomingRequests(
+            observedResults.current,
+            next.items.filter(
+              (item) => item.kind === "friend_accepted" || item.kind === "vault_invite_rejected",
+            ),
+            "connection_result",
             current,
           );
         }
@@ -201,7 +211,7 @@ export function useInbox() {
       const run = ++generation.current;
       busy.current = false;
       refreshPending.current = false;
-      observedAcceptances.current = null;
+      observedResults.current = null;
       owner.current = account;
       commit(empty());
       setLoading(false);
@@ -209,7 +219,7 @@ export function useInbox() {
       void (async () => {
         if (account) {
           try {
-            const cached = await withCache(() => getAppMeta(cacheKey(account, locale)));
+            const cached = await withCache(() => readCachedInbox(account, locale));
             if (cached && run === generation.current && getSessionAccountIdSync() === account) {
               const parsed = JSON.parse(cached) as InboxPage;
               if (Array.isArray(parsed.items)) {
@@ -246,7 +256,7 @@ export function useInbox() {
       });
       const app = AppState.addEventListener("change", (state) => {
         if (state === "active") void reload();
-        else observedAcceptances.current = null;
+        else observedResults.current = null;
       });
       const poll = setInterval(() => {
         if (AppState.currentState === "active") void reload();
@@ -255,7 +265,7 @@ export function useInbox() {
         generation.current++;
         busy.current = false;
         refreshPending.current = false;
-        observedAcceptances.current = null;
+        observedResults.current = null;
         off();
         offReads();
         app.remove();

@@ -171,7 +171,7 @@ async function main() {
   render();
   await settle();
   assert.equal(output.page.items[0].body, "A");
-  assert(cache.has("notification_inbox:a:en"));
+  assert(cache.has("notification_inbox_v2:a:en"));
   console.log("PASS 1: account/locale cache and initial history");
 
   const stale = defer<InboxPage>();
@@ -185,7 +185,7 @@ async function main() {
   await pending;
   await settle();
   assert.equal(output.page.items[0].body, "B", "late A response leaked into B");
-  assert(cache.has("notification_inbox:b:en"));
+  assert(cache.has("notification_inbox_v2:b:en"));
   console.log("PASS 2: account switches ignore late previous-account responses");
 
   const oldCount = defer<InboxPage>();
@@ -244,7 +244,7 @@ async function main() {
   render();
   await settle();
   assert.equal(output.page.items[0].body, "fa");
-  assert(cache.has("notification_inbox:b:fa"));
+  assert(cache.has("notification_inbox_v2:b:fa"));
   account = null;
   render();
   await settle();
@@ -272,7 +272,7 @@ async function main() {
   assert.equal(output.page.unread, 0, "badge did not drop on the handled event");
   assert(output.page.items[0].read, "cached item did not flip");
   assert.equal(fetches, 0, "the flip must not need a round trip");
-  assert(JSON.parse(cache.get("notification_inbox:c:fa")!).items[0].read, "flip not persisted");
+  assert(JSON.parse(cache.get("notification_inbox_v2:c:fa")!).items[0].read, "flip not persisted");
   assert.deepEqual(marks, [{ tab_id: "tab", entry_id: "entry" }]);
   console.log("PASS 8: a handled event flips the cached notice and the badge without a fetch");
 
@@ -305,7 +305,7 @@ async function main() {
   fetcher = async () => {
     throw new Error("offline");
   };
-  cache.set("notification_inbox:c:fa", JSON.stringify(page("6", "unseen")));
+  cache.set("notification_inbox_v2:c:fa", JSON.stringify(page("6", "unseen")));
   await inboxReads.markInboxHandled({ tab_id: "tab", through_rev: 1 });
   await settle();
   focused = true;
@@ -322,12 +322,12 @@ async function main() {
   // fetch must not put the badge back.
   unmount();
   marker = async () => {};
-  cache.set("notification_inbox:c:fa", JSON.stringify(page("8", "handled elsewhere")));
+  cache.set("notification_inbox_v2:c:fa", JSON.stringify(page("8", "handled elsewhere")));
   await inboxReads.markInboxHandled({ tab_id: "tab", through_rev: 2 });
   await settle();
   assert.equal(JSON.parse(cache.get("inbox_read_queue")!).length, 0, "the mark was sent");
   assert(
-    JSON.parse(cache.get("notification_inbox:c:fa")!).items[0].read,
+    JSON.parse(cache.get("notification_inbox_v2:c:fa")!).items[0].read,
     "a sent mark must patch the cached page while the bell is away",
   );
   fetcher = async () => {
@@ -379,10 +379,14 @@ async function main() {
   offAnnounce();
   console.log("PASS 13: read rows of a fetched page are announced as server reads, never queued");
 
-  const acceptance = (id: string, read = false) => {
-    const result = page(id, "Nuri accepted your friend request.", read);
+  const connectionResult = (
+    id: string,
+    kind: "friend_accepted" | "vault_invite_rejected",
+    read = false,
+  ) => {
+    const result = page(id, "Connection update", read);
     Object.assign(result.items[0], {
-      kind: "friend_accepted",
+      kind,
       actor_account_id: "peer",
       tab_id: "",
       role: "",
@@ -392,35 +396,55 @@ async function main() {
     });
     return result;
   };
-  fetcher = async () => acceptance("11");
+  fetcher = async () => connectionResult("11", "friend_accepted");
   await output.reload();
   await output.reload();
   await settle();
   assert.equal(output.page.unread, 1);
-  assert.deepEqual(cues, ["account:c:friend_accepted:11"], "a new acceptance cues exactly once");
+  assert.deepEqual(cues, ["account:c:connection_result:11"], "a new acceptance cues exactly once");
   marker = async (body) => {
     assert.deepEqual(body, { id: "11" }, "friend notice is read by its inbox id");
-    fetcher = async () => acceptance("11", true);
+    fetcher = async () => connectionResult("11", "friend_accepted", true);
   };
   await output.read("11");
   assert.equal(output.page.unread, 0);
+  fetcher = async () => connectionResult("12", "vault_invite_rejected");
+  await output.reload();
+  await output.reload();
+  await settle();
+  assert.equal(output.page.unread, 1);
+  const expectedCues = ["account:c:connection_result:11", "account:c:connection_result:12"];
+  assert.deepEqual(cues, expectedCues, "a new rejection cues exactly once");
+  marker = async (body) => {
+    assert.deepEqual(body, { id: "12" }, "a rejected invite is read by its inbox id");
+    fetcher = async () => connectionResult("12", "vault_invite_rejected", true);
+  };
+  await output.read("12");
+  assert.equal(output.page.unread, 0);
   connectionsEnabled = false;
-  fetcher = async () => acceptance("12");
+  fetcher = async () => connectionResult("13", "vault_invite_rejected");
   await output.reload();
   await settle();
   assert.equal(output.page.unread, 1, "muting connections does not hide inbox history");
   connectionsEnabled = true;
   account = "d";
-  fetcher = async () => acceptance("13");
+  fetcher = async () => connectionResult("14", "friend_accepted");
   render();
   await settle();
   assert.equal(output.page.unread, 1);
-  assert.deepEqual(
-    cues,
-    ["account:c:friend_accepted:11"],
-    "muted and first-load notices stay quiet",
-  );
-  console.log("PASS 14: friend acceptances are read by id and cue only for new unmuted arrivals");
+  assert.deepEqual(cues, expectedCues, "muted and first-load notices stay quiet");
+  console.log("PASS 14: new friend acceptances and member rejections cue and are read by id");
+
+  account = "legacy";
+  cache.set("notification_inbox:legacy:fa", JSON.stringify(page("15", "old cache")));
+  fetcher = async () => {
+    throw new Error("offline");
+  };
+  render();
+  await settle();
+  assert.equal(output.page.items[0].body, "old cache");
+  assert(!cache.has("notification_inbox_v2:legacy:fa"));
+  console.log("PASS 15: upgrading keeps previous cached inbox history available offline");
 }
 main()
   .catch((e) => {

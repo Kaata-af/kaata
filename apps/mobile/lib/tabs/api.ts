@@ -612,10 +612,12 @@ export type InboxPage = {
   next_before: string;
 };
 
+const INBOX_CONNECTIONS_QUERY = "include_connections=1&include_vault_invite_results=1";
+
 export async function fetchInbox(locale: string, before = ""): Promise<InboxPage> {
   return request(
     "GET",
-    `/v1/tabs/inbox?locale=${encodeURIComponent(locale)}&before=${encodeURIComponent(before)}&include_connections=1`,
+    `/v1/tabs/inbox?locale=${encodeURIComponent(locale)}&before=${encodeURIComponent(before)}&${INBOX_CONNECTIONS_QUERY}`,
     await requireJwt(),
   );
 }
@@ -634,5 +636,5 @@ export type InboxReadBody =
   | { tab_id: string; through_rev: number };
 
 export async function markInboxRead(body: InboxReadBody): Promise<void> {
-  await request("POST", "/v1/tabs/inbox/read?include_connections=1", await requireJwt(), body);
+  await request("POST", `/v1/tabs/inbox/read?${INBOX_CONNECTIONS_QUERY}`, await requireJwt(), body);
 }

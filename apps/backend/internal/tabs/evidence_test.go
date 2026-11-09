@@ -124,7 +124,7 @@ func TestSharedEvidenceSurvivesDeletedStaffAccounts(t *testing.T) {
 		got.Status != "accepted" || got.StatusAtMS == nil || *got.StatusAtMS != *e.StatusAtMS {
 		t.Fatalf("deletion erased shared evidence: %+v", got)
 	}
-	inbox, err := f.svc.listInbox(ctx, f.acctA, "en", 0, false)
+	inbox, err := f.svc.listInbox(ctx, f.acctA, "en", 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

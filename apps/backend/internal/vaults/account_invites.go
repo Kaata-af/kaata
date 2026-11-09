@@ -296,31 +296,52 @@ func (s *Service) DeclineAccountInvite(ctx context.Context, accountID, inviteID 
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	states, err := lockInviteAccounts(ctx, tx, accountID)
-	if err != nil {
-		return err
-	}
-	if !states[accountID].active {
-		return ErrInviteNotFound
-	}
-	var vaultID string
-	err = tx.QueryRow(ctx, `SELECT vault_id::text FROM vault_members WHERE invite_request_id=$1::uuid AND invite_account_id=$2::uuid`, inviteID, accountID).Scan(&vaultID)
+	var vaultID, inviterID string
+	err = tx.QueryRow(ctx, `SELECT vault_id::text,COALESCE(invited_by::text,'') FROM vault_members
+ WHERE invite_request_id=$1::uuid AND invite_account_id=$2::uuid`, inviteID, accountID).Scan(&vaultID, &inviterID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrInviteNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM vaults WHERE vault_id=$1::uuid FOR UPDATE`, vaultID); err != nil {
-		return err
+	// Match invite creation and acceptance: take the account locks before
+	// the vault lock. Inserting the notice also references the inviter.
+	accounts := []string{accountID}
+	if inviterID != "" {
+		accounts = append(accounts, inviterID)
 	}
-	tag, err := tx.Exec(ctx, `UPDATE vault_members SET revoked_at=NOW(),revoked_by=$2::uuid,revoked_reason='declined',updated_at=NOW()
- WHERE invite_request_id=$1::uuid AND invite_account_id=$2::uuid AND accepted_at IS NULL AND revoked_at IS NULL`, inviteID, accountID)
+	states, err := lockInviteAccounts(ctx, tx, accounts...)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if !states[accountID].active {
 		return ErrInviteNotFound
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM vaults WHERE vault_id=$1::uuid FOR UPDATE`, vaultID); err != nil {
+		return err
+	}
+	var unexpired bool
+	var currentInviter string
+	err = tx.QueryRow(ctx, `UPDATE vault_members SET revoked_at=NOW(),revoked_by=$2::uuid,revoked_reason='declined',updated_at=NOW()
+ WHERE invite_request_id=$1::uuid AND invite_account_id=$2::uuid AND accepted_at IS NULL AND revoked_at IS NULL
+ RETURNING invite_expires_at>NOW(),COALESCE(invited_by::text,'')`, inviteID, accountID).Scan(&unexpired, &currentInviter)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInviteNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if unexpired && currentInviter == inviterID && states[inviterID].active {
+		if _, err := tx.Exec(ctx, `INSERT INTO account_connection_notifications(event_kind,source_id,recipient_account_id,actor_account_id,actor_label,vault_label)
+ SELECT 'vault_invite_rejected',$1::uuid,$2::uuid,actor.id,`+inviterNameSQL("actor")+`,v.name
+ FROM vaults v JOIN accounts actor ON actor.id=$3::uuid WHERE v.vault_id=$4::uuid
+ AND v.archived_at IS NULL AND v.purged_at IS NULL
+ AND EXISTS(SELECT 1 FROM vault_members authority WHERE authority.vault_id=v.vault_id
+  AND authority.account_id=$2::uuid AND authority.accepted_at IS NOT NULL AND authority.revoked_at IS NULL
+  AND authority.role IN ('owner','manager') AND `+inviteManagerCapabilitySQL+`)`, inviteID, inviterID, accountID, vaultID); err != nil {
+			return err
+		}
 	}
 	if _, err := writeAudit(ctx, tx, vaultID, &accountID, "invite_declined", &accountID, map[string]any{"invite_id": inviteID}); err != nil {
 		return err

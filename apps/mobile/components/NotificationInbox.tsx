@@ -146,7 +146,9 @@ async function openInboxNotice(inbox: Inbox, item: InboxItem) {
       pathname: "/people/[accountId]",
       params: { accountId: item.actor_account_id },
     });
-  } else {
+  } else if (item.kind !== "vault_invite_rejected") {
+    // The tally route also marks this id for the OS tray. The inbox read
+    // below is idempotent and refreshes the page.
     await openTabNotification(item.tab_id, item.entry_id, {
       notificationId: item.id,
       rev: item.rev,
@@ -162,7 +164,8 @@ function NoticeRow({ item, onPress }: { item: InboxItem; onPress: () => void }) 
       ? "people-outline"
       : item.kind === "entry_accepted" || item.kind === "entry_removal_approved"
         ? "checkmark-outline"
-        : item.kind === "entry_rejected" ||
+        : item.kind === "vault_invite_rejected" ||
+            item.kind === "entry_rejected" ||
             item.kind === "entry_voided" ||
             item.kind === "entry_removal_declined"
           ? "close-outline"
@@ -651,14 +654,13 @@ export function NotificationBell({
       });
     }
   };
-  // Navigation first, then the read. openTabNotification marks the notice
-  // handled by its inbox id (with the tally and rev as tray hints) the moment
-  // the push lands; inbox.read repeats the same canonical mark — deduplicated
-  // in the queue, idempotent on the server — and refreshes the page.
-  const open = (item: InboxItem) =>
-    close(() => {
+  const open = (item: InboxItem) => {
+    const handle = () => {
       void openInboxNotice(inbox, item).catch(() => toast.push(t("inbox.openFailed"), "error"));
-    });
+    };
+    if (item.kind === "vault_invite_rejected") handle();
+    else close(handle);
+  };
   return (
     <>
       <View ref={anchor} collapsable={false}>

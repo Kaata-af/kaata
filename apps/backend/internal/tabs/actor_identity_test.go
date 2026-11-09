@@ -61,11 +61,11 @@ func TestActualWriterReviewerAndNoSelfNotification(t *testing.T) {
 	if jobs != 1 {
 		t.Fatalf("self notified through opposite membership: %d jobs", jobs)
 	}
-	own, err := f.svc.listInbox(ctx, writer, "en", 0, false)
+	own, err := f.svc.listInbox(ctx, writer, "en", 0, nil)
 	if err != nil || len(own.Items) != 0 || own.Unread != 0 {
 		t.Fatalf("own inbox: %+v %v", own, err)
 	}
-	peer, err := f.svc.listInbox(ctx, reviewer, "en", 0, false)
+	peer, err := f.svc.listInbox(ctx, reviewer, "en", 0, nil)
 	if err != nil || len(peer.Items) != 1 || !strings.Contains(peer.Items[0].Body, "Writer Name") {
 		t.Fatalf("peer inbox: %+v %v", peer, err)
 	}
@@ -73,7 +73,7 @@ func TestActualWriterReviewerAndNoSelfNotification(t *testing.T) {
 	if r.status != 200 {
 		t.Fatalf("accept: %d %s", r.status, r.body)
 	}
-	authorInbox, err := f.svc.listInbox(ctx, writer, "en", 0, false)
+	authorInbox, err := f.svc.listInbox(ctx, writer, "en", 0, nil)
 	if err != nil || len(authorInbox.Items) != 1 || !strings.Contains(authorInbox.Items[0].Body, "Reviewer Name") {
 		t.Fatalf("review actor: %+v %v", authorInbox, err)
 	}

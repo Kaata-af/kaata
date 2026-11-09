@@ -16,7 +16,7 @@ const createdAt = (row: IncomingRequest) => row.created_at_ms ?? row.invited_at 
 export function observeIncomingRequests(
   previous: IncomingRequestSnapshot | null,
   rows: readonly IncomingRequest[],
-  kind: "friend_request" | "friend_accepted" | "people_request" | "vault_member_request",
+  kind: "friend_request" | "connection_result" | "people_request" | "vault_member_request",
   isCurrent: () => boolean,
 ): IncomingRequestSnapshot | null {
   if (AppState.currentState !== "active" || !isCurrent()) return null;
