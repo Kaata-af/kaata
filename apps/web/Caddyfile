@@ -91,8 +91,13 @@
 			host kaata.af www.kaata.af
 			path /privacy /privacy/
 		}
+		@public_terms {
+			host kaata.af www.kaata.af
+			path /terms /terms/
+		}
 		rewrite @public_home /_public/home.html
 		rewrite @public_privacy /_public/privacy.html
+		rewrite @public_terms /_public/terms.html
 		try_files {path} /index.html
 		file_server
 
@@ -105,7 +110,7 @@
 		# HTML must always be revalidated: a heuristically-cached stale page
 		# would reference hashed chunks a later deploy has deleted and
 		# white-screen until a hard refresh. Hashed assets stay immutable below.
-		@html path / /index.html /privacy /privacy/ /_public/*
+		@html path / /index.html /privacy /privacy/ /terms /terms/ /_public/*
 		header @html Cache-Control "no-cache"
 
 		# Aggressive cache for hashed asset files (Vite emits content-hashed names).
