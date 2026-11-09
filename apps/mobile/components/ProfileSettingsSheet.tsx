@@ -125,7 +125,6 @@ export type ProfileSettingsProps = {
       | "/guide"
       | "/dev/btc-test"
       | "/notification-settings"
-      | "/people/friends"
       | "/backups",
   ) => void;
 };
@@ -196,7 +195,6 @@ export function ProfileSettingsSheet(props: ProfileSettingsProps) {
       | "/guide"
       | "/dev/btc-test"
       | "/notification-settings"
-      | "/people/friends"
       | "/backups",
   ) => (props.onNavigate ? props.onNavigate(path) : router.replace(path));
 
@@ -281,13 +279,6 @@ export function ProfileSettingsSheet(props: ProfileSettingsProps) {
               label={t("menu.account.settings")}
               hint={t("menu.account.settings.hint")}
               onPress={chained(props.onOpenAccount)}
-              isRTL={isRTL}
-            />
-            <NavRow
-              icon="people-outline"
-              label={t("friends.title")}
-              hint={t("friends.menuHint")}
-              onPress={chained(() => navigate("/people/friends"))}
               isRTL={isRTL}
             />
             <NavRow

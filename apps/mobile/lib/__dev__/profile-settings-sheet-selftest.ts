@@ -172,9 +172,9 @@ for (const rtl of [false, true])
         );
         const notification = form.row("notificationSettings.title");
         assert.equal(
-          !!form.row("friends.title"),
-          signedIn,
-          "friends belongs to signed-in account settings, independent of the active book",
+          form.row("friends.title"),
+          undefined,
+          "Friends is reached from Home navigation",
         );
         assert.equal(
           sections.filter(
@@ -245,7 +245,6 @@ for (const [label, expected] of [
   ["menu.thisKaata.settings", "manage"],
   ["menu.allKaatas.add", "add"],
   ["notificationSettings.title", "/notification-settings"],
-  ["friends.title", "/people/friends"],
   ["backups.title", "/backups"],
 ] as const) {
   const form = fixture();
