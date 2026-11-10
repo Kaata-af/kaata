@@ -75,6 +75,7 @@ const { PersonRow } = compileUI("../../components/PersonRow", {
     personCurrencyRows: (person: any) => person.currency_balances ?? [person],
   },
   "../lib/tabs/link-status": require("../tabs/link-status"),
+  "../lib/settled-customers": require("../settled-customers"),
   "../lib/fonts": { fonts },
   "../lib/format": { formatAmount: String, formatRelative: () => "yesterday" },
 });
@@ -481,7 +482,7 @@ for (const locale of ["en", "fa", "ps"] as const) {
   }
   for (const state of [
     { balance: 0, is_settled: 0 },
-    { balance: 20, is_settled: 1 },
+    { balance: 0, is_settled: 1 },
     { balance: 20, is_settled: 0, tab_unsynced: 1 },
   ]) {
     const row = PersonRow({

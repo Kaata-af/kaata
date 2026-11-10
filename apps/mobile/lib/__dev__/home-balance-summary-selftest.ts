@@ -2142,6 +2142,7 @@ async function main() {
       "../lib/tokens": { icon: { row: 22 } },
       "../lib/multi-currency-view": { personCurrencyRows },
       "../lib/tabs/link-status": require("../tabs/link-status"),
+      "../lib/settled-customers": require("../settled-customers"),
     });
     const base = {
       id: "customer",

@@ -1,4 +1,5 @@
 import type { LocaleCode } from "./i18n";
+import { isSettledCustomer } from "./settled-customers";
 import type { Direction, PersonWithBalance } from "./types";
 
 // "Last tally · newest first" was dropped: it only differed from "Recent
@@ -127,6 +128,9 @@ export function filterCustomerCurrencyRows<T extends PersonWithBalance>(
         archived_at: person.archived_at,
         currency: code,
         currency_balances: matching,
+        // The whole contact's status must survive selecting a cleared currency
+        // while another currency still has money or unresolved work.
+        customer_is_settled: isSettledCustomer(person),
         // Optional metadata must also come from this denomination: an absent
         // value cannot inherit another currency's shared or settled state.
         tab_confirmed_balance: row.tab_confirmed_balance,
@@ -143,7 +147,13 @@ export function filterCustomerCurrencyRows<T extends PersonWithBalance>(
           ? {
               last_entry_at:
                 Math.max(...matching.map((balance) => balance.last_entry_at ?? 0)) || null,
-              is_settled: matching.every((balance) => balance.is_settled === 1) ? 1 : 0,
+              is_settled: isSettledCustomer({
+                ...row,
+                currency_balances: matching,
+                customer_is_settled: undefined,
+              })
+                ? 1
+                : 0,
               tab_unsynced: matching.some((balance) => balance.tab_unsynced === 1) ? 1 : 0,
               tab_pending: matching.reduce(
                 (count, balance) => count + (balance.tab_pending ?? 0),
@@ -365,10 +375,8 @@ function outstandingTier(person: PersonWithBalance): number {
     return Math.min(...person.currency_balances.map(outstandingTier));
   // A restored shared ledger's cached balance is unknown, whether it says 500
   // or zero. Keep it between verified balances and confirmed settled contacts.
-  if (person.tab_unsynced === 1) return 1;
-  return (person.tab_pending_count ?? 0) > 0 || (person.balance !== 0 && person.is_settled !== 1)
-    ? 0
-    : 2;
+  if (person.tab_unsynced === 1 || !Number.isFinite(person.balance)) return 1;
+  return (person.tab_pending_count ?? 0) > 0 || person.balance !== 0 ? 0 : 2;
 }
 
 /** Each known denomination can qualify independently. Pending deltas and the
@@ -382,7 +390,6 @@ function matchesBalanceFilter(
   return rows.some(
     (row) =>
       row.tab_unsynced !== 1 &&
-      row.is_settled !== 1 &&
       Number.isFinite(row.balance) &&
       (direction === "collect" ? row.balance > 0 : row.balance < 0),
   );
@@ -398,7 +405,7 @@ function amountSortTier(person: PersonWithBalance): number {
   // An unknown cached balance has no comparable magnitude. Pending deltas also
   // cannot turn a confirmed zero into an outstanding amount.
   if (row.tab_unsynced === 1 || !Number.isFinite(row.balance)) return 1;
-  return row.balance !== 0 && row.is_settled !== 1 ? 0 : 2;
+  return row.balance !== 0 ? 0 : 2;
 }
 
 function selectCustomerRows<T extends PersonWithBalance>(
@@ -430,7 +437,7 @@ function selectCustomerRows<T extends PersonWithBalance>(
     );
   };
   // Date sorts keep explicitly settled contacts after open ones.
-  const openFirst = (a: T, b: T) => (a.is_settled === 1 ? 1 : 0) - (b.is_settled === 1 ? 1 : 0);
+  const openFirst = (a: T, b: T) => Number(isSettledCustomer(a)) - Number(isSettledCustomer(b));
   const selected = selectedCustomerGroupIds(preference.group);
   return filterCustomerCurrencyRows(people, preference.currency)
     .filter(

@@ -4817,7 +4817,8 @@ async function selectAllPeopleRaw(
               WHEN EXISTS (SELECT 1 FROM tab_entries tp JOIN tab_links pl ON pl.tab_id=tp.tab_id
                 WHERE pl.vault_id=r.vault_id AND pl.relationship_id=r.id AND pl.currency=${currencySqlLiteral(currencyCode)}
                   AND tp.kind<>'void' AND tp.voided_by_entry_id IS NULL
-                  AND (tp.status='pending' OR tp.local_pending<>0 OR COALESCE(tp.local_action_pending,0)<>0)
+                  AND (tp.status='pending' OR tp.local_pending<>0 OR COALESCE(tp.local_action_pending,0)<>0
+                       OR tp.removal_state='pending')
                   AND NOT (tp.kind='opening' AND ${retainedPrivateHistorySql("pl")})) THEN 0
               WHEN ftl.tab_id IS NOT NULL
                AND ((${effectiveFinancialBalanceSql()})

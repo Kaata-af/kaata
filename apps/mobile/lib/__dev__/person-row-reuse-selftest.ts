@@ -5,6 +5,7 @@ import { compileUI, flattenStyle, jsx, nodes, uiHooks, type UINode } from "./ui-
 import type { PersonWithBalance } from "../types";
 import { filterCustomerCurrencyRows } from "../customer-list";
 import { personSharedAccountStatus } from "../tabs/link-status";
+import { mergeCurrencyPeople } from "../multi-currency-view";
 
 const hooks = uiHooks();
 const queued: (() => void)[] = [];
@@ -35,6 +36,7 @@ const { PersonRow } = compileUI(
       getCurrencyLabel: (code: string) => code,
     },
     "../lib/multi-currency-view": require("../multi-currency-view"),
+    "../lib/settled-customers": require("../settled-customers"),
     "../lib/tabs/link-status": require("../tabs/link-status"),
     "../lib/direction": { useIsRTL: () => rowRTL, rowDir: () => ({}), textDir: () => ({}) },
     "../lib/fonts": { fonts: {} },
@@ -90,6 +92,180 @@ for (rowRTL of [false, true]) {
   }
 }
 rowFontScale = 1;
+
+const emptyAFN = {
+  ...a,
+  balance: 0,
+  currency: "AFN",
+  last_entry_at: null,
+  is_settled: 0,
+} as PersonWithBalance;
+const settledAFN = { ...emptyAFN, last_entry_at: 100, is_settled: 1 };
+const settledUSD = { ...settledAFN, currency: "USD" };
+const aggregate = (...currencies: PersonWithBalance[]) =>
+  mergeCurrencyPeople(
+    currencies.map((currency) => [currency]),
+    "AFN",
+  )[0];
+const amountNodes = () =>
+  nodes(row!).filter(
+    (node) => node.type === "Text" && flattenStyle(node.props.style).writingDirection === "ltr",
+  );
+const settlementCases: {
+  name: string;
+  person: PersonWithBalance;
+  checkmarks: number;
+  amounts: string[];
+  currencies: string[];
+}[] = [
+  {
+    name: "unused private AFN with settled USD",
+    person: aggregate(emptyAFN, settledUSD),
+    checkmarks: 1,
+    amounts: [],
+    currencies: [],
+  },
+  {
+    name: "unused shared AFN with settled USD",
+    person: aggregate(
+      { ...emptyAFN, tab_id: "empty-shared", tab_other_joined: 1, tab_closed_at: null },
+      settledUSD,
+    ),
+    checkmarks: 1,
+    amounts: [],
+    currencies: [],
+  },
+  {
+    name: "both currencies settled",
+    person: aggregate(settledAFN, settledUSD),
+    checkmarks: 1,
+    amounts: [],
+    currencies: [],
+  },
+  {
+    name: "settled AFN with outstanding USD",
+    person: aggregate(settledAFN, { ...settledUSD, balance: -25, is_settled: 0 }),
+    checkmarks: 0,
+    amounts: ["25"],
+    currencies: ["USD"],
+  },
+  {
+    name: "fresh private customer",
+    person: emptyAFN,
+    checkmarks: 0,
+    amounts: ["0"],
+    currencies: [],
+  },
+  {
+    name: "fresh shared customer",
+    person: { ...emptyAFN, tab_id: "fresh-shared", tab_other_joined: 1, tab_closed_at: null },
+    checkmarks: 0,
+    amounts: ["0"],
+    currencies: [],
+  },
+  {
+    name: "multiple unmarked zero currencies",
+    person: aggregate({ ...settledAFN, is_settled: 0 }, { ...settledUSD, is_settled: 0 }),
+    checkmarks: 0,
+    amounts: ["0"],
+    currencies: [],
+  },
+  {
+    name: "pending zero balance",
+    person: aggregate(settledAFN, { ...settledUSD, tab_pending_count: 1, tab_pending_balance: 0 }),
+    checkmarks: 0,
+    amounts: ["0"],
+    currencies: [],
+  },
+  {
+    name: "unknown shared balance",
+    person: aggregate(settledAFN, { ...settledUSD, tab_unsynced: 1 }),
+    checkmarks: 0,
+    amounts: ["…"],
+    currencies: ["USD"],
+  },
+  {
+    name: "nonfinite shared balance",
+    person: aggregate(settledAFN, { ...settledUSD, balance: Number.NaN }),
+    checkmarks: 0,
+    amounts: ["…"],
+    currencies: ["USD"],
+  },
+  {
+    name: "stale settlement marker with money",
+    person: aggregate(settledAFN, { ...settledUSD, balance: 40 }),
+    checkmarks: 0,
+    amounts: ["40"],
+    currencies: ["USD"],
+  },
+  {
+    name: "filtered settled AFN with unknown USD hidden",
+    person: filterCustomerCurrencyRows(
+      [aggregate(settledAFN, { ...settledUSD, tab_unsynced: 1 })],
+      "AFN",
+    )[0],
+    checkmarks: 0,
+    amounts: ["0"],
+    currencies: [],
+  },
+  {
+    name: "filtered settled AFN with outstanding USD hidden",
+    person: filterCustomerCurrencyRows(
+      [aggregate(settledAFN, { ...settledUSD, balance: -25 })],
+      "AFN",
+    )[0],
+    checkmarks: 0,
+    amounts: ["0"],
+    currencies: [],
+  },
+];
+for (rowRTL of [false, true]) {
+  for (const test of settlementCases) {
+    const before = structuredClone(test.person);
+    reuse(test.person);
+    assert.equal(
+      nodes(row!).filter((node) => node.type === "Icon" && node.props.name === "checkmark").length,
+      test.checkmarks,
+      test.name,
+    );
+    assert.deepEqual(
+      amountNodes().map((node) => String(node.props.children)),
+      test.amounts,
+      test.name,
+    );
+    assert.deepEqual(
+      nodes(row!)
+        .filter(
+          (node) => node.type === "Text" && ["AFN", "USD"].includes(String(node.props.children)),
+        )
+        .map((node) => node.props.children),
+      test.currencies,
+      `${test.name}: show denominations only for real outstanding or unknown balances`,
+    );
+    if (test.amounts[0] === "0")
+      assert.equal(
+        flattenStyle(amountNodes()[0].props.style).color,
+        colors.textMuted,
+        "A zero without clearance remains neutral",
+      );
+    if (test.name === "unused shared AFN with settled USD") {
+      assert.equal(
+        nodes(row!).some((node) => node.type === "SharedAccountBadge"),
+        true,
+      );
+      assert.equal(
+        test.person.currency_balances?.find((currency) => currency.currency === "AFN")?.tab_id,
+        "empty-shared",
+      );
+    }
+    assert.deepEqual(
+      test.person,
+      before,
+      `${test.name}: rendering does not rewrite currency records`,
+    );
+    checks++;
+  }
+}
 
 for (rowRTL of [false, true]) {
   for (const [tab, joined, waiting] of [

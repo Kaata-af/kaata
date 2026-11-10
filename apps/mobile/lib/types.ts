@@ -105,12 +105,15 @@ export type Person = {
   archived_at: number | null;
 };
 
-// `balance` is signed: positive = they owe me, negative = I owe them, zero = settled.
+// `balance` is signed: positive = they owe me, negative = I owe them, zero = no amount owed.
 // Consumers usually display `Math.abs(balance)` and infer direction from the sign.
 export type PersonWithBalance = Person & {
   currency?: string;
   /** Independent denominations shown together; never add these balances. */
   currency_balances?: PersonWithBalance[];
+  /** View-only whole-customer settlement state retained by currency filtering.
+   * A settled denomination alone must not imply every currency is cleared. */
+  customer_is_settled?: boolean;
   balance: number;
   /** Derived shared-only amounts; ordinary private tallies are not part of
    * these fields. The headline balance includes confirmed shared records and

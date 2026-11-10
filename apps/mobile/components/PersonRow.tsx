@@ -14,6 +14,7 @@ import type { PersonWithBalance } from "../lib/types";
 import { SelectionMark } from "./SelectionMark";
 import { personCurrencyRows } from "../lib/multi-currency-view";
 import { personSharedAccountStatus } from "../lib/tabs/link-status";
+import { isSettledCustomer } from "../lib/settled-customers";
 
 // Stacked-card list row. Designed to live inside a rounded container with
 // borderWidth:1 and divider Views between rows.
@@ -41,6 +42,10 @@ export const PersonRow = memo(function PersonRow(props: {
   const { fontScale } = useWindowDimensions();
   const largeText = fontScale > 1.3;
   const { person } = props;
+  const settled = isSettledCustomer(person);
+  const balances = personCurrencyRows(person).filter(
+    (row) => row.balance !== 0 || row.tab_unsynced === 1,
+  );
   const sharedStatus = props.sharedStatus ?? personSharedAccountStatus(person);
   const activePress = useRef<{ personId: string } | null>(null);
   // Deliberately settled (user drew the line, balance zero, nothing since) —
@@ -160,42 +165,55 @@ export const PersonRow = memo(function PersonRow(props: {
           largeText && styles.largeTextBalances,
         ]}
       >
-        {personCurrencyRows(person).map((row) => {
-          const code = row.currency ?? getCurrentCurrencyCode();
-          const value = formatAmount(Math.abs(row.balance));
-          const tone =
-            row.balance > 0
-              ? colors.collectStrong
-              : row.balance < 0
-                ? colors.payStrong
-                : colors.textMuted;
-          return (
-            <View
-              key={code}
-              style={[
-                styles.right,
-                { direction: "ltr", marginTop: 3 },
-                largeText && styles.largeTextAmountRow,
-              ]}
-            >
-              {row.is_settled === 1 ? (
-                <Ionicons
-                  name="checkmark"
-                  size={icon.row}
-                  color={colors.textSubtle}
-                  accessibilityLabel={`${t("person.balance.settled")}, ${getCurrencyLabel(code)}`}
-                />
-              ) : (
+        {settled ? (
+          <Ionicons
+            name="checkmark"
+            size={icon.row}
+            color={colors.textSubtle}
+            accessibilityLabel={t("person.balance.settled")}
+          />
+        ) : balances.length === 0 ? (
+          <Text
+            style={[
+              styles.amount,
+              { color: colors.textMuted },
+              largeText && styles.largeTextAmount,
+            ]}
+            numberOfLines={largeText ? undefined : 1}
+          >
+            {formatAmount(0)}
+          </Text>
+        ) : (
+          balances.map((row) => {
+            const code = row.currency ?? getCurrentCurrencyCode();
+            const unknown = row.tab_unsynced === 1 || !Number.isFinite(row.balance);
+            const value = unknown ? "…" : formatAmount(Math.abs(row.balance));
+            const tone = unknown
+              ? colors.textMuted
+              : row.balance > 0
+                ? colors.collectStrong
+                : row.balance < 0
+                  ? colors.payStrong
+                  : colors.textMuted;
+            return (
+              <View
+                key={code}
+                style={[
+                  styles.right,
+                  { direction: "ltr", marginTop: 3 },
+                  largeText && styles.largeTextAmountRow,
+                ]}
+              >
                 <Text
                   style={[styles.amount, { color: tone }, largeText && styles.largeTextAmount]}
                   numberOfLines={largeText ? undefined : 1}
                   accessibilityLabel={
-                    row.tab_unsynced === 1
+                    unknown
                       ? t("tab.notDownloaded")
                       : `${row.balance === 0 ? "" : t(row.balance > 0 ? "home.tab.collect" : "home.tab.pay") + ", "}${value} ${getCurrencyLabel(code)}`
                   }
                 >
-                  {row.tab_unsynced === 1
+                  {unknown
                     ? "…"
                     : (props.showDirection && row.balance !== 0
                         ? row.balance > 0
@@ -203,11 +221,11 @@ export const PersonRow = memo(function PersonRow(props: {
                           : "−"
                         : "") + value}
                 </Text>
-              )}
-              {row.is_settled !== 1 ? <Text style={styles.afn}>{code}</Text> : null}
-            </View>
-          );
-        })}
+                <Text style={styles.afn}>{code}</Text>
+              </View>
+            );
+          })
+        )}
         <CreditStatusBadge status={props.creditStatus ?? "none"} />
       </View>
     </Pressable>

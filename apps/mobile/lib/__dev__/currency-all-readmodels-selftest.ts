@@ -334,6 +334,103 @@ async function main() {
     ["legacy-intent"],
     "existing scoped API remains currency-isolated",
   );
+  store.exec("SAVEPOINT shared_currency_settlement");
+  try {
+    person("multi-settled");
+    store.exec(`INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,linked_at,history_order,other_joined_at,unjoined_invitation,last_synced_at) VALUES
+      ('unused-afn','v','r-multi-settled','a','AFN',100,'1',100,0,1000),
+      ('cleared-usd','v','r-multi-settled','a','USD',100,'1',100,0,1000),
+      ('pending-eur','v','r-multi-settled','a','EUR',100,'1',100,0,1000);
+      INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status,local_pending) VALUES
+      ('usd-gave','cleared-usd',1,1,'a','a_to_b',10000,'entry',200,200,'accepted',0),
+      ('usd-received','cleared-usd',2,2,'b','b_to_a',10000,'entry',300,300,'accepted',0),
+      ('eur-proposal','pending-eur',1,1,'b','b_to_a',5000,'entry',400,400,'pending',0);
+      INSERT INTO tab_settlements(id,tab_id,rev,through_seq,settled_at_ms,created_by,actor_name,semantics_version)
+      VALUES('usd-cleared','cleared-usd',3,2,500,'a','Owner','tally-zero-settlement-v1');`);
+    const read = async (currency: string) =>
+      (await db.listAllPeopleForSearch("v", currency)).find((row) => row.id === "multi-settled")!;
+    const unused = await read("AFN");
+    const cleared = await read("USD");
+    const pending = await read("EUR");
+    assert.deepEqual(
+      [unused.balance, unused.is_settled, unused.last_entry_at],
+      [0, 0, null],
+      "an unused shared currency is empty, not independently settled",
+    );
+    assert.deepEqual(
+      [cleared.balance, cleared.is_settled, cleared.tab_pending_count],
+      [0, 1, 0],
+      "a USD clearance remains settled beside an unused AFN leg and pending EUR claim",
+    );
+    assert.deepEqual(
+      [pending.balance, pending.is_settled, pending.tab_pending_count],
+      [0, 0, 1],
+      "a pending EUR claim cannot borrow the USD settlement marker",
+    );
+    const clearedMoney = store
+      .prepare(
+        "SELECT id,seq,status,amount_minor,local_pending,local_action_pending FROM tab_entries WHERE tab_id='cleared-usd' ORDER BY seq",
+      )
+      .all();
+    const clearanceMarker = store
+      .prepare("SELECT * FROM tab_settlements WHERE tab_id='cleared-usd'")
+      .all();
+    for (const resolvedState of ["declined", null]) {
+      store.exec("UPDATE tab_entries SET removal_state='pending' WHERE id='usd-gave'");
+      const removalPending = await read("USD");
+      assert.deepEqual(
+        [removalPending.balance, removalPending.is_settled, removalPending.tab_pending_count],
+        [0, 0, 0],
+        "a synced removal request reopens clearance without inventing a pending financial tally",
+      );
+      assert.equal((await read("EUR")).tab_pending_count, 1);
+      store
+        .prepare("UPDATE tab_entries SET removal_state=? WHERE id='usd-gave'")
+        .run(resolvedState);
+      const resolved = await read("USD");
+      assert.deepEqual(
+        [resolved.balance, resolved.is_settled, resolved.tab_pending_count],
+        [0, 1, 0],
+        `a ${resolvedState ?? "cleared"} removal request keeps the original money and clearance intact`,
+      );
+    }
+    assert.deepEqual(
+      store
+        .prepare(
+          "SELECT id,seq,status,amount_minor,local_pending,local_action_pending FROM tab_entries WHERE tab_id='cleared-usd' ORDER BY seq",
+        )
+        .all(),
+      clearedMoney,
+    );
+    assert.deepEqual(
+      store.prepare("SELECT * FROM tab_settlements WHERE tab_id='cleared-usd'").all(),
+      clearanceMarker,
+      "pending removal classification preserves the existing clearance marker",
+    );
+    store.exec(`INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status,local_pending) VALUES
+      ('usd-backdated-gave','cleared-usd',3,4,'a','a_to_b',100,'entry',1,600,'accepted',0),
+      ('usd-backdated-received','cleared-usd',4,5,'b','b_to_a',100,'entry',2,700,'accepted',0);`);
+    const reopened = await read("USD");
+    assert.deepEqual(
+      [reopened.balance, reopened.is_settled],
+      [0, 0],
+      "new zero-net USD records reopen only their own sequence chapter",
+    );
+    assert.equal((await read("EUR")).tab_pending_count, 1);
+    const historyBefore = JSON.stringify(
+      store.prepare("SELECT * FROM tab_entries WHERE tab_id='cleared-usd' ORDER BY seq").all(),
+    );
+    await read("USD");
+    assert.equal(
+      JSON.stringify(
+        store.prepare("SELECT * FROM tab_entries WHERE tab_id='cleared-usd' ORDER BY seq").all(),
+      ),
+      historyBefore,
+      "settlement classification never rewrites shared records",
+    );
+  } finally {
+    store.exec("ROLLBACK TO shared_currency_settlement; RELEASE shared_currency_settlement");
+  }
   active = null;
   assert.equal(await db.getPerson("usd-only", "AFN", { allCurrencies: true }), null);
   assert.deepEqual(await db.listEntries("usd-only", "AFN", { allCurrencies: true }), []);

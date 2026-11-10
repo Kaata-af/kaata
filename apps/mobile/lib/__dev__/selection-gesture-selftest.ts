@@ -106,6 +106,7 @@ function rowFixture(kind: "contact" | "tally") {
     "../lib/i18n": { t: (key: string) => key },
     "../lib/multi-currency-view": require("../multi-currency-view"),
     "../lib/tabs/link-status": require("../tabs/link-status"),
+    "../lib/settled-customers": require("../settled-customers"),
     "../lib/tokens": { icon: { row: 22 }, radius: { sm: 8, md: 12, pill: 999 } },
   };
   const Row =

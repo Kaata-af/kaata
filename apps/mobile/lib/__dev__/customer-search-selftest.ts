@@ -20,6 +20,7 @@ import {
   type CustomerBalanceFilter,
 } from "../customer-list";
 import type { PersonWithBalance } from "../types";
+import { isSettledCustomer } from "../settled-customers";
 
 function person(
   id: string,
@@ -104,12 +105,12 @@ const extraPeople = [
     tab_id: "shared-b",
     tab_unsynced: 1,
   }),
-  // Inconsistent legacy metadata must not put a row displayed as settled first.
+  // A known live balance wins over an inconsistent legacy settled flag.
   person("settled-stale", "Aman Settled", 25, 110, { is_settled: 1 }),
 ];
 assert.deepEqual(
   selectSearchCustomers(extraPeople, DEFAULT_CUSTOMER_SEARCH, {}, "en").map((p) => p.id),
-  ["a", "b", "d", "e", "pending-zero", "pending-stale", "settled-stale", "empty", "zero", "c"],
+  ["settled-stale", "a", "b", "d", "e", "pending-zero", "pending-stale", "empty", "zero", "c"],
   "both financial sides interleave by name; unknown balances precede verified zero/settled rows",
 );
 const changedStaleBalances = extraPeople.map((p) =>
@@ -124,15 +125,14 @@ const pendingGiven = person("pending-given", "Ali Pending", 0, 100, {
 const amountTierPeople = [...extraPeople, pendingGiven];
 const beforeAmountTiers = JSON.stringify(amountTierPeople);
 for (const [sort, outstanding] of [
-  ["amount_asc", ["e", "b", "a", "d"]],
-  ["amount_desc", ["d", "a", "b", "e"]],
+  ["amount_asc", ["e", "b", "settled-stale", "a", "d"]],
+  ["amount_desc", ["d", "a", "settled-stale", "b", "e"]],
 ] as const) {
   const expected = [
     ...outstanding,
     "pending-zero",
     "pending-stale",
     "pending-given",
-    "settled-stale",
     "empty",
     "zero",
     "c",
@@ -144,15 +144,13 @@ for (const [sort, outstanding] of [
   );
   assert.deepEqual(
     selectSearchCustomers(
-      [...changedStaleBalances, { ...pendingGiven, tab_pending_balance: -99999 }].map((p) =>
-        p.is_settled === 1 ? { ...p, balance: 99999 } : p,
-      ),
+      [...changedStaleBalances, { ...pendingGiven, tab_pending_balance: -99999 }],
       { sort, group: "all" },
       {},
       "en",
     ).map((p) => p.id),
     expected,
-    `${sort}: cached unknown amounts, stale settled amounts and pending-only deltas have no numeric rank`,
+    `${sort}: cached unknown amounts and pending-only deltas have no numeric rank`,
   );
   assert.deepEqual(
     selectSearchCustomers(
@@ -388,7 +386,7 @@ for (const row of directionPeople) {
 }
 Object.freeze(directionPeople);
 const matches: Record<Exclude<CustomerBalanceFilter, "all">, ReadonlySet<string>> = {
-  collect: new Set(["mixed", "collect", "private-collect"]),
+  collect: new Set(["mixed", "known-pay", "collect", "private-collect", "settled"]),
   pay: new Set(["mixed", "known-pay", "pay", "empty-rows-pay", "confirmed-pay"]),
 };
 for (const sort of CUSTOMER_SORTS) {
@@ -452,7 +450,7 @@ assert.deepEqual(
     directionGroups,
     "en",
   ).map((row) => row.id),
-  ["private-collect"],
+  ["private-collect", "settled"],
 );
 assert.deepEqual(
   selectCustomers(
@@ -586,7 +584,9 @@ const amountRelevance = new Map([
 for (const sort of ["amount_asc", "amount_desc"] as const) {
   assert.deepEqual(
     selectSearchCustomers(soleCurrencyStates, { sort, group: "all" }, {}, "en").map((p) => p.id),
-    ["known-child", "unknown-child", "settled-child", "zero-child"],
+    sort === "amount_asc"
+      ? ["known-child", "settled-child", "unknown-child", "zero-child"]
+      : ["settled-child", "known-child", "unknown-child", "zero-child"],
     `${sort}: sole-currency status overrides stale base-wrapper flags without mixing denominations`,
   );
   assert.deepEqual(
@@ -706,6 +706,7 @@ assert.equal(projectedMixed.tab_pending, 2);
 assert.equal(projectedMixed.tab_pending_count, 3);
 assert.equal(projectedMixed.tab_pending_balance, 7);
 assert.equal(projectedMixed.tab_other_joined, 1);
+assert.equal(projectedMixed.customer_is_settled, false);
 for (const field of [
   "tab_unsynced",
   "tab_close_pending",
@@ -719,6 +720,71 @@ for (const field of [
   );
 for (const currency of [undefined, "all", "ALL", "invalid", "US$"])
   assert.deepEqual(filterCustomerCurrencyRows(currencyPeople, currency), currencyPeople);
+
+// A currency filter changes the displayed money, never whether the whole
+// customer has been deliberately cleared. Test both denomination directions.
+for (const [settledCurrency, owingCurrency] of [
+  ["AFN", "USD"],
+  ["USD", "AFN"],
+]) {
+  const cleared = person("partial", "Partially settled", 0, 100, {
+    currency: settledCurrency,
+    is_settled: 1,
+  });
+  const owing = person("partial", "Partially settled", -25, 110, {
+    currency: owingCurrency,
+  });
+  const partial = { ...cleared, currency_balances: [cleared, owing] };
+  const original = JSON.stringify(partial);
+  for (const currency of [settledCurrency, owingCurrency, [settledCurrency, owingCurrency]]) {
+    const [projected] = filterCustomerCurrencyRows([partial], currency);
+    assert.equal(projected.customer_is_settled, false);
+    assert.equal(
+      isSettledCustomer(projected),
+      false,
+      "a hidden debt cannot become a customer checkmark",
+    );
+  }
+  const [narrowedAgain] = filterCustomerCurrencyRows(
+    filterCustomerCurrencyRows([partial], settledCurrency),
+    settledCurrency,
+  );
+  assert.equal(
+    narrowedAgain.customer_is_settled,
+    false,
+    "repeated projections preserve whole-customer status",
+  );
+  const fullyCleared = {
+    ...cleared,
+    id: "fully-cleared",
+    last_entry_at: 200,
+    currency_balances: [
+      { ...cleared, id: "fully-cleared", last_entry_at: 200 },
+      { ...owing, id: "fully-cleared", balance: 0, is_settled: 1 },
+    ],
+  };
+  for (const currency of [settledCurrency, owingCurrency]) {
+    const [projected] = filterCustomerCurrencyRows([fullyCleared], currency);
+    assert.equal(projected.customer_is_settled, true);
+    assert.equal(isSettledCustomer(projected), true);
+  }
+  const open = person("open", "Open", 10, 50, { currency: settledCurrency });
+  assert.deepEqual(
+    selectSearchCustomers(
+      [fullyCleared, partial, open],
+      { sort: "recent", group: "all", currency: settledCurrency },
+      {},
+      "en",
+    ).map((row) => row.id),
+    ["partial", "open", "fully-cleared"],
+    "a selected cleared denomination does not move a partially open customer into settled history",
+  );
+  assert.equal(
+    JSON.stringify(partial),
+    original,
+    "classification/projection never changes ledger rows",
+  );
+}
 assert.deepEqual(
   filterCustomerCurrencyRows(currencyPeople, "EUR"),
   [],

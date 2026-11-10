@@ -34,6 +34,7 @@ const { summarizeSelectionEntries } = compileUI("../selection-summary", {
 const multiCurrencyView = compileUI("../multi-currency-view", {
   "./money": money,
   "./selection-summary": { summarizeSelectionEntries },
+  "./settled-customers": require("../settled-customers"),
 });
 const translations = compileUI("../i18n", {
   "expo-localization": { getLocales: () => [{ languageCode: "en" }] },
@@ -2430,9 +2431,9 @@ async function singleCurrencyBalanceTests() {
     "An empty account has no empty header gap",
   );
   assert.equal(
-    words(byId("customer-balance-symbol-ZZZ")),
-    "ZZZ",
-    "Unknown historical symbols fall back to their ISO code",
+    byId("customer-balance-symbol-ZZZ"),
+    undefined,
+    "empty zero summaries have no redundant currency",
   );
   unmount();
 
@@ -2445,7 +2446,13 @@ async function singleCurrencyBalanceTests() {
     "person.balance.settled",
     "A real clearance keeps its settled status on the white card",
   );
-  assert.equal(words(byId("customer-balance-symbol-AFN")), "؋");
+  assert.equal(byId("customer-balance-symbol-AFN"), undefined);
+  assert.equal(
+    byId("customer-balance-value-AFN"),
+    undefined,
+    "a settled summary replaces zero with one checkmark",
+  );
+  assert.ok(byId("customer-balance-settled-check"));
   assert.equal(materialTone("AFN"), "neutral");
   unmount();
 
@@ -2544,20 +2551,256 @@ async function singleCurrencyBalanceTests() {
     };
     await flush();
     assert.deepEqual(
-      ["AFN", "USD", "EUR", "GBP"].map((code) => [code, materialTone(code)]),
+      ["AFN", "USD", "GBP"].map((code) => [code, materialTone(code)]),
       [
         ["AFN", "collect"],
         ["USD", "pay"],
-        ["EUR", "neutral"],
         ["GBP", "neutral"],
       ],
       "Every currency uses its own current balance and known/unknown state in LTR and RTL",
+    );
+    assert.equal(
+      byId("customer-balance-value-EUR"),
+      undefined,
+      "known zero currencies do not add cards beside outstanding balances",
     );
     unmount();
   }
   rtl = false;
   console.log(
     "PASS customer balances: per-currency collect/pay/neutral light and live sign changes, unknown-state safety, retained symbol/status layout and LTR/RTL accessibility",
+  );
+}
+
+async function aggregateCurrencyBalanceTests() {
+  const byId = (id: string) => nodes(tree).find((node) => node.props.testID === id);
+  const checks = () =>
+    nodes(tree).filter((node) => node.props.testID === "customer-balance-settled-check");
+  const amounts = () =>
+    nodes(tree).filter((node) => /^customer-balance-value-/.test(node.props.testID ?? ""));
+  const settleActions = () =>
+    nodes(tree).filter((node) => node.props.accessibilityLabel?.startsWith("person.settle.row"));
+  for (const os of ["android", "ios"])
+    for (const direction of [false, true]) {
+      fixture(true);
+      platform = os;
+      rtl = direction;
+      preLink = [];
+      failed = [];
+      const afnLink = { ...link, currency: "AFN", tab_id: "unused-afn", group_id: "group" };
+      const usdLink = { ...link, currency: "USD", tab_id: "settled-usd", group_id: "group" };
+      const afn = {
+        ...person,
+        currency: "AFN",
+        balance: 0,
+        tab_id: afnLink.tab_id,
+        last_entry_at: null,
+      };
+      const usd = {
+        ...person,
+        currency: "USD",
+        balance: 0,
+        tab_id: usdLink.tab_id,
+        last_entry_at: 150,
+      };
+      person = { ...afn, currency_balances: [afn, usd] };
+      link = afnLink;
+      const pair = (code: string, tabId: string, start: number, status = "accepted") => [
+        {
+          ...tally(
+            `${code}-gave-${start}`,
+            "given",
+            10,
+            100 + start,
+            {
+              tab_id: tabId,
+              seq: start,
+              kind: "entry",
+              status,
+              by: "them",
+              recording_mode: "review",
+              rev: start,
+            },
+            "debt",
+          ),
+          currency: code,
+        },
+        {
+          ...tally(
+            `${code}-received-${start}`,
+            "returned",
+            10,
+            150 + start,
+            {
+              tab_id: tabId,
+              seq: start + 1,
+              kind: "entry",
+              status,
+              by: "them",
+              recording_mode: "review",
+              rev: start + 1,
+            },
+            "payment",
+          ),
+          currency: code,
+        },
+      ];
+      entries = pair("USD", usdLink.tab_id, 1);
+      const emptySettlement = { count: 0, lastSettledAtMs: null };
+      const usdMarker = {
+        id: "usd-marker",
+        through_seq: 2,
+        settled_at_ms: 200,
+        actor_name: "Owner",
+      };
+      currencyPeriods.set("AFN", {
+        tab: afnLink,
+        financialTab: afnLink,
+        settlement: emptySettlement,
+        boundaries: [],
+        markers: [],
+      });
+      currencyPeriods.set("USD", {
+        tab: usdLink,
+        financialTab: usdLink,
+        settlement: emptySettlement,
+        boundaries: [],
+        markers: [usdMarker],
+      });
+      await flush();
+      assert.equal(checks().length, 1, "unused AFN does not veto a real USD settlement");
+      assert.equal(amounts().length, 0, "one settled check replaces every zero/currency headline");
+      assert.deepEqual(find("CustomerBalanceCarousel")!.props.currencies, ["USD"]);
+      assert.equal(
+        byId("customer-balance-status-AFN"),
+        undefined,
+        "USD activity never gives unused AFN a Not settled badge",
+      );
+      assert.ok((watched.get(afnLink.tab_id) ?? 0) > 0, "hidden empty links remain watched");
+      assert.ok((watched.get(usdLink.tab_id) ?? 0) > 0);
+
+      entries.push(...pair("AFN", afnLink.tab_id, 1));
+      await ledgerRefresh();
+      await flush();
+      assert.equal(
+        checks().length,
+        0,
+        "a balanced but uncleared currency prevents an overall settled check",
+      );
+      assert.equal(amounts().length, 1);
+      assert.equal(words(amounts()[0]), "amount:0");
+      assert.equal(
+        nodes(tree).filter((node) =>
+          /^customer-balance-(symbol|currency)-/.test(node.props.testID ?? ""),
+        ).length,
+        0,
+      );
+      assert.equal(
+        settleActions().length,
+        1,
+        "the hidden zero currency still has its explicit settlement action",
+      );
+      assert.match(settleActions()[0].props.accessibilityLabel, /AFN/);
+      assert.deepEqual(
+        nodes(tree)
+          .filter((node) => node.type === "TallyFlowSummary")
+          .map((node) => node.props.currency),
+        ["AFN", "USD"],
+        "one zero summary preserves each meaningful currency's flow controls",
+      );
+      sharedSettlementImpl = async (target) => {
+        assert.equal(target.tab_id, afnLink.tab_id);
+        currencyPeriods.get("AFN")!.markers = [
+          { id: "afn-marker", through_seq: 2, settled_at_ms: 200, actor_name: "Owner" },
+        ];
+      };
+      settleActions()[0].props.onPress();
+      await flush();
+      const confirmation = nodes(tree).find(
+        (node) =>
+          node.type === "ConfirmDialog" &&
+          node.props.visible &&
+          node.props.title === "person.settle.confirm.title",
+      )!;
+      await confirmation.props.onConfirm();
+      await flush();
+      assert.equal(checks().length, 1, "two settled currencies still show only one check");
+      assert.equal(amounts().length, 0);
+      assert.equal(settleActions().length, 0);
+
+      // Two opposite pending tallies are unresolved even when their net is zero,
+      // including when another currency is first or has an outstanding balance.
+      entries.push(...pair("USD", usdLink.tab_id, 3, "pending"));
+      usd.tab_pending_count = 2;
+      usd.tab_pending_balance = 0;
+      await ledgerRefresh();
+      await flush();
+      assert.equal(checks().length, 0);
+      assert.equal(amounts().length, 1);
+      assert.ok(words(byId("customer-balance-pending-USD")).includes("USD"));
+      const pendingRow = tallies().find((node) => node.props.entry.id === "USD-gave-3")!;
+      assert.equal(
+        typeof pendingRow.props.onAccept,
+        "function",
+        "zero-net USD review remains actionable",
+      );
+      assert.equal(typeof pendingRow.props.onReject, "function");
+      afn.balance = 5;
+      await ledgerRefresh();
+      await flush();
+      assert.deepEqual(find("CustomerBalanceCarousel")!.props.currencies, ["AFN"]);
+      assert.ok(
+        byId("customer-balance-pending-USD"),
+        "hidden zero USD keeps its pending notice beside outstanding AFN",
+      );
+
+      afn.balance = 0;
+      usd.tab_pending_count = 0;
+      entries = entries.filter((entry) => (entry.tab?.seq ?? 0) <= 2);
+      const oldUsd = entries.find((entry) => entry.id === "USD-gave-1")!;
+      oldUsd.tab = {
+        ...oldUsd.tab,
+        removal_state: "pending",
+        removal_request_by: "them",
+        removal_request_id: "request",
+        local_pending: false,
+      };
+      await ledgerRefresh();
+      await flush();
+      assert.equal(checks().length, 0, "a synced removal request also vetoes settled status");
+      assert.ok(
+        tallies().some((node) => node.props.entry.id === oldUsd.id),
+        "a pending removal beneath the settlement boundary is never folded away",
+      );
+      assert.ok(byId("customer-balance-pending-USD"));
+      oldUsd.tab = { ...oldUsd.tab, removal_state: "declined" };
+      await ledgerRefresh();
+      await flush();
+      assert.equal(
+        checks().length,
+        1,
+        "declining removal restores the existing settlement without a new marker",
+      );
+      usd.tab_close_pending = 1;
+      await ledgerRefresh();
+      await flush();
+      assert.equal(checks().length, 0);
+      assert.ok(words(byId("customer-balance-pending-USD")).includes("tab.unlink.pending"));
+      usd.tab_close_pending = 0;
+      usd.tab_unsynced = 1;
+      await ledgerRefresh();
+      await flush();
+      assert.equal(checks().length, 0);
+      assert.equal(
+        words(byId("customer-balance-value-USD")),
+        "…",
+        "unknown zero currencies remain explicit, never settled",
+      );
+      unmount();
+    }
+  rtl = false;
+  console.log(
+    "PASS aggregate customer balances: one check/zero, unused shared currency suppression, per-currency settlement/flows/sync retained, nondefault pending reviews/removals/close and unknown vetoes in Android/iOS LTR/RTL",
   );
 }
 
@@ -2816,9 +3059,10 @@ async function oneWayAccountUITests() {
         role === "a",
         "only the creator gets add controls",
       );
-      assert.ok(
+      assert.equal(
         words(tree).includes("tab.balance.recorded"),
-        "one-way books describe recorded money",
+        false,
+        "a balanced one-way ledger does not repeat zero in a recorded-balance caption",
       );
       assert.ok(
         !words(tree).includes("tab.balance.confirmed"),
@@ -4250,7 +4494,16 @@ async function privateRecordedSettlementTests() {
     ["usd-open"],
     "AFN settlement never folds the dollar account",
   );
-  assert.equal(status("AFN"), "person.balance.settled");
+  assert.equal(
+    status("AFN"),
+    undefined,
+    "settled zero cards do not compete with outstanding balances",
+  );
+  assert.equal(
+    byTestId("customer-balance-settled-check"),
+    undefined,
+    "an outstanding currency prevents an overall checkmark",
+  );
   assert.equal(status("USD"), "person.balance.theyOwe");
   unmount();
 
@@ -4609,6 +4862,7 @@ async function main() {
   await oneWayAccountUITests();
   await unjoinedInvitationLedgerTests();
   await singleCurrencyBalanceTests();
+  await aggregateCurrencyBalanceTests();
   {
     fixture();
     const afn = { ...person, currency: "AFN", balance: 100 };
@@ -4695,8 +4949,8 @@ async function main() {
     await flush();
     assert.deepEqual(
       find("CustomerBalanceCarousel")!.props.currencies,
-      ["AFN", "USD"],
-      "A zero balance stays reachable beside its currency's history and settlement state",
+      ["AFN"],
+      "Only the outstanding balance needs a card; the zero currency keeps its settlement action below",
     );
     const settle = nodes(tree).filter((node) =>
       node.props.accessibilityLabel?.startsWith("person.settle.row"),

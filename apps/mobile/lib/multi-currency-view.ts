@@ -5,6 +5,7 @@ import {
   type SelectionFinancialSummary,
 } from "./selection-summary";
 import type { Entry, PersonWithBalance } from "./types";
+import { hasCustomerCurrencyActivity, isSettledCustomer } from "./settled-customers";
 
 export type CurrencySelectionSummary = { currency: string; summary: SelectionFinancialSummary };
 
@@ -25,22 +26,18 @@ export function mergeCurrencyPeople(
     }
   return [...grouped.values()].map((rows) => {
     const base = rows.find((row) => row.currency === preferred) ?? rows[0];
-    const active = rows.filter(
-      (row) =>
-        row.last_entry_at != null ||
-        row.balance !== 0 ||
-        row.tab_id ||
-        row.tab_unsynced === 1 ||
-        (row.tab_pending_count ?? 0) > 0,
-    );
+    const active = rows.filter((row) => hasCustomerCurrencyActivity(row) || row.tab_id);
     const linked =
       rows.find((row) => row.tab_id && row.tab_closed_at == null) ?? rows.find((row) => row.tab_id);
     return {
       ...base,
       ...(linked ? { tab_id: linked.tab_id, tab_closed_at: linked.tab_closed_at } : {}),
       last_entry_at: Math.max(...rows.map((row) => row.last_entry_at ?? 0)) || null,
-      is_settled: active.length > 0 && active.every((row) => row.is_settled === 1) ? 1 : 0,
+      is_settled: isSettledCustomer({ ...base, currency_balances: rows }) ? 1 : 0,
       tab_unsynced: rows.some((row) => row.tab_unsynced === 1) ? 1 : 0,
+      tab_pending: rows.reduce((count, row) => count + (row.tab_pending ?? 0), 0),
+      tab_pending_count: rows.reduce((count, row) => count + (row.tab_pending_count ?? 0), 0),
+      tab_close_pending: rows.some((row) => (row.tab_close_pending ?? 0) !== 0) ? 1 : 0,
       currency_balances: active.length ? active : [base],
     };
   });

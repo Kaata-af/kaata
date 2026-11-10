@@ -243,6 +243,44 @@ function currencyChapter(period: CurrencyPeriod): Entry[] {
     );
 }
 
+// Currency links may exist before they have a ledger. Keep those links in the
+// screen's periods for invitations, writes and sync, without giving each unused
+// denomination its own zero balance or an inherited settlement status.
+function currencyBalanceState(person: PersonWithBalance, period?: CurrencyPeriod) {
+  const entries = period?.entries ?? [];
+  const chapter = period ? currencyChapter(period) : [];
+  const unknown = person.tab_unsynced === 1 || !Number.isFinite(person.balance);
+  const unresolved =
+    unknown ||
+    person.tab_close_pending === 1 ||
+    (person.tab_pending ?? 0) > 0 ||
+    (person.tab_pending_count ?? 0) > 0 ||
+    (person.tab_pending_balance ?? 0) !== 0 ||
+    entries.some(
+      (entry) =>
+        entry.tab &&
+        (entry.tab.local_pending ||
+          (!entry.tab.voided &&
+            entry.tab.kind !== "void" &&
+            (entry.tab.status === "pending" || entry.tab.removal_state === "pending"))),
+    );
+  const settlements = period
+    ? period.financialTab
+      ? period.sharedSettlements.length
+      : period.settlement.count
+    : 0;
+  const active =
+    unresolved ||
+    person.balance !== 0 ||
+    person.last_entry_at != null ||
+    person.is_settled === 1 ||
+    settlements > 0 ||
+    entries.some(visibleTally);
+  const settled =
+    active && !unresolved && person.balance === 0 && settlements > 0 && chapter.length === 0;
+  return { active, settled, unknown, unresolved };
+}
+
 function canSettlePeriod(period: CurrencyPeriod): boolean {
   const chapter = currencyChapter(period);
   return (
@@ -989,7 +1027,9 @@ export default function PersonDetailScreen() {
         (entry) =>
           entry.tab &&
           (entry.tab.local_pending ||
-            (!entry.tab.voided && entry.tab.kind !== "void" && entry.tab.status === "pending")),
+            (!entry.tab.voided &&
+              entry.tab.kind !== "void" &&
+              (entry.tab.status === "pending" || entry.tab.removal_state === "pending"))),
       ) &&
       sumAmounts(currencyChapter(period).map(balanceContribution)) === period.person.balance,
   );
@@ -2837,8 +2877,25 @@ export default function PersonDetailScreen() {
       ]}
     />
   );
-  const balanceRows = personCurrencyRows(person);
-  const singleBalanceCurrency = balanceRows.length === 1;
+  const allBalanceRows = personCurrencyRows(person);
+  const balanceStates = allBalanceRows.map((row) => ({
+    row,
+    ...currencyBalanceState(
+      row,
+      currencyPeriods.find((period) => period.currency === (row.currency ?? selectedCurrency)),
+    ),
+  }));
+  const meaningfulBalances = balanceStates.filter((state) => state.active);
+  const outstandingBalances = balanceStates.filter(
+    (state) => state.unknown || state.row.balance !== 0,
+  );
+  const combinedZeroBalance = outstandingBalances.length === 0;
+  const overallSettled =
+    meaningfulBalances.length > 0 && meaningfulBalances.every((state) => state.settled);
+  const balanceRows = outstandingBalances.length
+    ? outstandingBalances.map((state) => state.row)
+    : [meaningfulBalances[0]?.row ?? allBalanceRows[0]];
+  const singleBalanceCurrency = meaningfulBalances.length <= 1;
   const hasCustomerPhone = !!person.phone?.trim();
   const canSendHeaderWhatsApp = entries.length > 0 && sharedAccountStatus !== "joined";
   const showHeaderWhatsApp = canSendHeaderWhatsApp && hasCustomerPhone;
@@ -3196,7 +3253,7 @@ export default function PersonDetailScreen() {
                         }
                       >
                         {(onInteract) =>
-                          balanceRows.map((balancePerson) => {
+                          balanceRows.map((balancePerson, balanceIndex) => {
                             const code = balancePerson.currency ?? selectedCurrency;
                             const person = balancePerson;
                             const period = currencyPeriods.find(
@@ -3227,37 +3284,29 @@ export default function PersonDetailScreen() {
                                 : person.balance < 0
                                   ? colors.payStrong
                                   : colors.textEmphasis;
-                            const settledCount = period
-                              ? period.financialTab
-                                ? period.sharedSettlements.length
-                                : period.settlement.count
-                              : 0;
-                            const chapterCoherent =
-                              !period ||
-                              sumAmounts(currencyChapter(period).map(balanceContribution)) ===
-                                person.balance;
-                            const sharedReviewPending =
-                              (person.tab_pending_count ?? 0) > 0 ||
-                              (period?.entries ?? []).some(
-                                (entry) =>
-                                  entry.tab &&
-                                  (entry.tab.local_pending ||
-                                    (!entry.tab.voided &&
-                                      entry.tab.kind !== "void" &&
-                                      entry.tab.status === "pending")),
-                              );
-                            const unsettledOriginalCount = period
-                              ? currencyChapter(period).length
-                              : 0;
+                            const balanceState = currencyBalanceState(person, period);
+                            const balanceSettled = combinedZeroBalance
+                              ? overallSettled
+                              : balanceState.settled;
+                            const hasBalanceActivity = combinedZeroBalance
+                              ? meaningfulBalances.length > 0
+                              : balanceState.active;
                             const hasBalanceStatus =
-                              (person.tab_unsynced !== 1 &&
-                                (chipLabel ||
-                                  (settledCount > 0 &&
-                                    chapterCoherent &&
-                                    !sharedReviewPending &&
-                                    unsettledOriginalCount === 0) ||
-                                  displayedEntries.length > 0)) ||
+                              (!balanceState.unknown && (chipLabel || hasBalanceActivity)) ||
                               showLinkStatus;
+                            const flowRows = combinedZeroBalance
+                              ? meaningfulBalances
+                                  .map((state) => state.row)
+                                  .filter((row) => {
+                                    const summary = flowSummaries.get(
+                                      row.currency ?? selectedCurrency,
+                                    );
+                                    return (
+                                      !!summary &&
+                                      (summary.gave.count > 0 || summary.received.count > 0)
+                                    );
+                                  })
+                              : [person];
                             return (
                               <View key={code} style={styles.balanceOverview}>
                                 <BalanceCardGlass
@@ -3281,43 +3330,61 @@ export default function PersonDetailScreen() {
                                         largeText && styles.balanceAmountRowLarge,
                                       ]}
                                       accessible
-                                      accessibilityLabel={`${getCurrencyLabel(code)} ${person.tab_unsynced === 1 ? t("tab.notDownloaded") : formatAmount(abs)}`}
+                                      accessibilityLabel={
+                                        balanceSettled
+                                          ? t("person.balance.settled")
+                                          : combinedZeroBalance
+                                            ? formatAmount(0)
+                                            : `${getCurrencyLabel(code)} ${balanceState.unknown ? t("tab.notDownloaded") : formatAmount(abs)}`
+                                      }
                                     >
-                                      <Text
-                                        testID={`customer-balance-value-${code}`}
-                                        style={[
-                                          styles.balance,
-                                          styles.balanceWithCurrency,
-                                          {
-                                            color:
-                                              person.tab_unsynced === 1
-                                                ? colors.textMuted
-                                                : balanceColor,
-                                          },
-                                        ]}
-                                        numberOfLines={largeText ? undefined : 1}
-                                        adjustsFontSizeToFit={!largeText}
-                                        minimumFontScale={largeText ? 1 : 0.1}
-                                        maxFontSizeMultiplier={largeText ? 0 : 1.4}
-                                      >
-                                        {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
-                                      </Text>
-                                      <Text
-                                        testID={`customer-balance-${singleBalanceCurrency ? "symbol" : "currency"}-${code}`}
-                                        style={
-                                          singleBalanceCurrency
-                                            ? styles.balanceSymbol
-                                            : styles.balanceCurrency
-                                        }
-                                        numberOfLines={1}
-                                        maxFontSizeMultiplier={largeText ? 0 : 1.4}
-                                      >
-                                        {ltrIsolate(
-                                          singleBalanceCurrency
-                                            ? getCurrencySymbol(code)
-                                            : getCurrencyLabel(code),
-                                        )}
-                                      </Text>
+                                      {balanceSettled ? (
+                                        <Ionicons
+                                          testID="customer-balance-settled-check"
+                                          name="checkmark"
+                                          size={36}
+                                          color={colors.textSubtle}
+                                          accessible={false}
+                                        />
+                                      ) : (
+                                        <Text
+                                          testID={`customer-balance-value-${code}`}
+                                          style={[
+                                            styles.balance,
+                                            styles.balanceWithCurrency,
+                                            {
+                                              color:
+                                                person.tab_unsynced === 1
+                                                  ? colors.textMuted
+                                                  : balanceColor,
+                                            },
+                                          ]}
+                                          numberOfLines={largeText ? undefined : 1}
+                                          adjustsFontSizeToFit={!largeText}
+                                          minimumFontScale={largeText ? 1 : 0.1}
+                                          maxFontSizeMultiplier={largeText ? 0 : 1.4}
+                                        >
+                                          {balanceState.unknown ? "…" : formatAmount(abs)}
+                                        </Text>
+                                      )}
+                                      {!combinedZeroBalance ? (
+                                        <Text
+                                          testID={`customer-balance-${singleBalanceCurrency ? "symbol" : "currency"}-${code}`}
+                                          style={
+                                            singleBalanceCurrency
+                                              ? styles.balanceSymbol
+                                              : styles.balanceCurrency
+                                          }
+                                          numberOfLines={1}
+                                          maxFontSizeMultiplier={largeText ? 0 : 1.4}
+                                        >
+                                          {ltrIsolate(
+                                            singleBalanceCurrency
+                                              ? getCurrencySymbol(code)
+                                              : getCurrencyLabel(code),
+                                          )}
+                                        </Text>
+                                      ) : null}
                                     </View>
                                     {hasBalanceStatus ? (
                                       <View
@@ -3330,20 +3397,16 @@ export default function PersonDetailScreen() {
                                           { justifyContent: isRTL ? "flex-start" : "flex-end" },
                                         ]}
                                       >
-                                        {person.tab_unsynced === 1 ? null : chipLabel &&
-                                          chipVariant ? (
+                                        {balanceState.unknown ? null : chipLabel && chipVariant ? (
                                           <Chip label={chipLabel} variant={chipVariant} />
-                                        ) : settledCount > 0 &&
-                                          chapterCoherent &&
-                                          !sharedReviewPending &&
-                                          unsettledOriginalCount === 0 ? (
+                                        ) : balanceSettled ? (
                                           // "SETTLED" only when the user actually drew the line and it
                                           // covers everything.
                                           <Chip
                                             label={t("person.balance.settled")}
                                             variant="neutral"
                                           />
-                                        ) : displayedEntries.length > 0 ? (
+                                        ) : hasBalanceActivity ? (
                                           // A tally that merely SUMS to zero (or whose chapter no longer
                                           // adds up after a sync) is not a settled account — say so
                                           // rather than leaving the chip slot blank while every other
@@ -3401,7 +3464,10 @@ export default function PersonDetailScreen() {
                                       {t("tab.notDownloaded")}
                                     </Text>
                                   ) : null}
-                                  {financialTabHistory && person.tab_unsynced !== 1 ? (
+                                  {(!combinedZeroBalance ||
+                                    (person.tab_confirmed_balance ?? 0) !== 0) &&
+                                  financialTabHistory &&
+                                  person.tab_unsynced !== 1 ? (
                                     <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
                                       {financialTabHistory.recording_mode_known === 0
                                         ? t("tab.recordingMode.unknown")
@@ -3424,38 +3490,69 @@ export default function PersonDetailScreen() {
                                           )}
                                     </Text>
                                   ) : null}
-                                  {(person.tab_pending_count ?? 0) > 0 &&
-                                  person.tab_unsynced !== 1 ? (
-                                    <Text style={[styles.unsyncedNote, textDir(isRTL)]}>
-                                      {t("tab.balance.pending", {
-                                        count: person.tab_pending_count ?? 0,
-                                        amount: signedSharedAmount(person.tab_pending_balance ?? 0),
-                                        currency: getCurrencyLabel(code),
-                                      })}
-                                    </Text>
-                                  ) : null}
+                                  {balanceIndex === 0
+                                    ? balanceStates
+                                        .filter((state) => state.unresolved && !state.unknown)
+                                        .map(({ row }) => {
+                                          const pendingCode = row.currency ?? selectedCurrency;
+                                          return (
+                                            <Text
+                                              key={pendingCode}
+                                              testID={`customer-balance-pending-${pendingCode}`}
+                                              style={[styles.unsyncedNote, textDir(isRTL)]}
+                                            >
+                                              {`${getCurrencyLabel(pendingCode)} · `}
+                                              {row.tab_close_pending === 1
+                                                ? t("tab.unlink.pending")
+                                                : (row.tab_pending_count ?? 0) > 0
+                                                  ? t("tab.balance.pending", {
+                                                      count: row.tab_pending_count ?? 0,
+                                                      amount: signedSharedAmount(
+                                                        row.tab_pending_balance ?? 0,
+                                                      ),
+                                                      currency: getCurrencyLabel(pendingCode),
+                                                    })
+                                                  : t("tab.settle.pending")}
+                                            </Text>
+                                          );
+                                        })
+                                    : null}
                                   <CreditStatusBadge
                                     personId={person.id}
                                     vaultId={activeVaultId}
                                     currency={code}
                                   />
                                 </View>
-                                <TallyFlowSummary
-                                  summary={flowSummaries.get(code) ?? summarizeTallyFlows([])}
-                                  currency={code}
-                                  isRTL={isRTL}
-                                  variant="footer"
-                                  filter={
-                                    tallyFilter.currencies.length &&
-                                    !tallyFilter.currencies.includes(code)
-                                      ? "all"
-                                      : tallyFilter.direction
-                                  }
-                                  onDirectionChange={(direction) => {
-                                    changeTallyCardDirection(direction, code, onInteract);
-                                  }}
-                                  interactionEnabled={tallyDirectionEnabled}
-                                />
+                                {flowRows.map((flowPerson) => {
+                                  const flowCode = flowPerson.currency ?? selectedCurrency;
+                                  return (
+                                    <View key={flowCode}>
+                                      {flowRows.length > 1 ? (
+                                        <Text style={styles.balanceFlowCurrency}>
+                                          {getCurrencyLabel(flowCode)}
+                                        </Text>
+                                      ) : null}
+                                      <TallyFlowSummary
+                                        summary={
+                                          flowSummaries.get(flowCode) ?? summarizeTallyFlows([])
+                                        }
+                                        currency={flowCode}
+                                        isRTL={isRTL}
+                                        variant="footer"
+                                        filter={
+                                          tallyFilter.currencies.length &&
+                                          !tallyFilter.currencies.includes(flowCode)
+                                            ? "all"
+                                            : tallyFilter.direction
+                                        }
+                                        onDirectionChange={(direction) => {
+                                          changeTallyCardDirection(direction, flowCode, onInteract);
+                                        }}
+                                        interactionEnabled={tallyDirectionEnabled}
+                                      />
+                                    </View>
+                                  );
+                                })}
                               </View>
                             );
                           })
@@ -4546,6 +4643,13 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   balanceSide: { minWidth: 0, paddingHorizontal: 14, paddingVertical: 10 },
+  balanceFlowCurrency: {
+    ...typography.caption,
+    color: colors.textSubtle,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    writingDirection: "ltr",
+  },
   // Statuses share the amount row; extra invitation labels wrap within their side.
   chipRow: {
     minWidth: 0,
