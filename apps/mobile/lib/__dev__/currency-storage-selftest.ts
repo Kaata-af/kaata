@@ -22,15 +22,25 @@ CREATE TABLE customer_credit_limits(vault_id TEXT,relationship_id TEXT,max_colle
 CREATE TABLE kaata_credit_defaults(vault_id TEXT PRIMARY KEY,max_collect_minor INTEGER,max_pay_minor INTEGER,mode TEXT,updated_at_ms INTEGER,restrict_editors INTEGER DEFAULT 0);
 CREATE TABLE credit_admission_intents(event_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,status TEXT,reason TEXT);
 CREATE TABLE vault_member_credit_permissions(vault_id TEXT,account_id TEXT,credit_limit_override TEXT);
-CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT,relationship_id TEXT,role TEXT,currency TEXT,closed_at INTEGER,linked_at INTEGER,history_order TEXT,other_account_name TEXT,other_joined_at INTEGER,last_synced_at INTEGER,unjoined_invitation INTEGER,invitation_declined_at INTEGER);
-CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT,direction TEXT,amount_minor INTEGER,note TEXT,kind TEXT,status TEXT,seq INTEGER,rev INTEGER,created_by TEXT,occurred_at INTEGER,created_at INTEGER,voided_by_entry_id TEXT,local_pending INTEGER,local_action_pending INTEGER);
-CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,op TEXT);
-CREATE TABLE tab_settlements(id TEXT,tab_id TEXT,through_seq INTEGER);
 INSERT INTO vaults(id,name,currency,created_at,updated_at,is_default) VALUES('v','Book','AFN',1,1,1);
 INSERT INTO users(id,display_name,created_at,is_local_self) VALUES('self','Owner',1,1),('p','Person',1,0);
 INSERT INTO relationships(id,vault_id,user_a_id,user_b_id,context,created_at,updated_at) VALUES('r','v','self','p','peer',1,1);
 INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,created_at,updated_at) VALUES('legacy','v','r','debt',100,100,100);
 INSERT INTO customer_credit_limits VALUES('v','r',15000,0,'clerk_block',0,1,0);`);
+const source = readFileSync(require.resolve("../db"), "utf8");
+for (const marker of [
+  "CREATE TABLE IF NOT EXISTS tab_links",
+  "ALTER TABLE tab_entries ADD COLUMN author_account_id",
+  "ALTER TABLE tab_entries ADD COLUMN author_member_role",
+  "CREATE TABLE IF NOT EXISTS tab_settlements",
+  "ALTER TABLE tab_links ADD COLUMN history_order TEXT;",
+]) {
+  const ddl = [...source.matchAll(/execAsync\(`([^`]*)`\)/g)].find((match) =>
+    match[1].includes(marker),
+  )?.[1];
+  assert.ok(ddl, `shipped migration block: ${marker}`);
+  store.exec(ddl);
+}
 const tx: any = {
   runAsync: async (sql: string, ...args: any[]) => store.prepare(sql).run(...args),
   getFirstAsync: async (sql: string, ...args: any[]) => store.prepare(sql).get(...args) ?? null,

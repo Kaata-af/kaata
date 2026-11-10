@@ -149,7 +149,12 @@ function fixture() {
     "../hlc": require("../hlc"),
     "../currency-settings": require("../currency-settings"),
   });
+  const customRolePolicy = compileUI("../vault-custom-role-policy", {
+    "./db-tx": dbTx,
+    "./vault-roles": require("../vault-roles"),
+  });
   const projection = compileModule("../projection", (name) => {
+    if (name === "../vault-custom-role-policy") return customRolePolicy;
     if (name === "../db-tx") return dbTx;
     if (name === "../events") return require("../events");
     if (name === "../event-sig") return signature;

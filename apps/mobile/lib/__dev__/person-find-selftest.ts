@@ -709,6 +709,7 @@ const componentMocks: Record<string, any> = {
   NotificationInbox: { NotificationBell: "Bell" },
   PersonRow: { PersonRow: "PersonRow" },
   HomeBalanceSummary: { HomeBalanceSummary: "HomeBalanceSummary" },
+  HomePersonalBackupOffer: { HomePersonalBackupOffer: "HomePersonalBackupOffer" },
   HomeBalanceFilterSwipe: { HomeBalanceFilterSwipe: "HomeBalanceFilterSwipe" },
   HomeFilterPopover: { HomeFilterPopover: "HomeFilterPopover" },
   SettledAccountsSection: { SettledAccountsSection: "SettledAccountsSection" },

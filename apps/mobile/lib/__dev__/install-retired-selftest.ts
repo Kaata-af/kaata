@@ -411,6 +411,10 @@ const screen = load<{ AuthScreen: (props: AuthScreenProps) => unknown }>(
     "../../components/NinjaIcon": { NinjaIcon: "Ninja" },
     "../../components/ConfirmDialog": { ConfirmDialog: "Dialog" },
     "../../lib/recovery": { recoverAllVaults: async () => ({ recovered: [], failed: [] }) },
+    "../../lib/account-rules": load("../account-rules", {
+      "./digits": require("../digits"),
+      "./i18n": i18n,
+    }),
     "../../lib/sync/reconcile": { reconcileVaultRegistrations: async () => {} },
     "../../lib/auth": {
       isGoogleSignInAvailable: () => true,

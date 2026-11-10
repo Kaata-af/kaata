@@ -28,11 +28,16 @@ async function checkpoint(point: string): Promise<void> {
 const database = {
   getAllAsync: async (sql: string, ...args: unknown[]) => {
     queries.push({ sql, args });
+    if (sql === "SELECT * FROM tab_links WHERE relationship_id=?") return [];
     await checkpoint("relationships");
     return archived ? [] : [{ id: "first-relationship" }];
   },
   getFirstAsync: async (sql: string, ...args: unknown[]) => {
     queries.push({ sql, args });
+    if (sql === "SELECT value FROM app_meta WHERE key=?") {
+      assert.match(String(args[0]), /^tab_group_(create|pending_join):/);
+      return null;
+    }
     if (sql.includes("COUNT(*) AS n")) {
       await checkpoint("remaining-relationships");
       return { n: 0 };
@@ -95,6 +100,7 @@ function compile(file: string, mocks: Record<string, any>): any {
   return exports;
 }
 const append = compile("../event-log", {
+  "./customer-note": require("../customer-note"),
   "expo-crypto": { randomUUID: () => "event-" + ++nextEvent },
   "./db-tx": tx,
   "./mesh/device-key": {},
@@ -119,6 +125,7 @@ const append = compile("../event-log", {
   },
 });
 const db = compile("../db", {
+  "./customer-note": require("../customer-note"),
   "expo-crypto": {},
   "expo-sqlite": {},
   "./db-tx": tx,

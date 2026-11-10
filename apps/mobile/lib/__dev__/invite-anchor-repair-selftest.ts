@@ -162,6 +162,8 @@ function fixture() {
       setAppMeta: setMeta,
     },
     "./db-tx": dbTx,
+    "./db-backup": { PERSONAL_BACKUP_JOINED_RECOVERY_KEY: "personal_backup_joined_recovery_account" },
+    "./ledger-events": { emitLedgerApplied: (id: string) => ledgerChanges.push(id) },
     "./i18n": { isPlaceholderSelfName: () => false },
     "./install-id": { ensureInstallId: async () => "install" },
     "./restore": {
@@ -216,6 +218,7 @@ function fixture() {
     "./tabs/api": {},
     "./tabs/db": {},
     "./trust/backfill": {
+      JoinProofPendingError: class extends Error {},
       witnessEmitPendingKey: (id: string) => `witness:${id}`,
       emitWitnessedSelfAdmission: async (id: string, opts: any) => {
         network();
@@ -257,6 +260,7 @@ function fixture() {
     "../auth": auth,
     "../effective-account": {},
     "../db-tx": dbTx,
+    "../db-backup": { PERSONAL_BACKUP_JOINED_RECOVERY_KEY: "personal_backup_joined_recovery_account" },
     "../vault-api": vaultApi,
     "./pull": pull,
     "./push": {},
