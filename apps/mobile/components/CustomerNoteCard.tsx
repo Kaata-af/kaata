@@ -407,8 +407,8 @@ const styles = StyleSheet.create({
   editLTR: { right: 2 },
   editRTL: { left: 2 },
   value: {
-    fontSize: 14,
-    lineHeight: sansLineHeight(14, 20),
+    fontSize: 16,
+    lineHeight: sansLineHeight(16, 23),
     color: colors.textDefault,
     fontFamily: fonts.sansRegular,
   },
@@ -421,8 +421,8 @@ const styles = StyleSheet.create({
     marginHorizontal: -4,
   },
   link: { fontSize: 12, fontFamily: fonts.sansMedium, color: colors.textSubtle },
-  footer: { alignItems: "center", gap: 8, marginTop: 6 },
-  attribution: { flex: 1, minWidth: 0, gap: 3 },
+  footer: { alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 6 },
+  attribution: { flexGrow: 1, flexBasis: 180, minWidth: 0, gap: 3 },
   meta: {
     fontSize: 11,
     lineHeight: sansLineHeight(11, 16),
@@ -430,6 +430,7 @@ const styles = StyleSheet.create({
     color: colors.textSubtle,
   },
   historyButton: {
+    maxWidth: "100%",
     minHeight: TOUCH_MIN,
     paddingHorizontal: 8,
     marginHorizontal: -4,
@@ -456,7 +457,12 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     gap: 6,
   },
-  revisionHeader: { alignItems: "center", justifyContent: "space-between", gap: 8 },
+  revisionHeader: {
+    alignItems: "center",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 8,
+  },
   revisionTitle: { flex: 1, fontSize: 13, fontFamily: fonts.sansMedium, color: colors.textDefault },
   current: { fontSize: 11, fontFamily: fonts.sansMedium, color: colors.textSubtle },
   loadMore: { minHeight: TOUCH_MIN, alignItems: "center", justifyContent: "center" },

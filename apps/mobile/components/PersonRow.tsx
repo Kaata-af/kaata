@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { SharedAccountBadge } from "./SharedAccountBadge";
 import { CreditStatusBadge, type CreditStatus } from "./CreditStatusBadge";
 import { memo, useRef } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { colors } from "../lib/colors";
 import { getCurrentCurrencyCode, getCurrencyLabel } from "../lib/currency";
 import { rowDir, textDir, useIsRTL } from "../lib/direction";
@@ -38,6 +38,8 @@ export const PersonRow = memo(function PersonRow(props: {
   disabled?: boolean;
 }) {
   const isRTL = useIsRTL();
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale > 1.3;
   const { person } = props;
   const sharedStatus = props.sharedStatus ?? personSharedAccountStatus(person);
   const activePress = useRef<{ personId: string } | null>(null);
@@ -117,6 +119,7 @@ export const PersonRow = memo(function PersonRow(props: {
       style={({ pressed }) => [
         styles.row,
         rowDir(isRTL),
+        largeText && styles.largeTextRow,
         props.selected && { backgroundColor: colors.bgSubtle },
         pressed && { backgroundColor: colors.bgMuted },
       ]}
@@ -137,18 +140,26 @@ export const PersonRow = memo(function PersonRow(props: {
         ]}
       >
         <View style={[styles.nameRow, rowDir(isRTL)]}>
-          <Text style={[styles.name, styles.nameText, textDir(isRTL)]} numberOfLines={1}>
+          <Text
+            style={[styles.name, styles.nameText, textDir(isRTL)]}
+            numberOfLines={largeText ? undefined : 1}
+          >
             {person.name}
           </Text>
           {sharedStatus === "joined" ? (
             <SharedAccountBadge name={person.name} fontSize={styles.name.fontSize} />
           ) : null}
         </View>
-        <Text style={[styles.sub, textDir(isRTL)]} numberOfLines={1}>
+        <Text style={[styles.sub, textDir(isRTL)]} numberOfLines={largeText ? undefined : 1}>
           {props.isFriend ? `${t("peopleSearch.friend")} · ${subtitle}` : subtitle}
         </Text>
       </View>
-      <View style={{ alignItems: isRTL ? "flex-start" : "flex-end" }}>
+      <View
+        style={[
+          { alignItems: isRTL ? "flex-start" : "flex-end" },
+          largeText && styles.largeTextBalances,
+        ]}
+      >
         {personCurrencyRows(person).map((row) => {
           const code = row.currency ?? getCurrentCurrencyCode();
           const value = formatAmount(Math.abs(row.balance));
@@ -159,7 +170,14 @@ export const PersonRow = memo(function PersonRow(props: {
                 ? colors.payStrong
                 : colors.textMuted;
           return (
-            <View key={code} style={[styles.right, { direction: "ltr", marginTop: 3 }]}>
+            <View
+              key={code}
+              style={[
+                styles.right,
+                { direction: "ltr", marginTop: 3 },
+                largeText && styles.largeTextAmountRow,
+              ]}
+            >
               {row.is_settled === 1 ? (
                 <Ionicons
                   name="checkmark"
@@ -169,9 +187,8 @@ export const PersonRow = memo(function PersonRow(props: {
                 />
               ) : (
                 <Text
-                  style={[styles.amount, { color: tone }]}
-                  numberOfLines={1}
-                  maxFontSizeMultiplier={1.5}
+                  style={[styles.amount, { color: tone }, largeText && styles.largeTextAmount]}
+                  numberOfLines={largeText ? undefined : 1}
                   accessibilityLabel={
                     row.tab_unsynced === 1
                       ? t("tab.notDownloaded")
@@ -187,11 +204,7 @@ export const PersonRow = memo(function PersonRow(props: {
                         : "") + value}
                 </Text>
               )}
-              {row.is_settled !== 1 ? (
-                <Text style={styles.afn} maxFontSizeMultiplier={1.5}>
-                  {code}
-                </Text>
-              ) : null}
+              {row.is_settled !== 1 ? <Text style={styles.afn}>{code}</Text> : null}
             </View>
           );
         })}
@@ -209,7 +222,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: colors.bgDefault,
   },
-  left: { flex: 1 },
+  left: { flex: 1, minWidth: 0 },
+  largeTextRow: { flexWrap: "wrap", alignItems: "flex-start", rowGap: 8 },
+  largeTextBalances: { width: "100%" },
+  largeTextAmountRow: { maxWidth: "100%", flexWrap: "wrap" },
+  largeTextAmount: { flexShrink: 1, maxWidth: "100%" },
   selectionLTR: { marginRight: 12 },
   selectionRTL: { marginLeft: 12 },
   leftLTR: { marginRight: 12 },

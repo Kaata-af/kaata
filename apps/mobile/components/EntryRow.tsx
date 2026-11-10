@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { memo, useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Button } from "./Button";
 import { InitialAvatar } from "./InitialAvatar";
 import { SelectionMark } from "./SelectionMark";
@@ -96,11 +96,13 @@ export const EntryRow = memo(function EntryRow(props: {
   onToggleSelection?: (entry: Entry) => void;
 }) {
   const isRTL = useIsRTL();
+  const { width, fontScale } = useWindowDimensions();
   useCalendar(); // This memoized row must also refresh when its calendar changes.
   const { entry } = props;
   const tab = props.tab ?? entry.tab;
   // An opening entry has no authored note; label it in the reader's language.
   const note = entry.note ?? (tab?.kind === "opening" ? t("tab.opening.note") : null);
+  const showFullNote = props.showFullNote || fontScale > 1.2;
   const voided = tab?.voided === true;
   const excluded = voided || tab?.status === "disputed";
   const isGave = entry.type === "debt";
@@ -119,18 +121,19 @@ export const EntryRow = memo(function EntryRow(props: {
   // tally is the toggle, exactly like the note's more/less. Open shows the
   // exact date and time in the date's own slot (never dropped under the
   // amount) and, when the note is clipped, expands the note in the same tap;
-  // closed shows the relative time and the one-line note. The note only
+  // closed shows relative time and a one-line note at standard text sizes.
+  // Larger system text keeps the complete note visible. The note only
   // expands once we've measured that it actually overflows (`clipped`), so a
   // short note never grows a "less" cue.
   const [noteMeasurement, setNoteMeasurement] = useState<{
-    text: string;
+    key: string;
     clipped: boolean;
   } | null>(null);
-  const currentNote = useRef(note);
-  currentNote.current = note;
-  // Edits retain this row's identity. Measure the new text unclamped instead
-  // of applying the previous note's one-line result to it.
-  const measured = noteMeasurement?.text === note;
+  const measureKey = JSON.stringify([note, width, fontScale, isRTL, props.selecting]);
+  const currentMeasureKey = useRef(measureKey);
+  currentMeasureKey.current = measureKey;
+  // Text edits and accessibility/layout changes invalidate the old line count.
+  const measured = noteMeasurement?.key === measureKey;
   const clipped = measured && noteMeasurement?.clipped === true;
   const reviewBusy = useRef(false);
   const [reviewing, setReviewing] = useState(false);
@@ -153,7 +156,7 @@ export const EntryRow = memo(function EntryRow(props: {
   // This follows every hook so a live cancellation does not change hook order.
   if (voided) return null;
   const rowOpen = open && !props.selecting;
-  const expanded = rowOpen && clipped;
+  const expanded = rowOpen && clipped && !showFullNote;
   const when = rowOpen
     ? formatTimestamp(entry.created_at)
     : formatRelative(entry.created_at, Date.now(), { alwaysRelative: true });
@@ -319,9 +322,7 @@ export const EntryRow = memo(function EntryRow(props: {
                 importantForAccessibility="no"
               />
               {/* Tracking severs Persian joining: trackingSafe drops it in Dari. */}
-              <Text style={[styles.statusText, trackingSafe(isRTL)]} numberOfLines={1}>
-                {status.label}
-              </Text>
+              <Text style={[styles.statusText, trackingSafe(isRTL)]}>{status.label}</Text>
             </View>
           </View>
         ) : null}
@@ -361,11 +362,8 @@ export const EntryRow = memo(function EntryRow(props: {
                 </Text>
                 <Text style={styles.afn}>{entry.currency ?? getCurrentCurrencyCode()}</Text>
               </View>
-              {/* The date stays in its trailing slot in both states; it only
-                shrinks (never the amount) if the exact form needs the room. The
-                author chip rides in front of it, outside the shrinking text, so
-                a long exact timestamp ellipsizes the DATE rather than crushing
-                the one element that is a fixed-size graphic. */}
+              {/* The timestamp wraps below the amount when the row needs room.
+                The author chip keeps its own fixed graphic size. */}
               <View style={[styles.meta, rowDir(isRTL)]}>
                 {chipActor && chipTint ? (
                   <View
@@ -396,13 +394,9 @@ export const EntryRow = memo(function EntryRow(props: {
                     importantForAccessibility="no"
                   />
                 ) : null}
-                {/* One line, always. Before the chip existed this could wrap, and
-                  a wrapped date would now grow the row on every tap — the one
-                  thing attribution was not allowed to cost. There is room to
-                  spare for both forms at phone width; the amount never yields
-                  (flexShrink:0), so only the date can give. */}
+                {/* Larger system text can wrap the full timestamp below the amount. */}
                 <Text
-                  numberOfLines={1}
+                  numberOfLines={fontScale > 1.2 ? undefined : 1}
                   style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}
                 >
                   {when}
@@ -442,15 +436,14 @@ export const EntryRow = memo(function EntryRow(props: {
                   <View style={styles.noteFlex}>
                     <Text
                       style={[styles.note, textDir(isRTL), excluded && styles.voidedAmount]}
-                      numberOfLines={measured && !props.showFullNote ? 1 : undefined}
+                      numberOfLines={measured && !showFullNote ? 1 : undefined}
                       // Full note for screen readers, regardless of the visual clamp.
                       accessibilityLabel={note}
                       onTextLayout={(e) => {
-                        // Native layout from the previous text can arrive
-                        // after an edit. It cannot classify the current note.
-                        if (!measured && currentNote.current === note) {
+                        // Ignore layout from text or dimensions that have changed.
+                        if (!measured && currentMeasureKey.current === measureKey) {
                           setNoteMeasurement({
-                            text: note,
+                            key: measureKey,
                             clipped: e.nativeEvent.lines.length > 1,
                           });
                         }
@@ -459,7 +452,7 @@ export const EntryRow = memo(function EntryRow(props: {
                       {note}
                     </Text>
                   </View>
-                  {measured && clipped && !props.showFullNote ? (
+                  {measured && clipped && !showFullNote ? (
                     <Text style={styles.more}>{t("common.more")}</Text>
                   ) : null}
                 </View>
@@ -472,9 +465,7 @@ export const EntryRow = memo(function EntryRow(props: {
               Start-aligned like every meta line under the note: the trailing
               edge belongs to the date. */}
             {rowOpen && byLine ? (
-              <Text style={[styles.byLine, textDir(isRTL)]} numberOfLines={2}>
-                {byLine}
-              </Text>
+              <Text style={[styles.byLine, textDir(isRTL)]}>{byLine}</Text>
             ) : null}
             {/* The dispute reason is the other party's words about THIS tally,
               so it gets the full width and no clamp: a shopkeeper resolving a
@@ -556,6 +547,7 @@ export const EntryRow = memo(function EntryRow(props: {
               variant="secondary"
               icon="close-outline"
               label={t("tab.cancel")}
+              wrapLabel
               accessibilityLabel={t("tab.cancel")}
               hitSlop={ACTION_HIT_SLOP}
               disabled={reviewing}
@@ -568,6 +560,7 @@ export const EntryRow = memo(function EntryRow(props: {
               variant="secondary"
               icon="close-outline"
               label={t("tab.reject")}
+              wrapLabel
               accessibilityLabel={t("tab.reject")}
               hitSlop={ACTION_HIT_SLOP}
               disabled={reviewing}
@@ -580,6 +573,7 @@ export const EntryRow = memo(function EntryRow(props: {
               variant="primary"
               icon="checkmark-outline"
               label={t("tab.accept")}
+              wrapLabel
               accessibilityLabel={t("tab.accept")}
               hitSlop={ACTION_HIT_SLOP}
               disabled={reviewing}
@@ -603,6 +597,7 @@ const styles = StyleSheet.create({
   // Neutral on purpose: white, hairline border, body ink. Only the dot is
   // coloured when pending, so the pill never competes with money direction.
   statusPill: {
+    maxWidth: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -622,6 +617,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.reviewPending,
   },
   statusText: {
+    flexShrink: 1,
     fontSize: 11,
     fontFamily: fonts.sansSemi,
     lineHeight: sansLineHeight(11, 15),
@@ -674,6 +670,7 @@ const styles = StyleSheet.create({
   middle: { flex: 1, minWidth: 0 },
   topRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
@@ -688,8 +685,18 @@ const styles = StyleSheet.create({
     minWidth: 0,
     justifyContent: "flex-end",
   },
-  amountRow: { flexDirection: "row", alignItems: "baseline", gap: 4, flexShrink: 0 },
+  amountRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    flexWrap: "wrap",
+    maxWidth: "100%",
+    gap: 4,
+    flexShrink: 0,
+  },
   amount: {
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: "100%",
     fontSize: 15,
     // Bold (not semibold) so the number is unmistakably the row's anchor,
     // a clear step above the date beside it.
@@ -720,10 +727,10 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   note: {
-    fontSize: 13,
+    fontSize: 16,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    lineHeight: sansLineHeight(13, 18),
+    lineHeight: sansLineHeight(16, 23),
   },
   // The flex lives on this wrapper (see the collapsed branch), not on the
   // truncating <Text>, so the cue stays inline at the end of the clamped line.
@@ -735,10 +742,10 @@ const styles = StyleSheet.create({
   // child of the column-direction `middle` view vertically).
   noteBlock: {
     marginTop: 5,
-    fontSize: 13,
+    fontSize: 16,
     fontFamily: fonts.sansRegular,
     color: colors.textDefault,
-    lineHeight: sansLineHeight(13, 18),
+    lineHeight: sansLineHeight(16, 23),
   },
   more: {
     fontSize: 12,

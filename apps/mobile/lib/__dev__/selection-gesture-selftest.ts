@@ -68,6 +68,7 @@ function rowFixture(kind: "contact" | "tally") {
     react,
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": {
+      useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1 }),
       Pressable: "Pressable",
       View: "View",
       Text: "Text",

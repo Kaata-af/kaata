@@ -46,6 +46,7 @@ let slots: any[] = [],
   cursor = 0,
   dirty = false,
   tree: any;
+let systemFontScale = 1;
 let pendingEffects: (() => void)[] = [];
 const same = (a?: unknown[], b?: unknown[]) =>
   !!a && !!b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
@@ -299,7 +300,7 @@ const native: any = {
   TextInput: "TextInput",
   ScrollView: "ScrollView",
   ActivityIndicator: "Spinner",
-  useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1, scale: 3 }),
+  useWindowDimensions: () => ({ width: 390, height: 844, fontScale: systemFontScale, scale: 3 }),
   KeyboardAvoidingView: "Keyboard",
   BackHandler: {
     addEventListener: (_: string, fn: () => boolean) => {
@@ -2395,6 +2396,23 @@ async function singleCurrencyBalanceTests() {
     assert.equal(value.props.adjustsFontSizeToFit, true);
     assert.equal(flattenStyle(value.props.style).flexShrink, 1);
     assert.equal(flattenStyle(byId("customer-balance-symbol-USD")!.props.style).flexShrink, 0);
+    for (const scale of [1.5, 2, 3]) {
+      systemFontScale = scale;
+      dirty = true;
+      await flush();
+      const enlarged = byId("customer-balance-value-USD")!;
+      assert.equal(enlarged.props.maxFontSizeMultiplier, 0);
+      assert.equal(enlarged.props.adjustsFontSizeToFit, false);
+      assert.equal(enlarged.props.numberOfLines, undefined);
+      assert.equal(flattenStyle(enlarged.props.style).maxWidth, "100%");
+      assert.equal(words(enlarged), "amount:9999999999.99", "large text preserves every digit");
+      assert.equal(flattenStyle(byId("customer-balance-status-USD")!.props.style).maxWidth, "100%");
+      assert.equal(byId("customer-header-name")!.props.numberOfLines, 2);
+    }
+    systemFontScale = 1;
+    dirty = true;
+    await flush();
+    assert.equal(byId("customer-balance-value-USD")!.props.numberOfLines, 1);
     unmount();
   }
   rtl = false;
@@ -3382,7 +3400,11 @@ async function customerHeaderIdentityTests() {
   await flush();
   assert.equal(find("SharedAccountBadge"), undefined);
   assert.ok(nodes(byTestId("customer-metadata")).includes(byTestId("customer-link-waiting")!));
-  assert.equal(hasWhatsAppMenuAction(), true, "A pending invitation still allows private reminders");
+  assert.equal(
+    hasWhatsAppMenuAction(),
+    true,
+    "A pending invitation still allows private reminders",
+  );
   unmount();
   platform = originalPlatform;
   rtl = originalRTL;
@@ -4750,7 +4772,11 @@ async function main() {
       find("SharedAccountBadge"),
       "a joined foreign-currency account enables the contact badge with a private primary currency",
     );
-    assert.equal(pingButton(), undefined, "A joined foreign currency hides the account-wide bill button");
+    assert.equal(
+      pingButton(),
+      undefined,
+      "A joined foreign currency hides the account-wide bill button",
+    );
     await flush();
     assert.ok(
       (watched.get("usd-tab") ?? 0) > 0,

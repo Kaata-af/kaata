@@ -72,7 +72,7 @@ export function visibleCurrencyBalances(
       ];
 }
 
-/** One fixed-height board per currency. Its two sides also control the list's
+/** One board per currency. Its two sides also control the list's
  * balance filter, while native horizontal scrolling moves between currencies. */
 export function HomeBalanceSummary({
   people,
@@ -110,9 +110,10 @@ export function HomeBalanceSummary({
   const multiple = rows.length > 1;
   const pageWidth = Math.max(0, viewport);
   const step = pageWidth + PAGE_GAP;
-  const cardHeight =
-    (small ? (fontScale > 1.3 ? 114 : 104) : fontScale > 1.3 ? 144 : 132) -
-    (multiple ? 0 : small ? 28 : 32);
+  const largeText = fontScale > 1.3;
+  // Like the customer balance carousel, large text uses the tallest page's
+  // natural height. Native layout responds to language and text-size changes.
+  const cardHeight = largeText ? undefined : (small ? 104 : 132) - (multiple ? 0 : small ? 28 : 32);
   const selectedCurrencies = selectedCustomerCurrencyCodes(currencyFilter);
   const [position, setPosition] = useState(0);
   const selectedCode = useRef(rows[0].currency);
@@ -440,8 +441,12 @@ export function HomeBalanceSummary({
         contentOffset={{ x: initialOffset.current.x, y: 0 }}
         horizontal
         accessible={false}
-        style={{ height: cardHeight, flexGrow: 0, direction: "ltr" }}
-        contentContainerStyle={{ gap: PAGE_GAP, direction: "ltr" }}
+        style={{ height: cardHeight, flexGrow: 0, flexShrink: 0, direction: "ltr" }}
+        contentContainerStyle={{
+          gap: PAGE_GAP,
+          direction: "ltr",
+          alignItems: "stretch",
+        }}
         scrollEnabled={multiple}
         showsHorizontalScrollIndicator={false}
         // Absolute targets avoid accumulated interval rounding on Android
@@ -582,7 +587,7 @@ type CurrencyBalanceCardProps = {
   row: HomeCurrencyBalance;
   multiple: boolean;
   pageWidth: number;
-  cardHeight: number;
+  cardHeight: number | undefined;
   small: boolean;
   fontScale: number;
   isRTL: boolean;
@@ -636,6 +641,7 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
   enabled,
   onDirectionChange,
 }: CurrencyBalanceCardProps) {
+  const largeText = fontScale > 1.3;
   const innerWidth = Math.max(0, pageWidth - 2);
   const compactWidth = Math.min(innerWidth / 2, fontScale > 1.3 ? 92 : 80);
   const targetCollectWidth =
@@ -650,10 +656,10 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
   );
   const collectWidth = useSharedValue(targetCollectWidth);
   const collectStyle = useAnimatedStyle(() => ({
-    width: Math.max(0, Math.min(innerWidth, collectWidth.value)),
+    width: largeText ? innerWidth : Math.max(0, Math.min(innerWidth, collectWidth.value)),
   }));
   const payStyle = useAnimatedStyle(() => ({
-    width: Math.max(0, innerWidth - collectWidth.value),
+    width: largeText ? innerWidth : Math.max(0, innerWidth - collectWidth.value),
   }));
   const previousLayout = useRef({ pageWidth, targetCollectWidth, prefetched });
   useCardLayoutEffect(() => {
@@ -681,42 +687,49 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
     >
       <BalanceCardGlass />
       {multiple ? (
-        <View style={[styles.boardHeader, small && styles.compactHeader]}>
+        <View
+          style={[
+            styles.boardHeader,
+            small && styles.compactHeader,
+            largeText && styles.largeHeader,
+          ]}
+        >
           <Text
             testID={`${idPrefix}-currency-${row.currency}`}
             accessible={false}
             style={styles.currency}
-            maxFontSizeMultiplier={1.2}
-            numberOfLines={1}
-            adjustsFontSizeToFit
+            maxFontSizeMultiplier={0}
+            numberOfLines={largeText ? undefined : 1}
+            adjustsFontSizeToFit={!largeText}
           >
             {getCurrencyLabel(row.currency)}
           </Text>
           <Text
             accessible={false}
             style={[styles.boardCaption, textDir(isRTL)]}
-            maxFontSizeMultiplier={1.2}
-            numberOfLines={1}
-            adjustsFontSizeToFit
+            maxFontSizeMultiplier={0}
+            numberOfLines={largeText ? undefined : 1}
+            adjustsFontSizeToFit={!largeText}
           >
             {t("home.total.title")}
           </Text>
         </View>
       ) : null}
-      <View style={styles.quoteRow}>
+      <View style={[styles.quoteRow, largeText && styles.largeQuoteRow]}>
         {(["collect", "pay"] as const).map((side) => {
           const collect = side === "collect";
           const selected = direction === side;
-          const compact = direction !== "all" && !selected;
+          const compact = !largeText && direction !== "all" && !selected;
           const title = t(collect ? "home.total.label.collect" : "home.total.label.pay");
           const tone = collect ? board.collect : board.pay;
           const amount = row.pending ? "…" : formatAmount(row[side]);
           const symbol = multiple ? null : getCurrencySymbol(row.currency);
           const symbolSize = small ? 12 : 14;
           const symbolWidth = symbol
-            ? symbol.length * symbolSize * 0.8 * Math.max(1, Math.min(fontScale, 1.2)) + 6
+            ? symbol.length * symbolSize * 0.8 * Math.max(1, fontScale) + 6
             : 0;
-          const amountSize = amount.length > 10 ? (small ? 16 : 18) : small ? 20 : 30;
+          const baseAmountSize = small ? 20 : 30;
+          const amountSize = !largeText && amount.length > 10 ? (small ? 16 : 18) : baseAmountSize;
           // Keep every digit even at the largest supported money values.
           // Mono glyphs use about 0.6em; leave headroom for scaled fonts.
           const minimumScale = Math.min(
@@ -724,7 +737,7 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
             Math.max(
               0.01,
               Math.max(1, amountWidth - symbolWidth) /
-                (amount.length * amountSize * 0.65 * Math.max(1, Math.min(fontScale, 1.2))),
+                (amount.length * amountSize * 0.65 * Math.max(1, fontScale)),
             ),
           );
           return (
@@ -750,6 +763,8 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
                   backgroundColor: collect ? colors.collectBg : colors.payBg,
                 },
                 collect ? collectStyle : payStyle,
+                largeText && styles.largeCard,
+                largeText && !collect && styles.largePayCard,
               ]}
             >
               <View style={[styles.heading, compact && styles.collapsedHeading]}>
@@ -766,16 +781,16 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
                     compact && styles.collapsedLabel,
                     selected && { color: tone },
                   ]}
-                  numberOfLines={compact ? 2 : 1}
-                  adjustsFontSizeToFit
-                  maxFontSizeMultiplier={1.3}
+                  numberOfLines={largeText ? undefined : compact ? 2 : 1}
+                  adjustsFontSizeToFit={!largeText}
+                  maxFontSizeMultiplier={largeText ? 0 : 1.3}
                 >
                   {title}
                 </Text>
               </View>
               {!compact ? (
-                <View style={styles.values}>
-                  <View style={styles.valueRow}>
+                <View style={[styles.values, largeText && styles.largeValues]}>
+                  <View style={[styles.valueRow, largeText && styles.largeValueRow]}>
                     {symbol ? (
                       <Text
                         testID={`${idPrefix}-symbol-${side}-${row.currency}`}
@@ -788,12 +803,13 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
                           },
                         ]}
                         numberOfLines={1}
-                        maxFontSizeMultiplier={1.2}
+                        maxFontSizeMultiplier={0}
                       >
                         {symbol}
                       </Text>
                     ) : null}
                     <Text
+                      testID={`${idPrefix}-amount-${side}-${row.currency}`}
                       accessible={false}
                       style={[
                         styles.amount,
@@ -802,10 +818,10 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
                           fontSize: amountSize,
                         },
                       ]}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={minimumScale}
-                      maxFontSizeMultiplier={1.2}
+                      numberOfLines={largeText ? undefined : 1}
+                      adjustsFontSizeToFit={!largeText}
+                      minimumFontScale={largeText ? undefined : minimumScale}
+                      maxFontSizeMultiplier={0}
                     >
                       {amount}
                     </Text>
@@ -849,6 +865,12 @@ const styles = StyleSheet.create({
     borderBottomColor: board.rule,
   },
   compactHeader: { paddingHorizontal: 8, paddingVertical: 4 },
+  largeHeader: { flexWrap: "wrap" },
+  largeQuoteRow: { flex: 0, flexDirection: "column" },
+  largeCard: { gap: 8 },
+  largePayCard: { borderLeftWidth: 0, borderTopWidth: 1, borderTopColor: board.rule },
+  largeValueRow: { flexWrap: "wrap" },
+  largeValues: { flex: 0 },
   boardCaption: { fontSize: 11, fontFamily: fonts.sansMedium, color: board.muted, flexShrink: 1 },
   quoteRow: { flex: 1, minHeight: 0, flexDirection: "row", direction: "ltr" },
   card: { flexShrink: 0, minWidth: 0, paddingHorizontal: 12, paddingVertical: 10 },

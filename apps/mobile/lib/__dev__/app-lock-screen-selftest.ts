@@ -283,7 +283,8 @@ for (const os of ["ios", "android"] as const)
       assert.equal(recovery.props.wrapLabel, true);
     }
 
-    // The shared Button remains compact by default; only lock controls opt in.
+    // Every shared action can grow with system text size. Lock controls opt
+    // into extra padding, and busy controls preserve their existing behavior.
     let pressed = 0;
     const label = language.t("appLock.openSecuritySettings");
     let action = f.Button({
@@ -314,12 +315,22 @@ for (const os of ["ios", "android"] as const)
       "Existing buttons retain spinner-only loading by default",
     );
     action = f.Button({ label, onPress: () => pressed++ });
-    assert.equal(nodes(action).find((node) => node.type === "Text")!.props.numberOfLines, 1);
+    const defaultCaption = nodes(action).find((node) => node.type === "Text")!;
+    assert.equal(defaultCaption.props.numberOfLines, undefined);
+    assert.notEqual(defaultCaption.props.allowFontScaling, false);
+    assert.equal(flattenStyle(defaultCaption.props.style).flexShrink, 1);
+    assert.equal(flattenStyle(defaultCaption.props.style).textAlign, "center");
+    const content = nodes(action).find((node) => node.type === "View")!;
+    assert.equal(flattenStyle(content.props.style).maxWidth, "100%");
+    assert.ok(flattenStyle(content.props.style).paddingVertical > 0);
+    const actionStyle = flattenStyle(action.props.style({ pressed: false }));
+    assert.equal(actionStyle.height, undefined, "Enlarged labels can grow the button");
+    assert.ok(actionStyle.minHeight >= 44);
     assert.equal(action.props.disabled, undefined);
     action.props.onPress();
     assert.equal(pressed, 1);
     f.hooks.unmount();
   }
 console.log(
-  "PASS lock screen design: complete wrapping text and action labels, font metrics, safe scroll/opaque glass, busy/error/recovery and EN/FA/PS on Android/iOS; existing Button defaults preserved",
+  "PASS lock screen design: wrapping shared actions, font metrics, safe scroll/opaque glass, busy/error/recovery and EN/FA/PS on Android/iOS",
 );

@@ -110,7 +110,7 @@ export default function EntryFormScreen({
   const { height: windowHeight, fontScale } = useWindowDimensions();
   // iOS keeps one stable three-line viewport so UIKit can reveal the caret
   // without racing a growing field. Android grows to six lines, then scrolls.
-  const noteLineHeight = sansLineHeight(15, 22) * Math.max(1, fontScale);
+  const noteLineHeight = sansLineHeight(16, 23) * Math.max(1, fontScale);
   const noteMinHeight = Math.ceil(noteLineHeight * 3 + 26);
   const noteMaxHeight = Math.max(
     noteMinHeight,
@@ -1601,8 +1601,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    fontSize: 15,
-    lineHeight: sansLineHeight(15, 22),
+    fontSize: 16,
+    lineHeight: sansLineHeight(16, 23),
     textAlignVertical: "top",
     overflow: "hidden",
     fontFamily: fonts.sansRegular,

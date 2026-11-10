@@ -40,6 +40,8 @@ export function TallyFlowSummary({
   onDirectionChange?: (direction: TallyFlowDirection) => void;
   interactionEnabled?: boolean;
 }) {
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale > 1.3;
   const interactive = variant === "footer" && onDirectionChange;
   if (summary.gave.count === 0 && summary.received.count === 0 && !interactive) return null;
   const currency = currencyCode ? getCurrencyLabel(currencyCode) : getCurrentCurrencySymbol();
@@ -57,7 +59,7 @@ export function TallyFlowSummary({
   if (variant === "footer") {
     return (
       <View style={styles.footer}>
-        <View style={styles.footerColumns}>
+        <View style={[styles.footerColumns, largeText && styles.largeColumns]}>
           {(["received", "gave"] as const).map((direction) => {
             const flow = summary[direction];
             const label = t(direction === "gave" ? "person.flows.gave" : "person.flows.received", {
@@ -72,6 +74,7 @@ export function TallyFlowSummary({
                 style={[
                   styles.footerColumn,
                   direction === "received" ? styles.footerReceived : styles.footerGave,
+                  largeText && styles.largeFooterColumn,
                 ]}
               >
                 <Text style={[styles.footerLabel, { writingDirection: isRTL ? "rtl" : "ltr" }]}>
@@ -79,10 +82,10 @@ export function TallyFlowSummary({
                 </Text>
                 <Text
                   style={styles.footerAmount}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.1}
-                  maxFontSizeMultiplier={1.3}
+                  numberOfLines={largeText ? undefined : 1}
+                  adjustsFontSizeToFit={!largeText}
+                  minimumFontScale={largeText ? undefined : 0.1}
+                  maxFontSizeMultiplier={largeText ? 0 : 1.3}
                 >
                   {formatAmount(flow.amount)}
                 </Text>
@@ -94,7 +97,7 @@ export function TallyFlowSummary({
     );
   }
   return (
-    <View style={styles.summary}>
+    <View style={largeText ? [styles.summary, styles.largeSummary] : styles.summary}>
       {(["gave", "received"] as const).map((direction) => {
         const flow = summary[direction];
         // Keep the translated label and parentheses, with Latin digits matching
@@ -109,19 +112,19 @@ export function TallyFlowSummary({
             accessibilityLabel={`${label}, ${formatAmount(flow.amount)} ${currency}`}
             // On each row: a hint on the non-accessible container was never read.
             accessibilityHint={t("person.flows.hint")}
-            style={[styles.line, rowDir(isRTL)]}
+            style={[styles.line, rowDir(isRTL), largeText && styles.largeLine]}
           >
             <Text
               style={[styles.label, { writingDirection: isRTL ? "rtl" : "ltr" }]}
-              numberOfLines={1}
+              numberOfLines={largeText ? undefined : 1}
             >
               {label}
             </Text>
             <Text
-              style={styles.amount}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.65}
+              style={[styles.amount, largeText && styles.largeAmount]}
+              numberOfLines={largeText ? undefined : 1}
+              adjustsFontSizeToFit={!largeText}
+              minimumFontScale={largeText ? undefined : 0.65}
             >
               {formatAmount(flow.amount)}
             </Text>
@@ -148,6 +151,7 @@ function TallyFlowFilterFooter({
   interactionEnabled: boolean;
 }) {
   const { width: windowWidth, fontScale } = useWindowDimensions();
+  const largeText = fontScale > 1.3;
   const reducedMotion = useSheetMotionPreference();
   const animationEnabled = useCustomerBalancePageMotion();
   const [measurement, setMeasurement] = useState({ windowWidth, width: 0 });
@@ -162,10 +166,10 @@ function TallyFlowFilterFooter({
     filter === "received" ? width - compactWidth : filter === "gave" ? compactWidth : width / 2;
   const receivedWidth = useSharedValue(targetReceivedWidth);
   const receivedStyle = useAnimatedStyle(() => ({
-    width: Math.max(0, Math.min(width, receivedWidth.value)),
+    width: largeText ? width : Math.max(0, Math.min(width, receivedWidth.value)),
   }));
   const gaveStyle = useAnimatedStyle(() => ({
-    width: Math.max(0, width - receivedWidth.value),
+    width: largeText ? width : Math.max(0, width - receivedWidth.value),
   }));
   const previousLayout = useRef({ width, targetReceivedWidth });
   const mounted = useRef(true);
@@ -207,13 +211,17 @@ function TallyFlowFilterFooter({
           );
       }}
     >
-      <View style={styles.footerColumns}>
+      <View style={[styles.footerColumns, largeText && styles.largeColumns]}>
         {(["received", "gave"] as const).map((direction) => {
           const flow = summary[direction];
           const selected = filter === direction;
-          const compact = filter !== "all" && !selected;
+          const compact = !largeText && filter !== "all" && !selected;
           const received = direction === "received";
-          const targetWidth = received ? targetReceivedWidth : width - targetReceivedWidth;
+          const targetWidth = largeText
+            ? width
+            : received
+              ? targetReceivedWidth
+              : width - targetReceivedWidth;
           // Text fits its final lane once. Measuring it against every animated
           // button width makes native auto-fit repeatedly shrink/grow glyphs.
           const contentWidth = Math.max(0, targetWidth - (compact ? 12 : 24) - (received ? 0 : 1));
@@ -246,6 +254,7 @@ function TallyFlowFilterFooter({
                 },
                 !interactionEnabled && styles.disabledFlowButton,
                 received ? receivedStyle : gaveStyle,
+                largeText && !received && styles.largeFlowButtonGave,
               ]}
             >
               <View
@@ -267,9 +276,9 @@ function TallyFlowFilterFooter({
                   <Text
                     testID={`tally-flow-label-${direction}`}
                     accessible={false}
-                    numberOfLines={compact ? 2 : 1}
-                    adjustsFontSizeToFit
-                    maxFontSizeMultiplier={1.3}
+                    numberOfLines={largeText ? undefined : compact ? 2 : 1}
+                    adjustsFontSizeToFit={!largeText}
+                    maxFontSizeMultiplier={largeText ? 0 : 1.3}
                     style={[
                       styles.footerLabel,
                       styles.flowButtonLabel,
@@ -287,10 +296,10 @@ function TallyFlowFilterFooter({
                   <Text
                     accessible={false}
                     style={[styles.footerAmount, selected && { color: tone }]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.1}
-                    maxFontSizeMultiplier={1.3}
+                    numberOfLines={largeText ? undefined : 1}
+                    adjustsFontSizeToFit={!largeText}
+                    minimumFontScale={largeText ? undefined : 0.1}
+                    maxFontSizeMultiplier={largeText ? 0 : 1.3}
                   >
                     {formatAmount(flow.amount)}
                   </Text>
@@ -307,6 +316,9 @@ function TallyFlowFilterFooter({
 const styles = StyleSheet.create({
   // Content-sized up to half the row, so a large balance keeps its room.
   summary: { flexShrink: 1, maxWidth: "50%", minWidth: 0, justifyContent: "center", gap: 6 },
+  largeSummary: { width: "100%", maxWidth: "100%" },
+  largeLine: { flexDirection: "column", alignItems: "flex-start", gap: 4 },
+  largeAmount: { flexShrink: 1, maxWidth: "100%" },
   line: { alignItems: "baseline", justifyContent: "space-between", gap: 10 },
   label: {
     flexShrink: 1,
@@ -333,6 +345,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   footerColumns: { direction: "ltr", flexDirection: "row", alignItems: "stretch" },
+  largeColumns: { flexDirection: "column", gap: 8 },
+  largeFooterColumn: { flex: 0, paddingLeft: 0, paddingRight: 0, borderLeftWidth: 0 },
+  largeFlowButtonGave: {
+    borderLeftWidth: 0,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderDefault,
+  },
   interactiveFooter: { paddingHorizontal: 0, paddingVertical: 0, gap: 0 },
   flowButton: {
     flexShrink: 0,

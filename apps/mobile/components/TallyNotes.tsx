@@ -479,8 +479,8 @@ export function TallyNoteRow({
 
 const styles = StyleSheet.create({
   noteHeading: { alignItems: "center", flexWrap: "wrap", gap: 6 },
-  title: { color: colors.notePaperInk, fontFamily: fonts.sansSemi, fontSize: 14 },
-  number: { color: colors.notePaperInk, fontFamily: fonts.sansSemi, fontSize: 14 },
+  title: { color: colors.notePaperInk, fontFamily: fonts.sansSemi, fontSize: 14, flexShrink: 1 },
+  number: { color: colors.notePaperInk, fontFamily: fonts.sansSemi, fontSize: 16, flexShrink: 1 },
   note: {
     alignItems: "flex-start",
     padding: 12,
@@ -489,13 +489,13 @@ const styles = StyleSheet.create({
     borderColor: colors.notePaperBorder,
     backgroundColor: colors.notePaper,
   },
-  noteBody: { flex: 1, gap: 6 },
+  noteBody: { flex: 1, minWidth: 0, gap: 6 },
   detailNote: { alignItems: "stretch", gap: 8, marginHorizontal: 20, marginBottom: 8 },
   noteText: {
     color: colors.notePaperInk,
     fontFamily: fonts.sansRegular,
-    fontSize: 14,
-    lineHeight: sansLineHeight(14, 20),
+    fontSize: 16,
+    lineHeight: sansLineHeight(16, 23),
   },
   meta: {
     color: colors.notePaperInk,
@@ -524,6 +524,12 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 14,
   },
-  input: { minHeight: 96, paddingVertical: 10, textAlignVertical: "top" },
+  input: {
+    minHeight: 96,
+    paddingVertical: 10,
+    textAlignVertical: "top",
+    fontSize: 16,
+    lineHeight: sansLineHeight(16, 23),
+  },
   actions: { justifyContent: "flex-end", flexWrap: "wrap", gap: 8 },
 });

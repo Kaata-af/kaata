@@ -55,6 +55,7 @@ export function Chip(props: { label: string; variant?: Variant }) {
 
 const styles = StyleSheet.create({
   chip: {
+    maxWidth: "100%",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radius.sm, // 6 → 8; chips share the input/button step
@@ -74,6 +75,7 @@ const styles = StyleSheet.create({
   // the home header. The pill grows ~1px in return — it sits in a flow column
   // on person detail, not a fixed-height slot.
   label: {
+    flexShrink: 1,
     ...typography.caption,
     letterSpacing: 0.6,
   },

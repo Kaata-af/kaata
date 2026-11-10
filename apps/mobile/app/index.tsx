@@ -26,6 +26,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -182,6 +183,8 @@ async function applyFullSync(enabled: boolean): Promise<void> {
 }
 
 export default function HomeScreen() {
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale > 1.3;
   const router = useRouter();
   const toast = useToast();
   const toastOffset = useToastOffset(12);
@@ -1872,8 +1875,7 @@ export default function HomeScreen() {
                   {self ? (
                     <Text
                       style={[styles.headerTitle, styles.kaataButtonTitle, textDir(isRTL)]}
-                      numberOfLines={1}
-                      allowFontScaling={false}
+                      numberOfLines={largeText ? 2 : 1}
                     >
                       {self.shop_name ?? self.name}
                     </Text>
@@ -1896,8 +1898,7 @@ export default function HomeScreen() {
                   {self ? (
                     <Text
                       style={[styles.headerTitle, textDir(isRTL)]}
-                      numberOfLines={1}
-                      allowFontScaling={false}
+                      numberOfLines={largeText ? 2 : 1}
                     >
                       {self.shop_name ?? self.name}
                     </Text>
@@ -1920,9 +1921,7 @@ export default function HomeScreen() {
                 graphic, per the tokens icon-scale exception. 16 would out-weigh
                 the label it annotates. */}
                 <Ionicons name="eye-outline" size={12} color={colors.textSubtle} />
-                <Text style={styles.readOnlyBadgeText} allowFontScaling={false}>
-                  {t("vaultSettings.role.viewer")}
-                </Text>
+                <Text style={styles.readOnlyBadgeText}>{t("vaultSettings.role.viewer")}</Text>
               </View>
             ) : null}
 
@@ -3024,6 +3023,7 @@ const styles = StyleSheet.create({
   // VaultPickerSheet. rowDir(isRTL) applied inline flips the order
   // of the title column + chevron in RTL.
   headerTitleBlock: {
+    minWidth: 0,
     // flexShrink (NOT flex:1) so the tappable switcher hugs the name + chevron
     // — its tap target must NOT span the whole header (that made a tap left of
     // the avatar open the kaata picker). A sibling flex:1 spacer fills the gap.
@@ -3111,6 +3111,7 @@ const styles = StyleSheet.create({
   },
   // Read-only badge in the header (viewer on a shared kaata).
   readOnlyBadge: {
+    maxWidth: "25%",
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
@@ -3120,6 +3121,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMuted,
   },
   readOnlyBadgeText: {
+    flexShrink: 1,
     fontSize: 11,
     fontFamily: fonts.sansMedium,
     color: colors.textSubtle,

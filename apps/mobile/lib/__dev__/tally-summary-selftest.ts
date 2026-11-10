@@ -90,6 +90,7 @@ console.log(
     "@expo/vector-icons": { Ionicons: "Icon" },
     "react/jsx-runtime": { jsx, jsxs: jsx },
     "react-native": {
+      useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1 }),
       StyleSheet: { create: (s: any) => s },
       Pressable: "Pressable",
       Text: "Text",
@@ -484,19 +485,27 @@ console.log(
     f.resize(430, 1.8);
     f.measure(400);
     const widths = f.buttons().map((button) => flattenStyle(button.props.style).width);
-    assert.deepEqual(widths, [296, 104]);
+    assert.deepEqual(widths, [400, 400]);
+    assert.equal(flattenStyle(hooksColumns(f.hooks.tree).props.style).flexDirection, "column");
+    for (const button of f.buttons()) {
+      for (const text of nodes(button).filter((node) => node.type === "Text")) {
+        assert.equal(text.props.numberOfLines, undefined);
+        assert.equal(text.props.adjustsFontSizeToFit, false);
+        assert.equal(text.props.maxFontSizeMultiplier, 0);
+      }
+    }
     assert.deepEqual(
       contentWidths(f.hooks.tree),
-      [272, 91],
-      "Large text receives a stable, wider compact lane",
+      [376, 375],
+      "Large text receives the complete row width for both directions",
     );
     f.motion(true);
     f.update({ filter: "gave" });
     assert.deepEqual(
       f.buttons().map((button) => flattenStyle(button.props.style).width),
-      [104, 296],
+      [400, 400],
     );
-    assert.deepEqual(contentWidths(f.hooks.tree), [92, 271]);
+    assert.deepEqual(contentWidths(f.hooks.tree), [376, 375]);
     assert.equal(
       f.animations.length,
       animationCount,
@@ -576,7 +585,10 @@ console.log(
     });
   }
   function hooksColumns(tree: any) {
-    return nodes(tree).find((node) => flattenStyle(node.props.style).flexDirection === "row")!;
+    return nodes(tree).find((node) => {
+      const style = flattenStyle(node.props.style);
+      return style.direction === "ltr" && style.alignItems === "stretch";
+    })!;
   }
   language.setLocale("en");
 }

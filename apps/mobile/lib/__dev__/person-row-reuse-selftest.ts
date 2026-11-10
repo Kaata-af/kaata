@@ -11,6 +11,7 @@ const queued: (() => void)[] = [];
 const pressed: string[] = [],
   held: string[] = [];
 let rowRTL = false;
+let rowFontScale = 1;
 const colors = require("../colors").colors;
 const { PersonRow } = compileUI(
   "../../components/PersonRow",
@@ -18,6 +19,7 @@ const { PersonRow } = compileUI(
     react: { ...hooks.react, memo: (component: unknown) => component },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-native": {
+      useWindowDimensions: () => ({ width: 390, height: 844, fontScale: rowFontScale }),
       Pressable: "Pressable",
       Text: "Text",
       View: "View",
@@ -70,6 +72,24 @@ const reset = () => {
   held.length = 0;
 };
 let checks = 0;
+
+for (rowRTL of [false, true]) {
+  for (rowFontScale of [1.4, 2, 3]) {
+    render();
+    assert.equal(flattenStyle(row!.props.style({ pressed: false })).flexWrap, "wrap");
+    for (const text of nodes(row!).filter((node) => node.type === "Text")) {
+      assert.equal(text.props.numberOfLines, undefined, "names, status and balances can grow");
+      assert.equal(
+        text.props.maxFontSizeMultiplier,
+        undefined,
+        "system font size remains uncapped",
+      );
+      assert.notEqual(text.props.adjustsFontSizeToFit, true);
+    }
+    checks++;
+  }
+}
+rowFontScale = 1;
 
 for (rowRTL of [false, true]) {
   for (const [tab, joined, waiting] of [

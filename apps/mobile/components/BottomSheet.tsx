@@ -193,5 +193,5 @@ const styles = StyleSheet.create({
   rowIcon: { width: icon.row },
   rowIconLTR: { marginRight: 12 },
   rowIconRTL: { marginLeft: 12 },
-  rowText: { fontSize: 15, fontFamily: fonts.sansMedium },
+  rowText: { flex: 1, minWidth: 0, fontSize: 15, fontFamily: fonts.sansMedium },
 });

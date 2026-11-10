@@ -20,6 +20,7 @@ let slots: any[] = [],
   cursor = 0,
   rtl = false;
 let capturedStyles: any;
+let tallyViewport = { width: 390, height: 844, fontScale: 1, scale: 3 };
 const colors = require("../colors").colors;
 const mocks: Record<string, any> = {
   "./ProtectedModal": { ProtectedModal: "Modal" },
@@ -53,6 +54,7 @@ const mocks: Record<string, any> = {
     },
   },
   "react-native": {
+    useWindowDimensions: () => tallyViewport,
     Pressable: "Pressable",
     Text: "Text",
     View: "View",
@@ -401,6 +403,53 @@ for (const [isRTL, short, multiline, shortAgain] of [
     false,
     "old multiline layout cannot make a short note expandable",
   );
+
+  slots = [];
+  tree = render(props(multiline));
+  layout(noteText(tree, multiline).props.onTextLayout, 3);
+  tree = render(props(multiline));
+  assert.equal(noteText(tree, multiline).props.numberOfLines, 1);
+  for (const fontScale of [1.5, 2, 3]) {
+    tallyViewport = { ...tallyViewport, width: 320, fontScale };
+    tree = render(props(multiline));
+    layout(noteText(tree, multiline).props.onTextLayout, 6);
+    tree = render(props(multiline));
+    assert.equal(
+      noteText(tree, multiline).props.numberOfLines,
+      undefined,
+      "large system type shows the complete tally note without an extra tap",
+    );
+    assert.equal(words(tree).includes("common.more"), false);
+    assert.ok(style(noteText(tree, multiline).props.style).fontSize >= 16);
+    const date = nodes(tree).find((node) => node.type === "Text" && words(node) === "yesterday");
+    assert.equal(date?.props.numberOfLines, undefined, "large dates can wrap below the amount");
+    const longAmountProps = props(multiline);
+    tree = render({
+      ...longAmountProps,
+      entry: { ...longAmountProps.entry, amount_afn: 12345678.9 },
+    });
+    const amount = nodes(tree).find(
+      (node) => node.type === "Text" && node.props.children === "12345678.9",
+    );
+    assert.ok(amount, "the amount remains visible at large text sizes");
+    assert.equal(
+      style(amount.props.style).maxWidth,
+      "100%",
+      "long amounts wrap inside the row instead of losing leading digits in RTL",
+    );
+    assert.equal(style(amount.props.style).minWidth, 0);
+    assert.equal(amount.props.numberOfLines, undefined);
+  }
+  tallyViewport = { width: 390, height: 844, fontScale: 1, scale: 3 };
+  tree = render(props(multiline));
+  assert.equal(
+    noteText(tree, multiline).props.numberOfLines,
+    undefined,
+    "returning to normal size remeasures the note",
+  );
+  layout(noteText(tree, multiline).props.onTextLayout, 3);
+  tree = render(props(multiline));
+  assert.equal(noteText(tree, multiline).props.numberOfLines, 1);
 }
 for (const isRTL of [false, true]) {
   rtl = isRTL;
@@ -695,7 +744,7 @@ for (const isRTL of [false, true]) {
       {
         type: "Text",
         text: statusKey,
-        numberOfLines: 1,
+        numberOfLines: undefined,
         fontSize: 11,
         fontFamily: "Semi",
         color: colors.textDefault,
@@ -998,7 +1047,9 @@ const emptyRequests = () => ({
 });
 mocks["../lib/use-people-requests"] = { usePeopleRequests: emptyRequests };
 mocks["../lib/use-vault-member-requests"] = { useVaultMemberRequests: emptyRequests };
-mocks["../lib/vault-member-invite-intent"] = { prepareVaultMemberInviteAcceptance: async () => null };
+mocks["../lib/vault-member-invite-intent"] = {
+  prepareVaultMemberInviteAcceptance: async () => null,
+};
 mocks["../lib/use-friend-requests"] = { useFriendRequests: emptyRequests };
 const { NotificationBell, FullNotificationInbox } = compile(
   readFileSync(require.resolve("../../components/NotificationInbox"), "utf8"),

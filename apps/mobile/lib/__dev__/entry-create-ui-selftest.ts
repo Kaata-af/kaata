@@ -766,10 +766,10 @@ function assertMultilineForm(
   else assert.equal(style.height, undefined, "the textarea can grow before scrolling");
   assert.equal(style.textAlignVertical, "top");
   assert.ok(style.paddingVertical > 0 && style.paddingHorizontal > 0);
-  assert.equal(
-    style.lineHeight,
-    os === "ios" ? 24 : 22,
-    "the real font helper keeps iOS ascenders inside the line box",
+  assert.ok(style.fontSize >= 16, "notes use readable body text");
+  assert.ok(
+    style.lineHeight >= Math.ceil(style.fontSize * (os === "ios" ? 1.5625 : 1.4)),
+    "the note's line box accommodates its font and iOS ascenders",
   );
   assert.ok(
     style.minHeight >= 3 * style.lineHeight + 2 * style.paddingVertical + 2 * style.borderWidth,

@@ -96,7 +96,7 @@ export function Button(props: {
   size?: Size;
   disabled?: boolean;
   loading?: boolean;
-  /** Let long or enlarged labels wrap instead of truncating. */
+  /** Add roomier vertical padding for explanatory labels. Labels wrap by default. */
   wrapLabel?: boolean;
   /** Keep the action's current label beside its busy indicator. */
   showLabelWhileLoading?: boolean;
@@ -145,7 +145,13 @@ export function Button(props: {
       {loading && !props.showLabelWhileLoading ? (
         <ActivityIndicator color={ink} size={size === "pill" ? "small" : undefined} />
       ) : (
-        <View style={[styles.content, props.wrapLabel && styles.wrappingContent]}>
+        <View
+          style={[
+            styles.content,
+            size === "pill" && styles.pillContent,
+            props.wrapLabel && styles.wrappingContent,
+          ]}
+        >
           {loading ? (
             <ActivityIndicator color={ink} size="small" />
           ) : props.icon ? (
@@ -155,10 +161,9 @@ export function Button(props: {
             style={[
               styles.text,
               size === "pill" && styles.textPill,
-              props.wrapLabel && styles.wrappingText,
+              styles.wrappingText,
               { color: ink },
             ]}
-            numberOfLines={props.wrapLabel ? undefined : 1}
           >
             {label}
           </Text>
@@ -193,8 +198,16 @@ const styles = StyleSheet.create({
   // Row, but NOT via rowDir(): a leading icon on a button is decoration bound
   // to the label, not a layout that should flip with script. The whole
   // icon+label group is centred, so it reads correctly in both directions.
-  content: { flexDirection: "row", alignItems: "center", gap: 8 },
-  wrappingContent: { maxWidth: "100%", minWidth: 0, paddingVertical: 12 },
+  content: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: "100%",
+    minWidth: 0,
+    paddingVertical: 8,
+  },
+  pillContent: { paddingVertical: 4 },
+  wrappingContent: { paddingVertical: 12 },
   wrappingText: { flexShrink: 1, minWidth: 0, textAlign: "center" },
   text: { ...typography.labelBold },
   // 13px sansSemi — the size list-row CTAs used before this component existed.

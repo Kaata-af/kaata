@@ -21,6 +21,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -307,6 +308,8 @@ function signedSharedAmount(amount: number): string {
 }
 
 export default function PersonDetailScreen() {
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale > 1.3;
   const router = useRouter();
   const toast = useToast();
   const toastOffset = useToastOffset();
@@ -2566,7 +2569,7 @@ export default function PersonDetailScreen() {
           return (
             <View key={`m-${item.ms}-${index}`} style={[styles.chapterLine, rowDir(isRTL)]}>
               <View style={styles.settleRule} />
-              <Text style={styles.chapterLineText} allowFontScaling={false}>
+              <Text style={styles.chapterLineText}>
                 {t(item.settlement ? "tab.settle.history" : "person.history.settledOn", {
                   date: formatSettlementDate(item.ms, getLocale(), calendar),
                   name: item.settlement?.actor_name || t("entry.by.someone"),
@@ -2881,7 +2884,7 @@ export default function PersonDetailScreen() {
                 testID="customer-header-name"
                 accessibilityRole="header"
                 style={styles.headerName}
-                numberOfLines={1}
+                numberOfLines={largeText ? 2 : 1}
                 ellipsizeMode="tail"
               >
                 {person.name}
@@ -3265,10 +3268,18 @@ export default function PersonDetailScreen() {
                                   }
                                 />
                                 <View style={styles.balanceSide}>
-                                  <View style={styles.balanceHeadline}>
+                                  <View
+                                    style={[
+                                      styles.balanceHeadline,
+                                      largeText && styles.balanceHeadlineLarge,
+                                    ]}
+                                  >
                                     <View
                                       testID={`customer-balance-amount-${code}`}
-                                      style={styles.balanceAmountRow}
+                                      style={[
+                                        styles.balanceAmountRow,
+                                        largeText && styles.balanceAmountRowLarge,
+                                      ]}
                                       accessible
                                       accessibilityLabel={`${getCurrencyLabel(code)} ${person.tab_unsynced === 1 ? t("tab.notDownloaded") : formatAmount(abs)}`}
                                     >
@@ -3284,10 +3295,10 @@ export default function PersonDetailScreen() {
                                                 : balanceColor,
                                           },
                                         ]}
-                                        numberOfLines={1}
-                                        adjustsFontSizeToFit
-                                        minimumFontScale={0.1}
-                                        maxFontSizeMultiplier={1.4}
+                                        numberOfLines={largeText ? undefined : 1}
+                                        adjustsFontSizeToFit={!largeText}
+                                        minimumFontScale={largeText ? 1 : 0.1}
+                                        maxFontSizeMultiplier={largeText ? 0 : 1.4}
                                       >
                                         {person.tab_unsynced === 1 ? "…" : formatAmount(abs)}
                                       </Text>
@@ -3299,7 +3310,7 @@ export default function PersonDetailScreen() {
                                             : styles.balanceCurrency
                                         }
                                         numberOfLines={1}
-                                        maxFontSizeMultiplier={1.4}
+                                        maxFontSizeMultiplier={largeText ? 0 : 1.4}
                                       >
                                         {ltrIsolate(
                                           singleBalanceCurrency
@@ -3314,6 +3325,7 @@ export default function PersonDetailScreen() {
                                         style={[
                                           styles.chipRow,
                                           styles.balanceStatus,
+                                          largeText && styles.balanceStatusLarge,
                                           rowDir(isRTL),
                                           { justifyContent: isRTL ? "flex-start" : "flex-end" },
                                         ]}
@@ -3369,8 +3381,7 @@ export default function PersonDetailScreen() {
                                             />
                                             <Text
                                               style={styles.readOnlyChipText}
-                                              allowFontScaling={false}
-                                              numberOfLines={1}
+                                              numberOfLines={largeText ? undefined : 1}
                                             >
                                               {t(
                                                 linkStatus === "declined"
@@ -3684,7 +3695,7 @@ export default function PersonDetailScreen() {
                           ]}
                         >
                           <View style={styles.settleRule} />
-                          <Text style={styles.settleRowText} allowFontScaling={false}>
+                          <Text style={styles.settleRowText}>
                             {t("person.settle.row")} · {getCurrencyLabel(period.currency)}
                           </Text>
                           <View style={styles.settleRule} />
@@ -3804,7 +3815,7 @@ export default function PersonDetailScreen() {
                           pressed && { opacity: 0.5 },
                         ]}
                       >
-                        <Text style={styles.historyRowText} allowFontScaling={false}>
+                        <Text style={styles.historyRowText}>
                           {t("tab.beforeLinking", { count: matchedPreLink.length })}
                         </Text>
                         {!searching ? (
@@ -4477,6 +4488,7 @@ const styles = StyleSheet.create({
   },
   // Read-only chip shown in place of the edit button for a viewer.
   readOnlyChip: {
+    maxWidth: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
@@ -4486,6 +4498,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMuted,
   },
   readOnlyChipText: {
+    flexShrink: 1,
     fontSize: 11,
     fontFamily: fonts.sansMedium,
     color: colors.textSubtle,
@@ -4506,6 +4519,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   balanceStatus: { maxWidth: "48%", flexShrink: 0 },
+  balanceHeadlineLarge: { flexDirection: "column", alignItems: "stretch" },
+  balanceStatusLarge: { maxWidth: "100%", alignSelf: "flex-start" },
   balanceAmountRow: {
     flex: 1,
     direction: "ltr",
@@ -4514,7 +4529,8 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 0,
   },
-  balanceWithCurrency: { width: undefined, flexShrink: 1, minWidth: 0 },
+  balanceWithCurrency: { width: undefined, flexShrink: 1, minWidth: 0, maxWidth: "100%" },
+  balanceAmountRowLarge: { flex: 0, flexWrap: "wrap" },
   balanceSymbol: {
     fontFamily: fonts.sansSemi,
     fontSize: 22,
@@ -4749,6 +4765,8 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   settleRowText: {
+    flexShrink: 1,
+    textAlign: "center",
     fontSize: 12,
     fontFamily: fonts.sansMedium,
     color: colors.textSubtle,
@@ -4763,12 +4781,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMuted,
   },
   chapterLineText: {
+    flexShrink: 1,
     fontSize: 11,
     fontFamily: fonts.sansMedium,
     color: colors.textSubtle,
   },
   // Secondary labels for retained history and failed sends.
   historyRowText: {
+    flexShrink: 1,
     fontSize: 12,
     fontFamily: fonts.sansMedium,
     color: colors.textSubtle,

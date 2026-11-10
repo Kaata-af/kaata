@@ -5,7 +5,7 @@ import {
   TALLY_NOTE_MAX_LENGTH,
 } from "../tally-note-policy";
 import type { TallyNote } from "../tally-notes";
-import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
+import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 async function main() {
   const hooks = uiHooks();
@@ -155,6 +155,9 @@ async function main() {
   assert.equal(sheetNote.selectable, true);
   assert.deepEqual(sheetNote.style[1], { writingDirection: "rtl" });
   assert.equal(sheetNote.numberOfLines, undefined);
+  assert.notEqual(sheetNote.allowFontScaling, false);
+  assert.ok(!sheetNote.maxFontSizeMultiplier);
+  assert.ok(flattenStyle(sheetNote.style).fontSize >= 16);
   assert.deepEqual(find("BottomSheet").actions, [], "Viewers can read note details");
   find("BottomSheet").onDismiss();
   canOpen = false;

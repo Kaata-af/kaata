@@ -225,6 +225,10 @@ async function main() {
         "No speculative disclosure before measurement",
       );
       assert.equal(f.byId("customer-note-value")!.props.numberOfLines, 3);
+      const noteProps = f.byId("customer-note-value")!.props;
+      assert.notEqual(noteProps.allowFontScaling, false);
+      assert.ok(!noteProps.maxFontSizeMultiplier);
+      assert.ok(flattenStyle(noteProps.style).fontSize >= 16);
       f.measure(1);
       assert.equal(f.byId("customer-note-disclosure"), undefined, "Short notes need no disclosure");
       const edit = f.byId("customer-note-edit")!;

@@ -405,9 +405,58 @@ const balances = [
   { currency: "EUR", collect: 0, pay: 0, pending: false },
 ];
 async function main() {
+  for (const locale of ["en", "fa", "ps"] as const) {
+    for (const fontScale of [1.4, 2, 3]) {
+      const current = fixture(locale, 320, fontScale);
+      current.render({ balances, onDirectionChange: () => {} });
+      current.measure(288);
+      const pages = realPages(current.scroll());
+      assert.equal(
+        flattenStyle(current.scroll().props.contentContainerStyle).alignItems,
+        "stretch",
+      );
+      for (const page of pages) {
+        assert.equal(
+          style(page).height,
+          undefined,
+          "large-text pages measure their natural height",
+        );
+        assert.equal(style(quoteRow(page)).flexDirection, "column");
+        for (const cell of balanceCells(page)) assert.equal(style(cell).width, 286);
+        for (const amount of nodes(page).filter((node) =>
+          /-amount-(collect|pay)-/.test(node.props.testID ?? ""),
+        )) {
+          assert.equal(amount.props.maxFontSizeMultiplier, 0);
+          assert.equal(amount.props.adjustsFontSizeToFit, false);
+          assert.equal(amount.props.numberOfLines, undefined);
+        }
+      }
+      assert.equal(
+        style(current.scroll()).height,
+        undefined,
+        "carousel uses the tallest natural page without a fixed viewport",
+      );
+      current.setLocale(locale === "en" ? "fa" : "en");
+      assert.equal(style(current.scroll()).height, undefined);
+      current.render({ direction: "collect" });
+      for (const page of realPages(current.scroll()))
+        assert.deepEqual(
+          balanceCells(page).map((cell) => style(cell).width),
+          [286, 286],
+        );
+      current.setFontScale(1);
+      assert.equal(
+        style(current.scroll()).height,
+        132,
+        "restoring normal text size restores the compact card height",
+      );
+      current.hooks.unmount();
+      assert.equal(current.hooks.lateWrites, 0);
+    }
+  }
   for (const locale of ["en", "fa", "ps"] as const)
     for (const platform of ["ios", "android"]) {
-      const current = fixture(locale, 320, 1.8, 568, platform);
+      const current = fixture(locale, 320, 1.3, 568, platform);
       const changes: ["collect" | "pay", string][] = [];
       current.render({
         balances,
@@ -534,7 +583,7 @@ async function main() {
       assert.equal(current.hooks.lateWrites, 0);
     }
   for (const platform of ["ios", "android"]) {
-    const current = fixture("fa", 320, 1.8, 568, platform);
+    const current = fixture("fa", 320, 1.3, 568, platform);
     const scopedBalances = [
       balances[0],
       balances[1],
@@ -559,7 +608,7 @@ async function main() {
     assert.deepEqual(changes, [], "Automatic currency movement never filters customers");
     for (const currency of ["AFN", "USD", "EUR"]) assertEqualPair(currency);
     current.render({ direction: "collect", currencyFilter: " usd " });
-    assert.deepEqual(widths("USD"), [194, 92]);
+    assert.deepEqual(widths("USD"), [206, 80]);
     assertEqualPair("AFN");
     assertEqualPair("EUR");
     assert.deepEqual(
@@ -581,7 +630,7 @@ async function main() {
       [],
       "Currency swipes and assistive navigation never filter customers",
     );
-    assert.deepEqual(widths("USD"), [194, 92]);
+    assert.deepEqual(widths("USD"), [206, 80]);
     assertEqualPair("EUR");
     cells("AFN")[1].props.onPress();
     cells("USD")[0].props.onPress();
@@ -596,7 +645,7 @@ async function main() {
     assertEqualPair("AFN");
 
     current.render({ direction: "pay", currencyFilter: ["AFN"] });
-    assert.deepEqual(widths("AFN"), [92, 194]);
+    assert.deepEqual(widths("AFN"), [80, 206]);
     assertEqualPair("USD");
     assertEqualPair("EUR");
     assert.ok(
@@ -604,14 +653,14 @@ async function main() {
       "Unrelated currency cards never restart an animation",
     );
     current.render({ currencyFilter: [" usd ", "AFN", "USD"] });
-    assert.deepEqual(widths("AFN"), [92, 194]);
-    assert.deepEqual(widths("USD"), [92, 194]);
+    assert.deepEqual(widths("AFN"), [80, 206]);
+    assert.deepEqual(widths("USD"), [80, 206]);
     assertEqualPair("EUR");
     current.render({ direction: "collect", currencyFilter: undefined });
     for (const currency of ["AFN", "USD", "EUR"])
       assert.deepEqual(
         widths(currency),
-        [194, 92],
+        [206, 80],
         "A global list swipe expands the selected direction for every currency",
       );
     current.render({ direction: "all", currencyFilter: "USD" });
@@ -732,7 +781,9 @@ async function main() {
           "the board contains the currency, both labeled balances, and no invented rates, trends or percentages",
         );
         assert.equal(style(pay).borderLeftWidth, 1, "a fine separator divides the paired values");
-        const amounts = nodes(page).filter((node) => node.props.minimumFontScale !== undefined);
+        const amounts = nodes(page).filter((node) =>
+          /-amount-(collect|pay)-/.test(node.props.testID ?? ""),
+        );
         for (const label of nodes(page).filter((node) => node.type === "Text")) {
           const background = style(page).backgroundColor;
           assert.ok(
@@ -814,7 +865,7 @@ async function main() {
         );
         assert.deepEqual(
           nodes(page)
-            .filter((node) => node.props.minimumFontScale !== undefined)
+            .filter((node) => /-amount-(collect|pay)-/.test(node.props.testID ?? ""))
             .map(text),
           ["12.34", "5.67"],
           "each amount keeps its exact digits",
@@ -833,7 +884,7 @@ async function main() {
         }
         assert.equal(style(quoteRow(page)).direction, "ltr");
         assert.equal(current.scroll().props.scrollEnabled, false);
-        assert.equal(style(current.scroll()).height, 112);
+        assert.equal(style(current.scroll()).height, undefined);
         assert.ok(summaryLabel(root).includes(currency));
       }
       current.hooks.unmount();
@@ -848,15 +899,17 @@ async function main() {
     }) as UINode;
     assert.equal(
       style(quoteRow(realPages(current.scroll())[0])).flexDirection,
-      "row",
-      "collect/pay positions stay LTR on small screens",
+      "column",
+      "large-text totals stack in received/pay order",
     );
     assert.equal(
       style(current.scroll()).height,
-      112,
-      "search preserves the single-currency card height",
+      undefined,
+      "search preserves the natural text card height",
     );
-    const numbers = nodes(root).filter((node) => node.props.minimumFontScale !== undefined);
+    const numbers = nodes(root).filter((node) =>
+      /-amount-(collect|pay)-/.test(node.props.testID ?? ""),
+    );
     assert.equal(numbers.length, 2);
     assert.equal(
       text(numbers[0]),
@@ -890,8 +943,8 @@ async function main() {
       !text(pending).includes("500"),
       "unknown shared values are not presented as confirmed",
     );
-    const pendingAmounts = nodes(pending).filter(
-      (node) => node.props.minimumFontScale !== undefined,
+    const pendingAmounts = nodes(pending).filter((node) =>
+      /-amount-(collect|pay)-/.test(node.props.testID ?? ""),
     );
     assert.deepEqual(pendingAmounts.map(text), ["…", "…"]);
     assert.ok(
@@ -899,7 +952,9 @@ async function main() {
       "unknown balances are neutral rather than directional claims",
     );
     const empty = current.render({ balances: [], currency: "USD" });
-    const zeroAmounts = nodes(empty).filter((node) => node.props.minimumFontScale !== undefined);
+    const zeroAmounts = nodes(empty).filter((node) =>
+      /-amount-(collect|pay)-/.test(node.props.testID ?? ""),
+    );
     assert.deepEqual(zeroAmounts.map(text), ["0", "0"]);
     assert.ok(zeroAmounts.every((amount) => style(amount).color === colors.textSubtle));
     assert.equal(byId(empty, "home-balance-currency-USD"), undefined);
@@ -985,7 +1040,9 @@ async function main() {
     const root = current.hooks.tree;
     const page = realPages(current.scroll())[0];
     const cards = balanceCells(page);
-    const amounts = nodes(page).filter((node) => node.props.minimumFontScale !== undefined);
+    const amounts = nodes(page).filter((node) =>
+      /-amount-(collect|pay)-/.test(node.props.testID ?? ""),
+    );
     assert.equal(amounts.length, 2);
     for (const [index, amount] of amounts.entries()) {
       assert.equal(
@@ -993,26 +1050,12 @@ async function main() {
         largestExactText,
         "maximum totals keep every grouped digit and cent in visible JSX",
       );
-      assert.equal(amount.props.adjustsFontSizeToFit, true);
-      assert.equal(amount.props.numberOfLines, 1);
+      assert.equal(amount.props.adjustsFontSizeToFit, false);
+      assert.equal(amount.props.numberOfLines, undefined);
+      assert.equal(amount.props.maxFontSizeMultiplier, 0);
       assert.equal(style(amount).writingDirection, "ltr");
-      const card = style(cards[index]);
-      const availableWidth =
-        (style(page).width - style(page).borderWidth * 2) / 2 -
-        card.paddingHorizontal * 2 -
-        (card.borderLeftWidth ?? 0) -
-        14 * 0.8 * 1.2 -
-        6;
-      const cappedFontScale = Math.min(1.8, amount.props.maxFontSizeMultiplier);
-      const monoEstimate = text(amount).length * style(amount).fontSize * 0.65 * cappedFontScale;
-      assert.ok(
-        amount.props.minimumFontScale > 0 && amount.props.minimumFontScale < 0.5,
-        "the largest totals can shrink beyond the old half-size floor",
-      );
-      assert.ok(
-        monoEstimate * amount.props.minimumFontScale <= availableWidth + 1e-7,
-        "the minimum scale permits all mono digits inside the actual padded card width",
-      );
+      assert.equal(style(cards[index]).width, 286, "each total uses a full-width row");
+      assert.equal(amount.props.minimumFontScale, undefined, "large totals wrap without shrinking");
     }
     assert.equal(
       summaryLabel(root).split(largestExactText).length - 1,
@@ -1294,11 +1337,11 @@ async function main() {
     before = current.cardRenders();
     current.setFontScale(1.8);
     assert.deepEqual(changedCards(before, current.cardRenders()), allKeys);
-    assert.ok(children(current.scroll()).every((page) => style(page).height === 144));
+    assert.ok(children(current.scroll()).every((page) => style(page).height === undefined));
     before = current.cardRenders();
     current.setScreenHeight(400);
     assert.deepEqual(changedCards(before, current.cardRenders()), allKeys);
-    assert.ok(children(current.scroll()).every((page) => style(page).height === 114));
+    assert.ok(children(current.scroll()).every((page) => style(page).height === undefined));
     before = current.cardRenders();
     current.emitAccessibility("reduceMotionChanged", false);
     assert.deepEqual(changedCards(before, current.cardRenders()), allKeys);
@@ -1678,18 +1721,16 @@ async function main() {
     current.measure(288);
     const page = realPages(current.scroll())[0];
     const selected = byId(page, `home-balance-${direction}-USD`);
-    const amount = nodes(selected).find((node) => node.props.minimumFontScale !== undefined)!;
+    const amount = nodes(selected).find((node) =>
+      /-amount-(collect|pay)-/.test(node.props.testID ?? ""),
+    )!;
     assert.equal(text(amount), largestExactText, "Expanded totals retain every digit and cent");
-    const symbol = byId(page, `home-balance-symbol-${direction}-USD`);
-    const availableWidth =
-      style(selected).width -
-      style(selected).paddingHorizontal * 2 -
-      (style(selected).borderLeftWidth ?? 0) -
-      text(symbol).length * 14 * 0.8 * 1.2 -
-      6;
-    const monoEstimate = text(amount).length * style(amount).fontSize * 0.65 * 1.2;
-    assert.ok(monoEstimate * amount.props.minimumFontScale <= availableWidth + 1e-7);
-    assert.equal(style(current.scroll()).height, 112);
+    assert.equal(amount.props.adjustsFontSizeToFit, false);
+    assert.equal(amount.props.maxFontSizeMultiplier, 0);
+    assert.equal(amount.props.numberOfLines, undefined);
+    assert.equal(style(selected).width, 286);
+    assert.equal(balanceCells(page).length, 2, "filtering retains both large-text totals");
+    assert.equal(style(current.scroll()).height, undefined);
     current.hooks.unmount();
   }
   for (const height of [844, 400]) {
@@ -1697,7 +1738,7 @@ async function main() {
     current.render({ balances: rotatingBalances });
     current.measure(288);
     await current.ready();
-    assert.equal(style(current.scroll()).height, height < 500 ? 114 : 144);
+    assert.equal(style(current.scroll()).height, undefined);
     assert.ok(
       children(current.scroll()).every((pair) => style(pair).width === 288),
       "narrow screens use the full viewport for both cards",
@@ -1998,6 +2039,7 @@ async function main() {
         Text: "Text",
         Pressable: "Pressable",
         StyleSheet: { create: (value: any) => value },
+        useWindowDimensions: () => ({ width: 390, fontScale: 1 }),
       },
       "@expo/vector-icons": { Ionicons: "Icon" },
       "./SharedAccountBadge": { SharedAccountBadge: "SharedAccountBadge" },
