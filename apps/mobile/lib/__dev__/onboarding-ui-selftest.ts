@@ -4,6 +4,14 @@ import assert from "node:assert/strict";
 import { colors } from "../colors";
 import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
+const phone = compileUI("../phone", {
+  "./db": { getAppMeta: async () => null },
+  "./digits": require("../digits"),
+  "./phone-countries": require("../phone-countries"),
+  "libphonenumber-js/core": require("libphonenumber-js/core"),
+  "libphonenumber-js/metadata.min.json": require("libphonenumber-js/metadata.min.json"),
+}) as typeof import("../phone");
+
 const native = {
   ActivityIndicator: "Spinner",
   Pressable: "Pressable",
@@ -258,6 +266,8 @@ function kaataFixture(
     stashedCurrency?: string;
     preview?: Promise<{ tab: { currency: string } }>;
     groupCurrencies?: string[];
+    phone?: string | null;
+    identityReady?: Promise<void>;
   } = {},
 ) {
   const hooks = uiHooks();
@@ -267,11 +277,16 @@ function kaataFixture(
   const creations: unknown[][] = [];
   const meta = new Map<string, string>([
     ["onboarding_self_name", "Ahmad"],
-    ["onboarding_self_phone", "+93700000001"],
+    [
+      "onboarding_self_phone",
+      options.phone === undefined ? "+93700000001" : (options.phone ?? ""),
+    ],
     ["pending_tab_token", options.pending ?? ""],
     ["pending_tab_currency", options.stashedCurrency ?? ""],
   ]);
+  if (options.phone === null) meta.delete("onboarding_self_phone");
   let createGate: Promise<void> | null = null;
+  const accountPhones: unknown[] = [];
   let failBack = false;
   const router = { replace: (route: unknown) => routes.push(route) };
   const Screen = compileUI("../../app/onboarding/kaata", {
@@ -305,7 +320,9 @@ function kaataFixture(
     "../../lib/tokens": tokens,
     "../../lib/auth": {
       getSessionJWT: async () => (options.pending ? "jwt" : null),
-      updateAccountPhone: async () => {},
+      updateAccountPhone: async (value: unknown) => {
+        accountPhones.push(value);
+      },
     },
     "../../lib/currency": {
       CURRENCIES: [
@@ -318,7 +335,11 @@ function kaataFixture(
       currencyNeedsPrecisionHint: () => false,
     },
     "../../lib/db": {
-      getAppMeta: async (key: string) => meta.get(key) ?? null,
+      getAppMeta: async (key: string) => {
+        if (key === "onboarding_self_name" || key === "onboarding_self_phone")
+          await options.identityReady;
+        return meta.get(key) ?? null;
+      },
       setAppMeta: async (key: string, value: string) => {
         if (failBack && key === "onboarding_step" && value === "profile")
           throw new Error("Synthetic Back failure");
@@ -329,6 +350,7 @@ function kaataFixture(
         if (createGate) await createGate;
       },
     },
+    "../../lib/phone": phone,
     "../../lib/event-log": { EventSigningUnavailableError: class extends Error {} },
     "../../lib/tabs/link": {
       fetchSharedInvitation: async () => {
@@ -352,6 +374,7 @@ function kaataFixture(
     hooks,
     routes,
     creations,
+    accountPhones,
     meta,
     handlers,
     render,
@@ -464,6 +487,81 @@ async function main() {
     "A completed old callback cannot reopen a departed screen",
   );
   assert.equal(abandoned.hooks.lateWrites, 0);
+
+  for (const raw of [
+    null,
+    "",
+    "+9312345",
+    "+9991234567",
+    "call +93700123456",
+    "0412345678",
+  ]) {
+    const ready = deferred<void>();
+    const invalid = kaataFixture({
+      phone: raw,
+      identityReady: ready.promise,
+      pending: "keep-invitation",
+      preview: Promise.resolve({ tab: { currency: "AFN" } }),
+    });
+    invalid.field().props.onChangeText("My shop");
+    invalid.render();
+    await invalid.create().props.onPress();
+    assert.deepEqual(
+      invalid.creations,
+      [],
+      "creation waits for the saved identity to load",
+    );
+    ready.resolve();
+    await invalid.flush();
+    await invalid.flush();
+    assert.deepEqual(
+      invalid.routes,
+      ["/onboarding/profile"],
+      `draft ${raw} returns for correction`,
+    );
+    assert.equal(invalid.meta.get("onboarding_step"), "profile");
+    await invalid.create().props.onPress();
+    await invalid.flush();
+    assert.deepEqual(
+      invalid.creations,
+      [],
+      "invalid required phone never creates a self or ledger",
+    );
+    assert.deepEqual(
+      invalid.accountPhones,
+      [],
+      "no invalid or empty phone is sent to the account",
+    );
+    assert.equal(invalid.meta.get("onboarding_self_name"), "Ahmad");
+    assert.equal(
+      invalid.meta.get("onboarding_self_phone") ?? null,
+      raw,
+      "the draft is preserved for correction",
+    );
+    assert.equal(invalid.meta.get("pending_tab_token"), "keep-invitation");
+    invalid.hooks.unmount();
+  }
+  for (const validPhone of ["+93700000001", "+61412345678", "+390236601832"]) {
+    const valid = kaataFixture({ phone: validPhone });
+    await valid.flush();
+    assert.deepEqual(
+      valid.routes,
+      [],
+      "a valid saved international identity is ready to finish",
+    );
+    valid.field().props.onChangeText("Resumed shop");
+    valid.render();
+    await valid.create().props.onPress();
+    assert.deepEqual(valid.creations, [
+      ["Ahmad", "Resumed shop", validPhone, "AFN"],
+    ]);
+    assert.deepEqual(valid.accountPhones, [validPhone]);
+    assert.equal(valid.meta.get("onboarding_step"), "done");
+    assert.deepEqual(valid.routes, [
+      { pathname: "/onboarding/success", params: { name: "Resumed shop" } },
+    ]);
+    valid.hooks.unmount();
+  }
 
   for (const rtl of [false, true]) {
     const draft = kaataFixture({ rtl });

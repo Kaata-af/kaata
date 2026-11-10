@@ -35,6 +35,7 @@ import { createSelfProfile, getAppMeta, setAppMeta } from "../../lib/db";
 import { bidiIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { EventSigningUnavailableError } from "../../lib/event-log";
 import { t } from "../../lib/i18n";
+import { normalizeOnboardingPhone } from "../../lib/phone";
 import { fetchSharedInvitation } from "../../lib/tabs/link";
 import { icon, typography } from "../../lib/tokens";
 import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-scroll";
@@ -55,8 +56,8 @@ import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-s
 // confusing "create a kaata" empty state as the first thing a new user sees.
 //
 // Identity is read from app_meta (resume-safe across a force-quit) rather than
-// route params (which are lost on relaunch). If the stashed name is missing we
-// bail back to the profile step instead of minting a nameless self.
+// route params (which are lost on relaunch). Recheck required identity fields
+// before completing a draft, including drafts saved by older versions.
 
 const NAME_MAX = 50;
 
@@ -136,8 +137,11 @@ export default function OnboardingKaataScreen() {
         getAppMeta("onboarding_self_phone"),
       ]);
       if (!alive) return;
+      const savedPhone = phone?.trim();
       setSelfName((name ?? "").trim() || null);
-      setSelfPhone((phone ?? "").trim() || null);
+      // The profile step saves a canonical number. An older draft without a
+      // country code needs the user's country selection again.
+      setSelfPhone(savedPhone?.startsWith("+") ? normalizeOnboardingPhone(savedPhone) : null);
       setLoaded(true);
     })();
     return () => {
@@ -185,15 +189,13 @@ export default function OnboardingKaataScreen() {
     };
   }, []);
 
-  // If we reached this step without a stashed name (app_meta cleared
-  // out-of-band, deep-link straight here, etc.) don't strand the user on a
-  // screen that can't complete — send them back to the profile step.
+  // A missing or invalid draft returns to the profile form for correction.
   useEffect(() => {
-    if (loaded && !selfName) {
+    if (loaded && (!selfName || !selfPhone)) {
       void setAppMeta("onboarding_step", "profile");
       router.replace("/onboarding/profile");
     }
-  }, [loaded, selfName, router]);
+  }, [loaded, selfName, selfPhone, router]);
 
   // Deliberately NO auto-focus on this screen (unlike the profile step): the
   // subtitle is where "kaata = your whole shop's book" lands, and an
@@ -210,9 +212,7 @@ export default function OnboardingKaataScreen() {
       shopRef.current?.focus();
       return;
     }
-    // Guarded by the bail-out effect above; also narrows selfName to string
-    // for the createSelfProfile call below.
-    if (!selfName) return;
+    if (!selfName || !selfPhone) return;
     setNameError(null);
     savingRef.current = true;
     currencyDirtyRef.current = true;
@@ -230,7 +230,7 @@ export default function OnboardingKaataScreen() {
       // Best-effort: back the phone up to the account so it survives a
       // reinstall (signed-in only; no-op offline). Lives here, not on the
       // profile step, because the self is created here.
-      void updateAccountPhone(selfPhone ?? null);
+      void updateAccountPhone(selfPhone);
       await setAppMeta("onboarding_step", "done");
       // Clear the onboarding scratch values now that they're persisted into
       // the self user + vault.

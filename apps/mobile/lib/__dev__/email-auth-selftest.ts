@@ -3483,6 +3483,7 @@ let nameSyncs: Array<[string, unknown]> = [];
 let profileSessionKind: "provider" | "email" | null = "email";
 // The account's sign-in identities, as GET /v1/account/me names them.
 let profileProviders: string[] = ["email"];
+let profileReadGate: { key: string; wait: Promise<void> } | null = null;
 let profileWriteGate: { key: string; wait: Promise<void> } | null = null;
 let profileWriteFailure: string | null = null;
 const profileBackHandlers = new Set<() => boolean>();
@@ -3531,7 +3532,10 @@ const profileModule = load<{ default: () => unknown }>("../../app/onboarding/pro
   },
   "../../lib/colors": { colors: {} },
   "../../lib/db": {
-    getAppMeta: async (key: string) => profileMeta.get(key) ?? null,
+    getAppMeta: async (key: string) => {
+      if (profileReadGate?.key === key) await profileReadGate.wait;
+      return profileMeta.get(key) ?? null;
+    },
     setAppMeta: async (key: string, value: string) => {
       if (profileWriteGate?.key === key) await profileWriteGate.wait;
       if (profileWriteFailure === key) throw new Error("Synthetic profile storage failure");
@@ -3548,10 +3552,8 @@ const profileModule = load<{ default: () => unknown }>("../../app/onboarding/pro
   "../../lib/fonts": { fonts: {}, sansLineHeight: (_size: number, tight: number) => tight },
   "../../lib/i18n": { t: keyT },
   "../../lib/phone": {
-    getCountry: () => ({ code: "AF", flag: "AF", dialCode: "+93" }),
+    ...phoneLabels,
     getCurrentDefaultCountryCode: () => "AF",
-    inferCountryFromE164: () => "AF",
-    normalizePhone: (raw: string) => (raw ? "+93700000001" : null),
   },
   "../../lib/tokens": { icon: {}, radius: {}, TOUCH_MIN: 44, typography: {} },
   "../../lib/use-onboarding-keyboard-scroll": {
@@ -3634,6 +3636,142 @@ componentTest(
     assert.equal(nameField(tree).props.error, null, "no name error");
     assert.deepEqual(nameSyncs, [["B Jan Karimi", {}]]);
     profileProviders = ["email"];
+  },
+);
+
+componentTest(
+  "profile: real phone validation blocks invalid input and keeps valid national/international identity",
+  async () => {
+    const render = () => profileHooks.render(() => profileModule.default());
+    const phoneInput = () =>
+      render().find((node) => node.type === "TextInput")!;
+    const next = () =>
+      render().find(
+        (node) => node.props.label === "onboardingProfile.continue",
+      )!;
+    const country = () =>
+      render().find((node) => node.type === "CountryPicker")!;
+    async function mount(
+      meta: Array<[string, string]> = [],
+      offline = false,
+      prefillWait?: Promise<void>,
+    ) {
+      profileHooks.reset();
+      profileBackHandlers.clear();
+      profileWriteGate = null;
+      profileWriteFailure = null;
+      profileReadGate = prefillWait
+        ? { key: "onboarding_pending_phone", wait: prefillWait }
+        : null;
+      profileRoutes = [];
+      nameSyncs = [];
+      profileSessionKind = offline ? null : "email";
+      profileProviders = ["email"];
+      profileMeta = new Map([["onboarding_pending_name", "Ahmad"], ...meta]);
+      render();
+      await settle();
+      await settle();
+      return render();
+    }
+    for (const raw of [
+      "",
+      "12345",
+      "+9991234567",
+      "call 0700123456",
+      "0700123456 ext 123",
+      "++93700123456",
+      "0700+123456",
+      "0000000000",
+    ]) {
+      await mount();
+      phoneInput().props.onChangeText(raw);
+      const before = [...profileMeta];
+      await next().props.onPress();
+      assert.ok(
+        texts(render()).includes(
+          raw ? "personAdd.phone.invalid" : "onboarding.phone.required",
+        ),
+        `inline feedback for ${raw || "blank"}`,
+      );
+      assert.deepEqual(
+        [...profileMeta],
+        before,
+        "invalid phone cannot persist the name or advance the step",
+      );
+      assert.deepEqual(profileRoutes, []);
+      assert.deepEqual(
+        nameSyncs,
+        [],
+        "invalid identity is never sent to the account",
+      );
+    }
+    for (const [selected, raw, expected] of [
+      ["AF", "0700 123 456", "+93700123456"],
+      ["AF", "٠٧٠٠١٢٣٤٥٦", "+93700123456"],
+      ["AF", "۰۷۰۰۱۲۳۴۵۶", "+93700123456"],
+      ["AF", "020 123 4567", "+93201234567"],
+      ["AU", "0412 345 678", "+61412345678"],
+      ["AF", "+61 (0)412 345 678", "+61412345678"],
+      ["AF", "0061 412345678", "+61412345678"],
+      ["IT", "02 3660 1832", "+390236601832"],
+    ]) {
+      await mount();
+      country().props.onSelect(selected);
+      phoneInput().props.onChangeText(raw);
+      await next().props.onPress();
+      assert.deepEqual(
+        profileRoutes,
+        ["/onboarding/kaata"],
+        `${selected} ${raw} can continue`,
+      );
+      assert.equal(profileMeta.get("onboarding_self_phone"), expected);
+      assert.equal(profileMeta.get("onboarding_step"), "kaata");
+    }
+    for (const key of ["onboarding_self_phone", "onboarding_pending_phone"]) {
+      await mount([[key, "+9312345"]], true);
+      assert.ok(
+        texts(render()).includes("personAdd.phone.invalid"),
+        "invalid saved/provider prefill asks for correction",
+      );
+      assert.ok(
+        phoneInput().props.value.includes("12345"),
+        "the old input remains available to correct",
+      );
+      await next().props.onPress();
+      assert.deepEqual(
+        profileRoutes,
+        [],
+        "offline onboarding cannot reuse an invalid saved value",
+      );
+      phoneInput().props.onChangeText("0700123456");
+      await next().props.onPress();
+      assert.deepEqual(profileRoutes, ["/onboarding/kaata"]);
+      assert.equal(profileMeta.get("onboarding_self_phone"), "+93700123456");
+      assert.ok(!texts(render()).includes("personAdd.phone.invalid"));
+    }
+    const latePrefill = deferred<void>();
+    await mount(
+      [["onboarding_pending_phone", "+9312345"]],
+      false,
+      latePrefill.promise,
+    );
+    phoneInput().props.onChangeText("0700123456");
+    latePrefill.resolve();
+    await settle();
+    assert.equal(
+      phoneInput().props.value,
+      "0700123456",
+      "a late invalid prefill cannot replace a fresh edit",
+    );
+    assert.ok(
+      !texts(render()).includes("personAdd.phone.invalid"),
+      "old input cannot flag the new number as invalid",
+    );
+    await next().props.onPress();
+    assert.deepEqual(profileRoutes, ["/onboarding/kaata"]);
+    assert.equal(profileMeta.get("onboarding_self_phone"), "+93700123456");
+    profileReadGate = null;
+    profileSessionKind = "email";
   },
 );
 

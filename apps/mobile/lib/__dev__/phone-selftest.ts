@@ -109,6 +109,34 @@ async function main(): Promise<void> {
   );
   same(phone.normalizePhone("+123456789012345"), "+123456789012345", "maximum international shape");
 
+  for (const [input, country, expected] of [
+    ["0700 123 456", "AF", "+93700123456"],
+    ["۰۷۰۰ ۱۲۳ ۴۵۶", "AF", "+93700123456"],
+    ["٠٧٠٠١٢٣٤٥٦", "AF", "+93700123456"],
+    ["020 123 4567", "AF", "+93201234567"],
+    ["\u2066+93 (0)700-123-456\u2069", "US", "+93700123456"],
+    ["0044 20 7946 0018", "AF", "+442079460018"],
+    ["(416) 555-1234", "CA", "+14165551234"],
+    ["02 3660 1832", "IT", "+390236601832"],
+  ]) {
+    same(phone.normalizeOnboardingPhone(input, country), expected, `signup phone: ${input}`);
+    same(phone.normalizeOnboardingPhone(expected), expected, "valid signup draft round-trips");
+  }
+  for (const invalid of [
+    null,
+    "12345",
+    "123456789",
+    "+937001234567",
+    "+9991234567",
+    "Call 0700123456",
+    "+93+700123456",
+    "0700/123456",
+    "0700123456 ext. 4",
+    "+",
+  ]) {
+    same(phone.normalizeOnboardingPhone(invalid), null, `signup rejects ${String(invalid)}`);
+  }
+
   const sharedCodes: [string, string][] = [
     ["+14165551234", "CA"],
     ["+12135551234", "US"],

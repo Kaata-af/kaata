@@ -39,7 +39,7 @@ import {
   getCountry,
   getCurrentDefaultCountryCode,
   inferCountryFromE164,
-  normalizePhone,
+  normalizeOnboardingPhone,
 } from "../../lib/phone";
 import { icon } from "../../lib/tokens";
 import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-scroll";
@@ -74,7 +74,7 @@ export default function OnboardingProfileScreen() {
   // Country dial-code for the phone field — same compound field as person/new
   // and person/[id]/edit. Defaults to the user's preference (hydrated at
   // _layout init, so synchronously correct on mount); changeable via the
-  // CountryPickerSheet. normalizePhone uses this country on submit.
+  // CountryPickerSheet. The selection interprets numbers without a dial code.
   const [countryCode, setCountryCode] = useState(getCurrentDefaultCountryCode);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -89,6 +89,7 @@ export default function OnboardingProfileScreen() {
   const nameRef = useRef<TextInputInstance>(null);
   const lastNameRef = useRef<TextInputInstance>(null);
   const phoneRef = useRef<TextInputInstance>(null);
+  const phoneEdited = useRef(false);
   const { scrollProps, focusInput, blurInput } = useOnboardingKeyboardScroll();
   // Synchronous re-entry guard — `busy` state can't stop a same-frame
   // double-tap (setState is async); see entry/new.tsx.
@@ -139,17 +140,14 @@ export default function OnboardingProfileScreen() {
       const pendingPhone =
         (await getAppMeta("onboarding_self_phone"))?.trim() ||
         (await getAppMeta("onboarding_pending_phone"))?.trim();
-      if (pendingPhone) {
+      if (pendingPhone && !phoneEdited.current) {
         const inferred = inferCountryFromE164(pendingPhone);
         const dial = getCountry(inferred).dialCode;
         setCountryCode(inferred);
-        setPhone((prev) =>
-          prev
-            ? prev
-            : pendingPhone.startsWith(dial)
-              ? pendingPhone.slice(dial.length)
-              : pendingPhone,
-        );
+        setPhone(pendingPhone.startsWith(dial) ? pendingPhone.slice(dial.length) : pendingPhone);
+        if (!normalizeOnboardingPhone(pendingPhone, inferred)) {
+          setPhoneError(t("personAdd.phone.invalid"));
+        }
       }
     })();
   }, []);
@@ -191,11 +189,7 @@ export default function OnboardingProfileScreen() {
       return;
     }
 
-    // Normalize to E.164 like every other phone write path. Without this,
-    // the raw string ("0700123456", spaces, typos) landed verbatim in
-    // users.phone_e164 — the column the data model treats as canonical
-    // identity — with zero feedback for typos.
-    const normalizedPhone = normalizePhone(trimmedPhone, countryCode);
+    const normalizedPhone = normalizeOnboardingPhone(trimmedPhone, countryCode);
     if (!normalizedPhone) {
       setPhoneError(t("personAdd.phone.invalid"));
       phoneRef.current?.focus();
@@ -407,6 +401,7 @@ export default function OnboardingProfileScreen() {
                 editable={!busy}
                 onChangeText={(v) => {
                   if (savingRef.current) return;
+                  phoneEdited.current = true;
                   setPhoneError(null);
                   setPhone(v);
                 }}
@@ -449,7 +444,10 @@ export default function OnboardingProfileScreen() {
         visible={pickerVisible}
         selectedCode={countryCode}
         onSelect={(c) => {
-          if (!savingRef.current) setCountryCode(c);
+          if (savingRef.current) return;
+          phoneEdited.current = true;
+          setCountryCode(c);
+          setPhoneError(null);
         }}
         onDismiss={() => setPickerVisible(false)}
       />

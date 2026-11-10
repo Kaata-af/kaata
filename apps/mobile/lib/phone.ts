@@ -137,6 +137,24 @@ export function normalizePhone(
   return E164_GENERIC.test(e164) ? e164 : null;
 }
 
+/** A required signup number must match its numbering plan. Preserve the
+ * permissive normalization used for existing contacts and imported data. */
+export function normalizeOnboardingPhone(
+  input: string | null | undefined,
+  countryCode: string = DEFAULT_COUNTRY_CODE,
+): string | null {
+  const value = toAsciiDigits(input ?? "")
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+    .trim();
+  // Allow ordinary formatting, but reject text, extensions and misplaced '+'
+  // before normalization can silently strip them.
+  if (!/^\+?[\d\s().\u2010-\u2015-]+$/.test(value)) return null;
+  const normalized = normalizePhone(value, countryCode);
+  if (!normalized) return null;
+  const parsed = parsePhoneNumberFromString(normalized, { extract: false }, phoneMetadata);
+  return parsed?.isValid() ? parsed.number : null;
+}
+
 // Use numbering-plan prefixes to distinguish countries that share a calling
 // code (+1, +7, +44, +39, +262...). A calling code alone cannot distinguish
 // US from Canada or Italy from Vatican City. The fallback is only for a number
