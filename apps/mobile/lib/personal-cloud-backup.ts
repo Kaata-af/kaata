@@ -2,7 +2,13 @@ import { sha256 } from "@noble/hashes/sha256";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils";
 import { getNetworkStateAsync } from "expo-network";
 import { captureCurrentSession, SessionChangedError, type SessionSnapshot } from "./auth";
-import { getAppMetaInTx, getDb, getSessionAccountIdSync, setAppMetaInTx } from "./db-tx";
+import {
+  getAppMetaInTx,
+  getDb,
+  getSessionAccountIdSync,
+  SESSION_ENDED_KEY,
+  setAppMetaInTx,
+} from "./db-tx";
 import { googleDriveBackupProvider } from "./google-drive-backup";
 import { icloudDriveBackupProvider } from "./icloud-backup";
 import { DRIVE_BACKUP_FILE_LIMIT } from "./drive-backup";
@@ -71,8 +77,44 @@ function settingsKey(session: SessionSnapshot): string {
   return `personal_cloud_backup:${scopeFor(session)}`;
 }
 
+function offerDismissedKey(session: SessionSnapshot): string {
+  return `personal_cloud_backup_offer_dismissed:${scopeFor(session)}`;
+}
+
 function sessionCanUseBackups(session: SessionSnapshot): boolean {
   return !!session.jwt === !!session.accountId && session.accountId === getSessionAccountIdSync();
+}
+
+export async function shouldOfferPersonalCloudBackup(expectedAccountId: string | null): Promise<boolean> {
+  if (!destinations.some(isPersonalCloudBackupSupported)) return false;
+  const session = await captureCurrentSession();
+  if (session.accountId !== expectedAccountId || !sessionCanUseBackups(session)) return false;
+  return withPersonalBackupSession(session, async () => {
+    const db = await getDb();
+    // Turning off the last destination leaves an empty settings object. That
+    // is still a decision, as is a connection that now needs reconnecting.
+    return (
+      (await getAppMetaInTx(db, "install_retired")) !== "1" &&
+      (await getAppMetaInTx(db, SESSION_ENDED_KEY)) !== "1" &&
+      (await getAppMetaInTx(db, offerDismissedKey(session))) !== "1" &&
+      (await getAppMetaInTx(db, settingsKey(session))) === null
+    );
+  });
+}
+
+export async function dismissPersonalCloudBackupOffer(expectedAccountId: string | null): Promise<void> {
+  const session = await captureCurrentSession();
+  if (session.accountId !== expectedAccountId || !sessionCanUseBackups(session))
+    throw new PersonalBackupError("sessionChanged");
+  await withPersonalBackupSession(session, async () => {
+    const db = await getDb();
+    if (
+      (await getAppMetaInTx(db, "install_retired")) === "1" ||
+      (await getAppMetaInTx(db, SESSION_ENDED_KEY)) === "1"
+    ) throw new PersonalBackupError("sessionChanged");
+    await setAppMetaInTx(db, offerDismissedKey(session), "1");
+  });
+  notify();
 }
 
 async function readSettings(session: SessionSnapshot): Promise<SettingsByProvider> {
@@ -159,11 +201,17 @@ export async function readPersonalCloudBackupStatuses(): Promise<
   return result;
 }
 
-export async function enablePersonalCloudBackup(id: PersonalCloudProviderId): Promise<boolean> {
+export async function enablePersonalCloudBackup(
+  id: PersonalCloudProviderId,
+  expectedAccountId?: string | null,
+): Promise<boolean> {
   const enabled = await exclusively(async () => {
     const provider = providerFor(id);
     const session = await captureCurrentSession();
-    if (!sessionCanUseBackups(session)) throw new PersonalBackupError("sessionChanged");
+    if (
+      !sessionCanUseBackups(session) ||
+      (expectedAccountId !== undefined && session.accountId !== expectedAccountId)
+    ) throw new PersonalBackupError("sessionChanged");
     const settings = await readSettings(session);
     const connection = await provider.connect();
     if (!connection) {

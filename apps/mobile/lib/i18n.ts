@@ -30,6 +30,9 @@ const en = {
   "backups.offline": "Connect to the internet to sync or restore from Kaata Cloud.",
   "backups.readFailed": "Could not read backup status. Try again.",
   "backups.personal": "Personal backups",
+  "backups.setup.title": "Set up automatic backup",
+  "backups.setup.body":
+    "Keep a copy in your own cloud storage so you can restore your records on another phone.",
   "backups.personalHint":
     "Connect Google Drive, iCloud Drive, or both to back up your records automatically.",
   "backups.personalHintAndroid": "Connect Google Drive to back up your records automatically.",
@@ -306,10 +309,10 @@ const en = {
   "onboardingMode.apple.title": "Sign in with Apple",
   "onboardingMode.offline.label": "Ninja mode",
   "onboardingMode.offline.body":
-    "No account needed. Keep your kaata on this phone and stay out of people search. Sign in later for cloud backup.",
+    "No account needed. Your records stay on this phone by default, and you stay out of people search.",
   "onboardingMode.offline.title": "Continue in ninja mode",
   "onboardingMode.offline.warning":
-    "No account backup in ninja mode. If you lose this phone, you could lose all your data. Sign in later to back it up.",
+    "If you lose this phone, you'll need a backup to recover your records. You can choose a personal backup after setting up your kaata.",
   // Sign-in failures now name the leg that broke and carry a short code
   // (e.g. "server 503", "timeout") the user can read out for support.
   "onboardingMode.signInFailed": "Sign-in didn't work. Try again.",
@@ -2875,6 +2878,9 @@ const fa: Partial<Record<Key, string>> = {
   "backups.offline": "برای همگام‌سازی یا بازیابی از فضای ابری کاته به اینترنت وصل شوید.",
   "backups.readFailed": "وضعیت نسخه‌های پشتیبان خوانده نشد. دوباره تلاش کنید.",
   "backups.personal": "نسخه‌های پشتیبان شخصی",
+  "backups.setup.title": "پشتیبان‌گیری خودکار را تنظیم کنید",
+  "backups.setup.body":
+    "یک نسخه در فضای ابری خود نگه دارید تا بتوانید حساب‌های‌تان را در تلفون دیگری بازیابی کنید.",
   "backups.personalHint":
     "برای پشتیبان‌گیری خودکار از سوابق‌تان، Google Drive، iCloud Drive یا هر دو را وصل کنید.",
   "backups.personalHintAndroid": "برای پشتیبان‌گیری خودکار از سوابق‌تان، Google Drive را وصل کنید.",
@@ -3147,10 +3153,10 @@ const fa: Partial<Record<Key, string>> = {
   "onboardingMode.apple.title": "ورود با اپل",
   "onboardingMode.offline.label": "حالت نینجا",
   "onboardingMode.offline.body":
-    "نیازی به حساب نیست. کاتای‌تان روی همین تلفون می‌ماند و در جستجوی افراد ظاهر نمی‌شوید. برای پشتیبان‌گیری ابری، بعداً وارد حساب شوید.",
+    "نیازی به حساب نیست. اطلاعات‌تان به‌طور پیش‌فرض روی همین تلفون می‌ماند و در جستجوی افراد ظاهر نمی‌شوید.",
   "onboardingMode.offline.title": "ادامه در حالت نینجا",
   "onboardingMode.offline.warning":
-    "در حالت نینجا از اطلاعات‌تان در حساب نسخهٔ پشتیبان گرفته نمی‌شود. اگر این تلفون را گم کنید، ممکن است همهٔ اطلاعات‌تان را از دست بدهید. برای پشتیبان‌گیری، بعداً وارد حساب شوید.",
+    "اگر این تلفون را گم کنید، برای بازیابی اطلاعات‌تان به نسخۀ پشتیبان نیاز دارید. پس از ساخت کاتای‌تان می‌توانید پشتیبان‌گیری شخصی را فعال کنید.",
   "onboardingMode.signInFailed": "ورود نشد. دوباره امتحان کنید.",
   "onboardingMode.signInFailed.network":
     "ورود به کاتا نرسید. انترنت را بررسی کنید و دوباره امتحان کنید.",
@@ -5437,6 +5443,9 @@ const ps: Record<Key, string> = {
   "backups.offline": "د کاته له کلاوډ سره د همغږۍ یا بېرته راوستلو لپاره انټرنېټ سره وصل شئ.",
   "backups.readFailed": "د شاتړ حالت ونه لوستل شو. بیا هڅه وکړئ.",
   "backups.personal": "شخصي شاتړونه",
+  "backups.setup.title": "اوتومات شاتړ تنظیم کړئ",
+  "backups.setup.body":
+    "یوه کاپي په خپله کلاوډ فضا کې وساتئ، څو خپل حسابونه په بل ټیلیفون کې بېرته را وګرځوئ.",
   "backups.personalHint":
     "د خپلو ثبتونو د اوتومات شاتړ لپاره Google Drive، iCloud Drive یا دواړه ونښلوئ.",
   "backups.personalHintAndroid": "د خپلو ثبتونو د اوتومات شاتړ لپاره Google Drive ونښلوئ.",
@@ -5647,10 +5656,10 @@ const ps: Record<Key, string> = {
   "onboardingMode.apple.title": "د Apple له لارې ننوځئ",
   "onboardingMode.offline.label": "د نینجا حالت",
   "onboardingMode.offline.body":
-    "کارن حساب ته اړتیا نشته. خپله کاټه په همدې ټیلیفون کې وساتئ او د خلکو په لټون کې نه ښکاره کېږئ. د کلاوډ شاتړ لپاره وروسته ننوځئ.",
+    "کارن حساب ته اړتیا نشته. ستاسې حسابونه په عادي ډول په همدې ټیلیفون کې پاتې کېږي او د خلکو په لټون کې نه ښکاره کېږئ.",
   "onboardingMode.offline.title": "د نینجا په حالت کې دوام ورکړئ",
   "onboardingMode.offline.warning":
-    "د نینجا په حالت کې د کارن حساب شاتړ نشته. که دا ټیلیفون ورک کړئ، ښايي خپل ټول معلومات له لاسه ورکړئ. د شاتړ لپاره وروسته ننوتلی شئ.",
+    "که دا ټیلیفون ورک کړئ، د خپلو حسابونو د بېرته راګرځولو لپاره شاتړ ته اړتیا لرئ. د کاټې له جوړولو وروسته شخصي شاتړ فعالولی شئ.",
   "onboardingMode.signInFailed": "ننوتل بریالي نه شول. بیا هڅه وکړئ.",
   "onboardingMode.signInFailed.network":
     "د ننوتلو پر مهال له Kaata سره اړیکه ټینګه نه شوه. خپل انټرنېټ وګورئ او بیا هڅه وکړئ.",

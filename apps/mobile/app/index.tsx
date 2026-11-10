@@ -40,6 +40,7 @@ import { NotificationBell } from "../components/NotificationInbox";
 import { CustomerRows, type CustomerRowsProps } from "../components/CustomerRows";
 import { HomeBalanceSummary } from "../components/HomeBalanceSummary";
 import { HomeBalanceFilterSwipe } from "../components/HomeBalanceFilterSwipe";
+import { HomePersonalBackupOffer } from "../components/HomePersonalBackupOffer";
 import { SettledAccountsSection } from "../components/SettledAccountsSection";
 import { PeopleSearchSection } from "../components/PeopleSearchSection";
 import { usePeopleSearch } from "../lib/people-search";
@@ -1188,7 +1189,7 @@ export default function HomeScreen() {
     locale,
     loaded && !!activeVaultId && !forceUpdate,
   );
-  const showSponsorship =
+  const showHomeExtras =
     normalCustomerList &&
     !loadError &&
     !filtersExpanded &&
@@ -1196,6 +1197,20 @@ export default function HomeScreen() {
     !searchFocused &&
     !customerQuery.trim();
   const sponsorshipInteractive = directionControlsEnabled && !notificationInboxVisible;
+  const canOfferPersonalBackup =
+    (Platform.OS === "android" || Platform.OS === "ios") &&
+    loaded &&
+    !loadError &&
+    !!self &&
+    currentVaultScope &&
+    caps.resolved &&
+    activeAccountId === friendsAccountId;
+  const showPersonalBackupOffer =
+    showHomeExtras &&
+    directionControlsEnabled &&
+    !notificationInboxVisible &&
+    !signOutConfirm &&
+    !signingOut;
   const reviewContext = useMemo(() => {
     if (!loaded || !self || !currentPeopleScope || !currentVaultScope) return null;
     try {
@@ -2143,7 +2158,17 @@ export default function HomeScreen() {
                           currentPeopleScope && currentVaultScope && !filtersExpanded && !selecting
                         }
                       />
-                      {showSponsorship && sponsorship ? (
+                      {canOfferPersonalBackup && activeVaultId ? (
+                        <HomePersonalBackupOffer
+                          key={JSON.stringify([activeAccountId, activeVaultId, caps.role])}
+                          accountId={activeAccountId}
+                          activeVaultId={activeVaultId}
+                          ownsActiveVault={caps.role === "owner"}
+                          vaults={vaults}
+                          visible={showPersonalBackupOffer}
+                        />
+                      ) : null}
+                      {showHomeExtras && sponsorship ? (
                         <SponsorButton
                           {...sponsorship.button}
                           interactive={sponsorshipInteractive}
@@ -2159,7 +2184,7 @@ export default function HomeScreen() {
                   }
                   controls={inlineControls}
                   renderFirstCustomerRow={
-                    showSponsorship && sponsorship?.banner.slides.length
+                    showHomeExtras && sponsorship?.banner.slides.length
                       ? (hasFollowingRows) => (
                           <SponsorBanner
                             key={JSON.stringify(sponsorship.banner.slides)}

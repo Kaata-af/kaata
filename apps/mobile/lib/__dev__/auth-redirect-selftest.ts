@@ -316,9 +316,9 @@ async function ninjaMode() {
   const originalTranslate = mocks["../../lib/i18n"].t;
   try {
     for (const [locale, title, lossWarning] of [
-      ["en", "Continue in ninja mode", /lose this phone.*lose all your data/],
-      ["fa", "ادامه در حالت نینجا", /این تلفون.*همهٔ اطلاعات/],
-      ["ps", "د نینجا په حالت کې دوام ورکړئ", /ټیلیفون.*ټول معلومات/],
+      ["en", "Continue in ninja mode", /lose this phone.*need a backup.*choose a personal backup/],
+      ["fa", "ادامه در حالت نینجا", /این تلفون را گم کنید.*نسخۀ پشتیبان.*پشتیبان‌گیری شخصی/],
+      ["ps", "د نینجا په حالت کې دوام ورکړئ", /ټیلیفون ورک کړئ.*شاتړ ته اړتیا.*شخصي شاتړ/],
     ] as const) {
       reset();
       rtl = locale !== "en";

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -9,15 +9,17 @@ import {
   OnboardingIntro,
   onboardingStyles,
 } from "../../components/Onboarding";
+import { PersonalBackupSetup } from "../../components/PersonalBackupSetup";
 import { colors } from "../../lib/colors";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
+import { getAccountIdSync } from "../../lib/db-tx";
 import { rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { t } from "../../lib/i18n";
 import { icon, radius, space, typography } from "../../lib/tokens";
 
-// Confirmation only: the previous step has already committed the first kaata
+// The previous step has already committed the first kaata
 // and marked onboarding done. Keep the name fallback and home navigation here;
-// rendering this screen must never create another vault or gate access to it.
+// the optional backup offer never creates another vault or gates access to it.
 //
 // It is also where a mutual-tab deep link that arrived BEFORE the user had a
 // kaata is redeemed (docs/mutual-tab-design.md §4.4). app/t/[token].tsx stashes
@@ -31,7 +33,10 @@ export default function OnboardingSuccessScreen() {
   const params = useLocalSearchParams<{ name?: string }>();
   const leaving = useRef(false);
   const mounted = useRef(true);
+  const connecting = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [backupOfferVisible, setBackupOfferVisible] = useState(false);
+  const [backupConnecting, setBackupConnecting] = useState(false);
   const [shopName, setShopName] = useState<string | null>(
     typeof params.name === "string" && params.name.trim() ? params.name.trim() : null,
   );
@@ -60,11 +65,17 @@ export default function OnboardingSuccessScreen() {
     };
   }, [shopName]);
 
+  const onBackupConnectingChange = useCallback((next: boolean) => {
+    connecting.current = next;
+    setBackupConnecting(next);
+  }, []);
+
   // Redeem a tab link that was followed before this kaata existed; otherwise
   // the ordinary home landing. A failed read must never trap the user on the
   // success screen, so every failure falls through to home.
   async function onContinue() {
-    if (leaving.current || !mounted.current) return;
+    if (leaving.current || connecting.current || !mounted.current) return;
+    const accountId = getAccountIdSync();
     leaving.current = true;
     setBusy(true);
     let pendingTab: string | null = null;
@@ -78,6 +89,15 @@ export default function OnboardingSuccessScreen() {
       }
     } catch (err) {
       console.warn("[onboarding/success] pending tab read failed", err);
+    }
+    if (!mounted.current) return;
+    try {
+      // A quick continue before providers load also finishes this setup step.
+      // The existing-user offer on Home should not repeat it.
+      const { dismissPersonalCloudBackupOffer } = await import("../../lib/personal-cloud-backup");
+      await dismissPersonalCloudBackupOffer(accountId);
+    } catch {
+      // Opening the new kaata must still work if backup setup is unavailable.
     }
     if (!mounted.current) return;
     if (pendingTab) {
@@ -128,14 +148,21 @@ export default function OnboardingSuccessScreen() {
               </View>
             </View>
           ) : null}
+          <PersonalBackupSetup
+            placement="onboarding"
+            disabled={busy}
+            onOfferChange={setBackupOfferVisible}
+            onConnectingChange={onBackupConnectingChange}
+          />
         </View>
       </ScrollView>
 
       <View style={onboardingStyles.footer}>
         <OnboardingAction
-          label={t("onboardingSuccess.cta")}
+          label={t(backupOfferVisible ? "common.notNow" : "onboardingSuccess.cta")}
           onPress={() => void onContinue()}
           loading={busy}
+          disabled={backupConnecting}
         />
       </View>
     </SafeAreaView>

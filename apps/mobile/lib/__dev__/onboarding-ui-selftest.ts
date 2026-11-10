@@ -104,6 +104,65 @@ function controls() {
   }
 }
 
+async function backupSetupConsent() {
+  const hooks = uiHooks();
+  const { direction, i18n } = presentation(true);
+  const requests: unknown[][] = [];
+  let statuses = {};
+  let refresh: (() => void) | undefined;
+  const Setup = compileUI("../../components/PersonalBackupSetup", {
+    "react/jsx-runtime": jsxRuntime,
+    react: hooks.react,
+    "expo-router": {
+      useFocusEffect: (effect: () => void | (() => void)) => hooks.react.useEffect(effect, [effect]),
+    },
+    "react-native": { ...native, AppState: { currentState: "active" }, Platform: { OS: "ios" } },
+    "../lib/colors": { colors },
+    "../lib/db-tx": { getAccountIdSync: () => null, onAccountIdentityChanged: () => () => {} },
+    "../lib/direction": direction,
+    "../lib/format": { formatTimestamp: String },
+    "../lib/i18n": i18n,
+    "../lib/tokens": tokens,
+    "../lib/personal-cloud-backup": {
+      isPersonalCloudBackupSupported: () => true,
+      shouldOfferPersonalCloudBackup: async () => true,
+      readPersonalCloudBackupStatuses: async () => statuses,
+      subscribePersonalCloudBackup: (listener: () => void) => {
+        refresh = listener;
+        return () => { refresh = undefined; };
+      },
+      enablePersonalCloudBackup: async (destination: string, accountId: string | null) => {
+        requests.push([destination, accountId]);
+        if (destination === "googleDrive") return false;
+        statuses = { icloudDrive: { connection: { id: "icloud" }, pending: true, savedAt: 100 } };
+        refresh?.();
+        return true;
+      },
+    },
+    "./Button": { Button: "BackupProviderButton" },
+    "./Toast": { useToast: () => ({ push: () => assert.fail("Onboarding uses inline backup status") }) },
+  }).PersonalBackupSetup;
+  const render = () => hooks.render(() => Setup({ placement: "onboarding" }));
+  const providerButton = (icon: string) => nodes(hooks.tree).find((node) =>
+    node.type === "BackupProviderButton" && node.props.icon === icon,
+  )!;
+  render();
+  await settleUI();
+  render();
+  assert.deepEqual(requests, [], "showing the offer in Ninja never connects a provider");
+  providerButton("logo-google").props.onPress();
+  await settleUI();
+  render();
+  assert.ok(providerButton("logo-google"), "cancelled consent leaves the offer available");
+  providerButton("logo-apple").props.onPress();
+  await settleUI();
+  render();
+  assert.deepEqual(requests, [["googleDrive", null], ["icloudDrive", null]]);
+  assert.ok(nodes(hooks.tree).some((node) => node.props.children === "backups.backupQueued"));
+  assert.ok(!nodes(hooks.tree).some((node) => node.props.children === "backups.backupSaved"));
+  hooks.unmount();
+}
+
 function successFixture(
   options: {
     rtl?: boolean;
@@ -111,6 +170,8 @@ function successFixture(
     storedName?: string;
     pending?: string;
     failRead?: boolean;
+    failBackupDismiss?: boolean;
+    accountId?: string;
     waitForToken?: Promise<void>;
   } = {},
 ) {
@@ -122,6 +183,7 @@ function successFixture(
   ]);
   const writes: [string, string][] = [];
   const routes: unknown[] = [];
+  const backupDismissals: (string | null)[] = [];
   let tokenReads = 0;
   let vaultCreations = 0;
   const Screen = compileUI("../../app/onboarding/success", {
@@ -135,6 +197,14 @@ function successFixture(
     "react-native": native,
     "react-native-safe-area-context": { SafeAreaView: "SafeArea" },
     "../../components/Onboarding": ui,
+    "../../components/PersonalBackupSetup": { PersonalBackupSetup: "PersonalBackupSetup" },
+    "../../lib/db-tx": { getAccountIdSync: () => options.accountId ?? null },
+    "../../lib/personal-cloud-backup": {
+      dismissPersonalCloudBackupOffer: async (accountId: string | null) => {
+        backupDismissals.push(accountId);
+        if (options.failBackupDismiss) throw new Error("Synthetic backup preference failure");
+      },
+    },
     "../../lib/colors": { colors },
     "../../lib/direction": direction,
     "../../lib/i18n": i18n,
@@ -163,9 +233,11 @@ function successFixture(
     meta,
     writes,
     routes,
+    backupDismissals,
     render,
-    action: () =>
-      nodes(hooks.tree).find((node) => node.props.accessibilityLabel === "onboardingSuccess.cta")!,
+    backupSetup: () => nodes(hooks.tree).find((node) => node.type === "PersonalBackupSetup")!,
+    action: (label = "onboardingSuccess.cta") =>
+      nodes(hooks.tree).find((node) => node.props.accessibilityLabel === label)!,
     get tokenReads() {
       return tokenReads;
     },
@@ -309,6 +381,7 @@ function kaataFixture(
 
 async function main() {
   controls();
+  await backupSetupConsent();
   for (const rtl of [false, true]) {
     const success = successFixture({ rtl, name: "Ahmad Grocery" });
     await success.flush();
@@ -321,9 +394,36 @@ async function main() {
     success.action().props.onPress();
     await success.flush();
     assert.deepEqual(success.routes, ["/"]);
+    assert.deepEqual(success.backupDismissals, [null], "continuing before the offer loads also finishes setup");
     assert.deepEqual(success.writes, [], "Confirmation does not create or rewrite a kaata");
     assert.equal(success.vaultCreations, 0);
   }
+
+  const skippedBackup = successFixture({ pending: "shared-ledger" });
+  assert.equal(skippedBackup.backupSetup().props.placement, "onboarding");
+  skippedBackup.backupSetup().props.onOfferChange(true);
+  skippedBackup.render();
+  assert.deepEqual(skippedBackup.backupDismissals, [], "the offer waits for the user's choice");
+  const skip = skippedBackup.action("common.notNow");
+  skippedBackup.backupSetup().props.onConnectingChange(true);
+  skip.props.onPress();
+  skippedBackup.render();
+  assert.deepEqual(skippedBackup.routes, [], "a queued skip cannot race provider authorization");
+  assert.equal(skippedBackup.action("common.notNow").props.disabled, true);
+  skippedBackup.backupSetup().props.onConnectingChange(false);
+  skippedBackup.render();
+  skippedBackup.action("common.notNow").props.onPress();
+  await skippedBackup.flush();
+  assert.deepEqual(skippedBackup.backupDismissals, [null], "Ninja skipping suppresses the Home offer");
+  assert.deepEqual(skippedBackup.routes, [{ pathname: "/t/[token]", params: { token: "shared-ledger" } }]);
+
+  const backupPreferenceFailure = successFixture({ failBackupDismiss: true, accountId: "account-a" });
+  backupPreferenceFailure.backupSetup().props.onOfferChange(true);
+  backupPreferenceFailure.render();
+  backupPreferenceFailure.action("common.notNow").props.onPress();
+  await backupPreferenceFailure.flush();
+  assert.deepEqual(backupPreferenceFailure.backupDismissals, ["account-a"]);
+  assert.deepEqual(backupPreferenceFailure.routes, ["/"], "a preference write cannot block access to the new kaata");
 
   const pendingRead = deferred<void>();
   const linked = successFixture({ pending: "shared-ledger", waitForToken: pendingRead.promise });

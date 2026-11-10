@@ -7,7 +7,7 @@ import { compileUI } from "./ui-fixture";
 async function main() {
   let now = 1_700_000_000_000;
   let install = "original-device";
-  let account = "account-a";
+  let account: string | null = "account-a";
   let bindingVersion = 1;
   let revision = 1;
   let online = true;
@@ -24,7 +24,7 @@ async function main() {
     constructor(readonly code: string) { super(code); }
   }
   class SessionChangedError extends Error {}
-  const check = (session: { accountId: string; bindingVersion: number }) => {
+  const check = (session: { accountId: string | null; bindingVersion: number }) => {
     if (session.accountId !== account || session.bindingVersion !== bindingVersion)
       throw new PersonalBackupError("sessionChanged");
   };
@@ -58,13 +58,14 @@ async function main() {
     "@noble/hashes/utils": { bytesToHex, utf8ToBytes },
     "expo-network": { getNetworkStateAsync: async () => ({ isConnected: online }) },
     "./auth": {
-      captureCurrentSession: async () => ({ accountId: account, bindingVersion, jwt: "session" }),
+      captureCurrentSession: async () => ({ accountId: account, bindingVersion, jwt: account ? "session" : null }),
       SessionChangedError,
     },
     "./db-tx": {
       getDb: async () => ({ getFirstAsync: async () => ({ revision }) }),
       getSessionAccountIdSync: () => account,
-      getAppMetaInTx: async (_db: unknown, key: string) => key === "install_id" ? install : meta.get(key),
+      SESSION_ENDED_KEY: "session_ended",
+      getAppMetaInTx: async (_db: unknown, key: string) => key === "install_id" ? install : meta.get(key) ?? null,
       setAppMetaInTx: async (_db: unknown, key: string, value: string) => meta.set(key, value),
     },
     "./drive-backup": { DRIVE_BACKUP_FILE_LIMIT: 1024 },
@@ -90,6 +91,30 @@ async function main() {
   }, { Date: { now: () => now } });
   const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
   const cloud = makeController();
+
+  assert.equal(await cloud.shouldOfferPersonalCloudBackup("account-a"), true);
+  assert.equal(await cloud.shouldOfferPersonalCloudBackup(null), false, "an old Ninja prompt cannot follow sign-in");
+  await assert.rejects(cloud.dismissPersonalCloudBackupOffer(null), { code: "sessionChanged" });
+  await assert.rejects(cloud.enablePersonalCloudBackup("googleDrive", null), { code: "sessionChanged" });
+  await cloud.dismissPersonalCloudBackupOffer("account-a");
+  assert.equal(await makeController().shouldOfferPersonalCloudBackup("account-a"), false, "dismissal survives a restart");
+  account = null;
+  bindingVersion++;
+  assert.equal(await cloud.shouldOfferPersonalCloudBackup(null), true, "Ninja has its own opt-in choice");
+  await cloud.dismissPersonalCloudBackupOffer(null);
+  assert.equal(await cloud.shouldOfferPersonalCloudBackup(null), false);
+  account = "account-b";
+  bindingVersion++;
+  assert.equal(await cloud.shouldOfferPersonalCloudBackup("account-b"), true, "a different account has its own choice");
+  for (const key of ["session_ended", "install_retired"]) {
+    meta.set(key, "1");
+    assert.equal(await cloud.shouldOfferPersonalCloudBackup("account-b"), false);
+    meta.delete(key);
+  }
+  assert.deepEqual(connections, [], "reading or dismissing an offer does not request provider consent");
+  account = "account-a";
+  bindingVersion++;
+
   await cloud.runPersonalCloudBackupIfDue();
   assert.equal(uploads, 0);
   assert.equal(await cloud.enablePersonalCloudBackup("googleDrive"), true);
@@ -146,8 +171,10 @@ async function main() {
   await fresh.enablePersonalCloudBackup("googleDrive");
   await settle();
   assert.equal((await fresh.readPersonalCloudBackupStatuses()).googleDrive.error, "empty");
+  assert.equal(await fresh.shouldOfferPersonalCloudBackup("account-a"), false, "an enabled provider suppresses the offer before the first upload");
   assert.equal(uploads, 3);
   await fresh.disablePersonalCloudBackup("googleDrive");
+  assert.equal(await fresh.shouldOfferPersonalCloudBackup("account-a"), false, "turning off the last provider does not bring the offer back");
   changedDuringConnect = true;
   await assert.rejects(fresh.enablePersonalCloudBackup("icloudDrive"), { code: "sessionChanged" });
   assert.deepEqual(await fresh.readPersonalCloudBackupStatuses(), {});
