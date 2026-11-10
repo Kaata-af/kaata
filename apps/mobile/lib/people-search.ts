@@ -12,6 +12,7 @@ import {
 import { toAsciiDigits } from "./digits";
 import { getCurrentDefaultCountryCode, normalizePhone } from "./phone";
 import { discoveredPersonId, getDiscoveredPersonIds } from "./people-connections";
+import { onPeopleSearchChanged } from "./people-search-events";
 
 export type DiscoveredPerson = {
   account_id: string;
@@ -24,6 +25,19 @@ export type DiscoveredPerson = {
 export type PeopleSearchPage = { people: DiscoveredPerson[]; has_more: boolean };
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const EMPTY: DiscoveredPerson[] = [];
+const SEARCH_FRESH_MS = 5 * 60_000;
+
+type SearchSnapshot = {
+  scope: string;
+  people: DiscoveredPerson[];
+  existingPersonIds: Record<string, string>;
+  friendPersonIds?: ReadonlySet<string>;
+  hasMore: boolean;
+  loading: boolean;
+  error: boolean;
+  completedAt: number | null;
+  attempt: number;
+};
 
 /** Names use the same input as local search; phone discovery is exact only. */
 export function peopleSearchQuery(input: string, country = getCurrentDefaultCountryCode()): string {
@@ -131,7 +145,8 @@ async function readPeoplePage(
   return { people, has_more: (data as PeopleSearchPage).has_more === true };
 }
 
-/** No persistent directory cache: clearing search, leaving, or switching accounts discards it. */
+/** Keep this screen's last completed search in memory across temporary interruptions.
+ * A different query, account, or book discards it; nothing is persisted to disk. */
 export function usePeopleSearch(
   input: string,
   enabled: boolean,
@@ -156,26 +171,21 @@ export function usePeopleSearch(
   const focused = useIsFocused();
   const [foreground, setForeground] = useState(AppState.currentState === "active");
   const [attempt, setAttempt] = useState(0);
+  const requestVersion = useRef(0);
   const query = peopleSearchQuery(input, country);
   const preview = allowPreview && !account;
-  const visible =
-    enabled &&
-    focused &&
-    foreground &&
-    !!query &&
-    (!!account || (preview && !/^\+\d+$/.test(query)));
-  const scope = JSON.stringify([visible, query, identity, vault, attempt, preview]);
+  const visible = enabled && !!query && (!!account || (preview && !/^\+\d+$/.test(query)));
+  const active = visible && focused && foreground;
+  const scope = JSON.stringify([query, identity, vault, preview]);
   const latestScope = useRef(scope);
   latestScope.current = scope;
-  const [state, setState] = useState<{
-    scope: string;
-    people: DiscoveredPerson[];
-    existingPersonIds: Record<string, string>;
-    friendPersonIds?: ReadonlySet<string>;
-    hasMore: boolean;
-    loading: boolean;
-    error: boolean;
-  } | null>(null);
+  const [state, setState] = useState<SearchSnapshot | null>(null);
+  const snapshot = useRef<SearchSnapshot | null>(null);
+  const commit = useCallback((next: SearchSnapshot | null) => {
+    snapshot.current = next;
+    setState(next);
+  }, []);
+  const retry = useCallback(() => setAttempt(++requestVersion.current), []);
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (next) =>
       setForeground(next === "active"),
@@ -183,33 +193,83 @@ export function usePeopleSearch(
     return () => subscription.remove();
   }, []);
   useEffect(() => {
-    if (!visible) {
-      setState(null);
-      return;
-    }
+    return onPeopleSearchChanged((change) => {
+      if (
+        change.accountId !== getSessionAccountIdSync() ||
+        (change.vaultId !== undefined && change.vaultId !== getActiveVaultIdSyncMaybe())
+      )
+        return;
+      // A real friendship/contact change can alter whether an account is
+      // discoverable. Retire pending replies before clearing the old snapshot.
+      retry();
+      commit(null);
+    });
+  }, [commit, retry]);
+  useEffect(() => {
+    if (snapshot.current?.scope !== scope) commit(null);
+    if (!active) return;
+    const previous = snapshot.current;
+    const cached = previous?.completedAt != null ? previous : null;
+    const fresh =
+      cached !== null &&
+      cached.attempt === attempt &&
+      Date.now() - cached.completedAt! < SEARCH_FRESH_MS;
     let alive = true;
+    let finished = false;
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const current = () =>
+    const ownsRequest = () =>
       alive &&
+      requestVersion.current === attempt &&
       latestScope.current === scope &&
       identitySnapshot() === identity &&
       getActiveVaultIdSyncMaybe() === vault;
-    setState({
-      scope,
-      people: EMPTY,
-      existingPersonIds: {},
-      hasMore: false,
-      loading: true,
-      error: false,
-    });
-    const debounce = setTimeout(() => {
-      timeout = setTimeout(() => controller.abort(), 15_000);
+    const current = () => ownsRequest() && !controller.signal.aborted && !finished;
+    const fail = () => {
+      if (!ownsRequest() || finished) return;
+      finished = true;
+      // A failed background refresh must not replace useful results with a
+      // blank/error page. Initial failures still offer the existing Retry action.
+      commit(
+        cached ?? {
+          scope,
+          people: EMPTY,
+          existingPersonIds: {},
+          hasMore: false,
+          loading: false,
+          error: true,
+          completedAt: null,
+          attempt,
+        },
+      );
+    };
+    if (!cached)
+      commit({
+        scope,
+        people: EMPTY,
+        existingPersonIds: {},
+        hasMore: false,
+        loading: true,
+        error: false,
+        completedAt: null,
+        attempt,
+      });
+    const run = () => {
+      if (!current()) return;
+      if (!fresh)
+        timeout = setTimeout(() => {
+          controller.abort();
+          fail();
+        }, 15_000);
       void Promise.all([
-        preview
-          ? searchPeoplePreview(query, controller.signal, current)
-          : searchPeopleDirectory(query, controller.signal, vault),
-        vault && !preview ? getDiscoveredPersonIds(vault).catch(() => ({})) : Promise.resolve({}),
+        fresh
+          ? Promise.resolve({ people: cached!.people, has_more: cached!.hasMore })
+          : preview
+            ? searchPeoplePreview(query, controller.signal, current)
+            : searchPeopleDirectory(query, controller.signal, vault),
+        vault && !preview
+          ? getDiscoveredPersonIds(vault).catch(() => cached?.existingPersonIds ?? {})
+          : Promise.resolve({}),
       ])
         .then(async ([page, localIdentities]) => {
           const existingPersonIds: Record<string, string> = { ...localIdentities };
@@ -231,12 +291,15 @@ export function usePeopleSearch(
               ? new Set(
                   page.people
                     .filter((person) => person.is_friend === true)
-                    .map((person) =>
-                      existingPersonIds[person.account_id] ?? discoveredPersonId(vault, person.account_id),
+                    .map(
+                      (person) =>
+                        existingPersonIds[person.account_id] ??
+                        discoveredPersonId(vault, person.account_id),
                     ),
                 )
               : undefined;
-            setState({
+            finished = true;
+            commit({
               scope,
               people: page.people,
               existingPersonIds,
@@ -244,33 +307,28 @@ export function usePeopleSearch(
               hasMore: page.has_more,
               loading: false,
               error: false,
+              completedAt: fresh ? cached!.completedAt : Date.now(),
+              attempt,
             });
           }
         })
-        .catch(() => {
-          if (current())
-            setState({
-              scope,
-              people: EMPTY,
-              existingPersonIds: {},
-              hasMore: false,
-              loading: false,
-              error: true,
-            });
-        })
+        .catch(fail)
         .finally(() => {
           if (timeout) clearTimeout(timeout);
         });
-    }, 350);
+    };
+    // Fresh results need only a cheap local association read on return, so a
+    // newly added contact is marked correctly without another directory fetch.
+    const debounce = fresh ? undefined : setTimeout(run, cached ? 0 : 350);
+    if (fresh) run();
     return () => {
       alive = false;
-      clearTimeout(debounce);
+      if (debounce !== undefined) clearTimeout(debounce);
       if (timeout) clearTimeout(timeout);
       controller.abort();
     };
-  }, [visible, scope, query, identity, vault, preview]);
+  }, [active, scope, query, identity, vault, preview, attempt, commit, identitySnapshot]);
   const current = visible && state?.scope === scope ? state : null;
-  const retry = useCallback(() => setAttempt((value) => value + 1), []);
   return {
     visible,
     people: current?.people ?? EMPTY,

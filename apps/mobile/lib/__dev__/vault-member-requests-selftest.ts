@@ -97,6 +97,10 @@ function apiFixture() {
         getDb: forbiddenWrite,
       },
       "./event-log": { appendPersonAdded: forbiddenWrite },
+      "./people-search-events": {
+        notifyPeopleSearchChanged: () =>
+          assert.fail("a member invite does not change directory contacts"),
+      },
       "./tabs/link": { assertVaultAction: forbiddenWrite },
       "./tabs/errors": errors,
       "./uuid-v5": uuid,

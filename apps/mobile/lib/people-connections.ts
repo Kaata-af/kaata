@@ -9,6 +9,7 @@ import { getActiveVaultArchivedState, getPerson, setAppMeta } from "./db";
 import { getAccountIdSync, getActiveVaultIdSyncMaybe, getDb } from "./db-tx";
 import { appendPersonAdded } from "./event-log";
 import type { DiscoveredPerson } from "./people-search";
+import { notifyPeopleSearchChanged } from "./people-search-events";
 import { assertVaultAction } from "./tabs/link";
 import { TabApiError, TabAuthUnavailableError, TabInputError } from "./tabs/errors";
 import { KAATA_UUID_NAMESPACE, uuidv5 } from "./uuid-v5";
@@ -202,6 +203,7 @@ export async function prepareDiscoveredContact(
         JSON.stringify({ accountId: person.account_id, personId: id }),
       );
       current();
+      if (session.accountId) notifyPeopleSearchChanged({ accountId: session.accountId, vaultId });
       return id;
     };
     const existing = await getPerson(id);

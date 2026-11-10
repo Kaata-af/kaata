@@ -6,6 +6,7 @@ import * as errors from "../tabs/errors";
 import * as uuid from "../uuid-v5";
 import type { SessionSnapshot } from "../auth";
 import type { DiscoveredPerson } from "../people-search";
+import type { PeopleSearchChange } from "../people-search-events";
 
 const person: DiscoveredPerson = {
   account_id: "33333333-3333-4333-8333-333333333333",
@@ -29,11 +30,18 @@ function connectionsFixture() {
   let beforeRead: (() => Promise<void> | void) | undefined;
   let beforeAppend: (() => Promise<void> | void) | undefined;
   let beforeBase: (() => Promise<void> | void) | undefined;
+  let beforeSave: (() => Promise<void> | void) | undefined;
   const records = new Map<string, any>();
   const metadata = new Map<string, string>();
   const appends: any[] = [];
   const requests: { url: string; init: RequestInit }[] = [];
   const responses: (() => Promise<Response> | Response)[] = [];
+  const searchEvents = compileUI(
+    "../people-search-events",
+    {},
+  ) as typeof import("../people-search-events");
+  const searchChanges: PeopleSearchChange[] = [];
+  searchEvents.onPeopleSearchChanged((change) => searchChanges.push(change));
   const session = (): SessionSnapshot => ({ accountId: account, jwt: token, bindingVersion: 1 });
   const api = compileUI(
     "../people-connections",
@@ -60,6 +68,7 @@ function connectionsFixture() {
           return saved?.archived_at == null ? (saved ?? null) : null;
         },
         setAppMeta: async (key: string, value: string) => {
+          await beforeSave?.();
           metadata.set(key, value);
         },
       },
@@ -98,6 +107,7 @@ function connectionsFixture() {
         },
       },
       "./tabs/errors": errors,
+      "./people-search-events": searchEvents,
       "./uuid-v5": uuid,
     },
     {
@@ -117,6 +127,7 @@ function connectionsFixture() {
     appends,
     requests,
     responses,
+    searchChanges,
     session,
     changeAccount(value: string | null) {
       account = value;
@@ -147,6 +158,9 @@ function connectionsFixture() {
     },
     onBase(hook: typeof beforeBase) {
       beforeBase = hook;
+    },
+    onSave(hook: typeof beforeSave) {
+      beforeSave = hook;
     },
   };
 }
@@ -179,6 +193,14 @@ test("confirmed creation retries reuse the same contact without name-based mergi
   assert.equal(await f.api.prepareDiscoveredContact(person, f.session(), book), id);
   assert.equal(f.appends.length, 1, "lost reply/reopened dialog creates no duplicate person");
   assert.deepEqual(await f.api.getDiscoveredPersonIds(book), { [person.account_id]: id });
+  assert.deepEqual(
+    f.searchChanges,
+    [
+      { accountId: viewer, vaultId: book },
+      { accountId: viewer, vaultId: book },
+    ],
+    "persisted contact associations invalidate only their account and Kaata",
+  );
   f.changeAccount("other-viewer");
   assert.deepEqual(
     await f.api.getDiscoveredPersonIds(book),
@@ -254,6 +276,7 @@ test("self, insufficient role, archived books and archived contacts never create
     );
     assert.equal(f.appends.length, 0, kind);
     assert.equal(f.metadata.size, 0, kind);
+    assert.deepEqual(f.searchChanges, [], kind);
   }
 });
 
@@ -270,7 +293,27 @@ test("session and vault changes during reads/atomic admission never write to the
     await assert.rejects(f.api.prepareDiscoveredContact(person, captured, book));
     assert.equal(f.appends.length, 0, stage);
     assert.equal(f.metadata.size, 0, stage);
+    assert.deepEqual(f.searchChanges, [], stage);
   }
+});
+
+test("directory invalidation waits for the contact mapping to persist", async () => {
+  const f = connectionsFixture();
+  const save = deferred<void>();
+  f.onSave(() => save.promise);
+  const preparing = f.api.prepareDiscoveredContact(person, f.session(), book);
+  await settleUI();
+  assert.deepEqual(f.searchChanges, []);
+  assert.equal(f.metadata.size, 0);
+  save.resolve();
+  await preparing;
+  assert.equal(f.metadata.size, 1);
+  assert.deepEqual(f.searchChanges, [{ accountId: viewer, vaultId: book }]);
+  f.onSave(() => {
+    throw new Error("storage unavailable");
+  });
+  await assert.rejects(f.api.prepareDiscoveredContact(person, f.session(), book));
+  assert.equal(f.searchChanges.length, 1, "failed mapping writes emit no invalidation");
 });
 
 test("request API is authenticated, exact and never retries an ambiguous send", async () => {

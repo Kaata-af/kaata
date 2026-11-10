@@ -1,6 +1,7 @@
 // Exercises the real friendship client and transport without a ledger or server.
 import assert from "node:assert/strict";
 import type { SessionSnapshot } from "../auth";
+import type { PeopleSearchChange } from "../people-search-events";
 import * as tabErrors from "../tabs/errors";
 import * as uuid from "../uuid-v5";
 import { compileUI, deferred, settleUI, uiHooks } from "./ui-fixture";
@@ -29,6 +30,12 @@ function fixture() {
   const listeners = new Set<() => void>();
   const calls: { path: string; init: RequestInit }[] = [];
   const replies: Array<() => Response | Promise<Response>> = [];
+  const searchEvents = compileUI(
+    "../people-search-events",
+    {},
+  ) as typeof import("../people-search-events");
+  const searchChanges: PeopleSearchChange[] = [];
+  searchEvents.onPeopleSearchChanged((change) => searchChanges.push(change));
   const session = (): SessionSnapshot => ({
     accountId: account,
     jwt: account ? `token-${epoch}` : null,
@@ -65,6 +72,7 @@ function fixture() {
         getDb: forbidden,
       },
       "./event-log": { appendPersonAdded: forbidden },
+      "./people-search-events": searchEvents,
       "./tabs/link": { assertVaultAction: forbidden },
       "./tabs/errors": tabErrors,
       "./uuid-v5": uuid,
@@ -80,6 +88,7 @@ function fixture() {
   const api = compileUI("../friends-api", {
     "./auth": auth,
     "./people-connections": transport,
+    "./people-search-events": searchEvents,
     "./tabs/errors": tabErrors,
   }) as typeof import("../friends-api");
   const dbScope = {
@@ -95,6 +104,8 @@ function fixture() {
     dbScope,
     calls,
     replies,
+    searchEvents,
+    searchChanges,
     session,
     switchAccount: (next: string | null) => {
       account = next;
@@ -138,6 +149,26 @@ function inboxFixture() {
 }
 
 async function main() {
+  {
+    const events = compileUI(
+      "../people-search-events",
+      {},
+    ) as typeof import("../people-search-events");
+    const changes: PeopleSearchChange[] = [];
+    events.onPeopleSearchChanged(() => {
+      throw new Error("observer failed");
+    });
+    const stop = events.onPeopleSearchChanged((change) => changes.push(change));
+    events.notifyPeopleSearchChanged({ accountId: owner, vaultId: vault });
+    assert.deepEqual(
+      changes,
+      [{ accountId: owner, vaultId: vault }],
+      "observer failures cannot suppress later invalidation listeners",
+    );
+    stop();
+    events.notifyPeopleSearchChanged({ accountId: owner });
+    assert.equal(changes.length, 1, "unsubscribed observers receive no updates");
+  }
   {
     const f = fixture();
     const profile = {
@@ -202,6 +233,11 @@ async function main() {
     await f.api.dismissFriendRequest(requestID);
     await f.api.removeFriend(requestID);
     assert.deepEqual(
+      f.searchChanges,
+      Array.from({ length: 4 }, () => ({ accountId: owner })),
+      "validated friendship mutations invalidate that account across its books",
+    );
+    assert.deepEqual(
       f.calls.map(({ path, init }) => [init.method, path, init.body]),
       [
         ["POST", "/v1/friends/requests", JSON.stringify({ account_id: peer })],
@@ -212,6 +248,25 @@ async function main() {
     );
     f.replies.push(() => result({ friendship: { state: "friends", id: relationship } }));
     await assert.rejects(f.api.acceptFriendRequest(requestID), { code: "invalid_response" });
+    f.replies.push(() => result({ friendship: { state: "invented" } }));
+    await assert.rejects(f.api.sendFriendRequest(peer), { code: "invalid_response" });
+    f.replies.push(() => result({ error_code: "forbidden" }, 403));
+    await assert.rejects(f.api.dismissFriendRequest(requestID), { status: 403 });
+    assert.equal(
+      f.searchChanges.length,
+      4,
+      "invalid or failed mutations do not invalidate settled results",
+    );
+    f.searchEvents.onPeopleSearchChanged(() => {
+      throw new Error("observer failed");
+    });
+    f.replies.push(() => result(undefined, 204));
+    await f.api.removeFriend(requestID);
+    assert.equal(
+      f.searchChanges.length,
+      5,
+      "an observer cannot turn a successful removal into failure",
+    );
   }
   {
     const f = fixture();
@@ -253,6 +308,7 @@ async function main() {
       SessionChangedError,
     );
     assert.deepEqual(f.calls, [], "account replacement and screen departure block dispatch");
+    assert.deepEqual(f.searchChanges, []);
     const reply = deferred<Response>();
     f.replies.push(() => reply.promise);
     const reading = f.api.getPersonProfile(peer, f.session());
@@ -260,6 +316,21 @@ async function main() {
     f.switchAccount(peer);
     reply.resolve(result({ person: identity, friendship: { state: "none" } }));
     await assert.rejects(reading, SessionChangedError);
+  }
+  {
+    const f = fixture();
+    const reply = deferred<Response>();
+    f.replies.push(() => reply.promise);
+    const removing = f.api.removeFriend(requestID);
+    await settleHTTP();
+    f.switchAccount(peer);
+    reply.resolve(result(undefined, 204));
+    await assert.rejects(removing, SessionChangedError);
+    assert.deepEqual(
+      f.searchChanges,
+      [],
+      "a late mutation from another session cannot invalidate the current directory",
+    );
   }
   {
     const f = inboxFixture();
@@ -288,13 +359,20 @@ async function main() {
     const snapshot = f.render();
     const late = deferred<Response>();
     const response = deferred<Response>();
-    f.replies.push(() => late.promise, () => response.promise);
+    f.replies.push(
+      () => late.promise,
+      () => response.promise,
+    );
     const refresh = snapshot.reload();
     await settleHTTP();
     const pending = snapshot[action](requestID);
     await settleHTTP();
     assert.equal(f.render().responding?.action, action);
-    assert.equal(snapshot.isRequestCurrent(requestID), false, "profile is disabled while responding");
+    assert.equal(
+      snapshot.isRequestCurrent(requestID),
+      false,
+      "profile is disabled while responding",
+    );
     await snapshot.accept(requestID);
     await snapshot.decline(requestID);
     assert.equal(f.calls.length, 3, "duplicate and opposite taps do not dispatch another action");
@@ -320,10 +398,17 @@ async function main() {
     f.replies.push(() => result({ requests: [row] }));
     f.render();
     await settleHTTP();
-    f.replies.push(() => result({}, 503), () => result({ requests: [row] }));
+    f.replies.push(
+      () => result({}, 503),
+      () => result({ requests: [row] }),
+    );
     await assert.rejects(f.render().accept(requestID), { status: 503 });
     await settleHTTP();
-    assert.deepEqual(f.render().rows, [row], "a failed response leaves the request available for retry");
+    assert.deepEqual(
+      f.render().rows,
+      [row],
+      "a failed response leaves the request available for retry",
+    );
     assert.equal(f.render().responding, null);
     f.replies.push(() => result({ friendship: { state: "friends", id: requestID } }));
     await f.render().accept(requestID);

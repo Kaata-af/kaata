@@ -1,5 +1,6 @@
-import { captureCurrentSession, type SessionSnapshot } from "./auth";
+import { applyForCurrentSession, captureCurrentSession, type SessionSnapshot } from "./auth";
 import { peopleRequest } from "./people-connections";
+import { notifyPeopleSearchChanged } from "./people-search-events";
 import type { DiscoveredPerson } from "./people-search";
 import { TabApiError } from "./tabs/errors";
 
@@ -173,17 +174,26 @@ async function changeFriendship(
   return parseFriendship(reply?.friendship);
 }
 
+function notifyFriendshipChanged(session: SessionSnapshot): Promise<void> {
+  return applyForCurrentSession(session, async () => {
+    if (session.accountId) notifyPeopleSearchChanged({ accountId: session.accountId });
+  });
+}
+
 export async function sendFriendRequest(
   accountId: string,
   session?: SessionSnapshot,
   beforeDispatch?: () => void,
 ): Promise<FriendState> {
-  return changeFriendship(
+  const active = session ?? (await captureCurrentSession());
+  const result = await changeFriendship(
     "/v1/friends/requests",
     { account_id: pathID(accountId) },
-    session,
+    active,
     beforeDispatch,
   );
+  await notifyFriendshipChanged(active);
+  return result;
 }
 
 export async function acceptFriendRequest(
@@ -191,13 +201,15 @@ export async function acceptFriendRequest(
   session?: SessionSnapshot,
   beforeDispatch?: () => void,
 ): Promise<FriendState> {
+  const active = session ?? (await captureCurrentSession());
   const result = await changeFriendship(
     `/v1/friends/requests/${pathID(id)}/accept`,
     undefined,
-    session,
+    active,
     beforeDispatch,
   );
   if (result.state !== "friends" || result.id !== id) return invalidReply();
+  await notifyFriendshipChanged(active);
   return result;
 }
 
@@ -206,13 +218,15 @@ export async function dismissFriendRequest(
   session?: SessionSnapshot,
   beforeDispatch?: () => void,
 ): Promise<void> {
+  const active = session ?? (await captureCurrentSession());
   await peopleRequest(
     "DELETE",
     `/v1/friends/requests/${pathID(id)}`,
     undefined,
-    session,
+    active,
     beforeDispatch,
   );
+  await notifyFriendshipChanged(active);
 }
 
 export async function removeFriend(
@@ -220,5 +234,7 @@ export async function removeFriend(
   session?: SessionSnapshot,
   beforeDispatch?: () => void,
 ): Promise<void> {
-  await peopleRequest("DELETE", `/v1/friends/${pathID(id)}`, undefined, session, beforeDispatch);
+  const active = session ?? (await captureCurrentSession());
+  await peopleRequest("DELETE", `/v1/friends/${pathID(id)}`, undefined, active, beforeDispatch);
+  await notifyFriendshipChanged(active);
 }

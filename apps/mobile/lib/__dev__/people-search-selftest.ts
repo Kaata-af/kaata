@@ -17,7 +17,7 @@ const phone = compileUI("../phone", {
   "libphonenumber-js/core": require("libphonenumber-js/core"),
   "libphonenumber-js/metadata.min.json": require("libphonenumber-js/metadata.min.json"),
 });
-let now = 0,
+let now = 1_000_000,
   nextTimer = 0;
 const timers = new Map<number, { at: number; callback: () => void }>();
 const setTimer = (callback: () => void, delay: number) => {
@@ -40,9 +40,13 @@ const pending: Array<{
   reply: ReturnType<typeof deferred<Response>>;
 }> = [];
 let localLookups = 0;
+let localPersonIds: Record<string, string> = { [accountB]: "local-john" };
 const hooks = uiHooks();
 let appStateListener: (state: string) => void = () => {};
 const identityListeners = new Set<() => void>();
+type SearchChange = { accountId: string | null; vaultId?: string | null };
+const searchListeners = new Set<(change: SearchChange) => void>();
+const searchChanged = (change: SearchChange) => searchListeners.forEach((notify) => notify(change));
 class SessionChangedError extends Error {}
 const api = compileUI(
   "../people-search",
@@ -104,14 +108,25 @@ const api = compileUI(
     "./people-connections": {
       getDiscoveredPersonIds: async () => {
         localLookups++;
-        return { [accountB]: "local-john" };
+        return { ...localPersonIds };
       },
       discoveredPersonId: (_vaultId: string, accountId: string) => `stable-${accountId}`,
+    },
+    "./people-search-events": {
+      onPeopleSearchChanged: (notify: (change: SearchChange) => void) => {
+        searchListeners.add(notify);
+        return () => searchListeners.delete(notify);
+      },
     },
   },
   {
     setTimeout: setTimer,
     clearTimeout: (id: number) => timers.delete(id),
+    Date: class extends Date {
+      static now() {
+        return now;
+      }
+    },
     fetch: (url: string, options: { signal: AbortSignal; headers: Record<string, string> }) => {
       const reply = deferred<Response>();
       pending.push({ url, signal: options.signal, headers: options.headers, reply });
@@ -202,7 +217,11 @@ async function main() {
   await settleUI();
   vault = "vault-b";
   render();
-  assert.equal(render().friendPersonIds, undefined, "a different Kaata cannot see an old friend marker");
+  assert.equal(
+    render().friendPersonIds,
+    undefined,
+    "a different Kaata cannot see an old friend marker",
+  );
   pending[2].reply.resolve(response([person]));
   await settleUI();
   assert.equal(render().people.length, 0, "previous book replies are discarded");
@@ -236,7 +255,7 @@ async function main() {
   await settleUI();
   appStateListener("background");
   result = render();
-  assert.equal(result.visible, false);
+  assert.equal(result.visible, true, "backgrounding retains the mounted search section");
   assert.equal(pending[6].signal.aborted, true, "backgrounding cancels directory work");
   appStateListener("active");
   render();
@@ -244,7 +263,7 @@ async function main() {
   await settleUI();
   focused = false;
   result = render();
-  assert.equal(result.visible, false);
+  assert.equal(result.visible, true, "navigation retains the mounted search section");
   assert.equal(pending[7].signal.aborted, true, "leaving the search screen cancels work");
   focused = true;
   render();
@@ -289,7 +308,11 @@ async function main() {
   await settleUI();
   result = render();
   assert.equal(result.people.length, 1);
-  assert.equal(result.people[0].is_friend, undefined, "a non-boolean flag cannot mark someone as a friend");
+  assert.equal(
+    result.people[0].is_friend,
+    undefined,
+    "a non-boolean flag cannot mark someone as a friend",
+  );
   assert.deepEqual(result.existingPersonIds, {}, "no book means no financial contact associations");
   account = null;
   identityListeners.forEach((notify) => notify());
@@ -340,7 +363,362 @@ async function main() {
   const signedInAgain = pending.at(-1)!;
   assert.ok(signedInAgain.url.includes("/v1/people/search?q=%40john&include_friends=1"));
   assert.equal(signedInAgain.headers.Authorization, "Bearer fixture-session");
+  signedInAgain.reply.resolve(response([{ ...person, is_friend: true }], true));
+  await settleUI();
+  await settleUI();
+  result = render();
+  assert.equal(result.loading, false);
+  assert.equal(result.people.length, 1);
+
+  // A completed page belongs to this mounted query, not to an individual focus
+  // interval. Returning from a profile or the notification shade must not flash
+  // a spinner, refetch the directory, or temporarily lose friendship markers.
+  const freshRequestCount = pending.length;
+  const freshPeople = result.people;
+  appStateListener("background");
+  result = render();
+  assert.equal(result.visible, true);
+  assert.equal(result.loading, false);
+  assert.equal(result.people, freshPeople);
+  advance(1_000);
+  await settleUI();
+  assert.equal(pending.length, freshRequestCount);
+  appStateListener("active");
+  result = render();
+  assert.equal(result.people, freshPeople);
+  assert.equal(result.loading, false);
+  await settleUI();
+  advance(350);
+  await settleUI();
+  assert.equal(
+    pending.length,
+    freshRequestCount,
+    "a fresh completed page survives background/resume",
+  );
+
+  focused = false;
+  result = render();
+  assert.equal(result.visible, true);
+  assert.equal(result.people, freshPeople);
+  const lookupsBeforeReturn = localLookups;
+  localPersonIds = { [accountB]: "created-while-viewing-profile" };
+  focused = true;
+  result = render();
+  assert.equal(result.loading, false);
+  await settleUI();
+  await settleUI();
+  result = render();
+  assert.equal(result.existingPersonIds[accountB], "created-while-viewing-profile");
+  assert.deepEqual([...(result.friendPersonIds ?? [])], ["created-while-viewing-profile"]);
+  assert.ok(
+    localLookups > lookupsBeforeReturn,
+    "returning refreshes local mappings without another directory fetch",
+  );
+  for (let repaint = 0; repaint < 4; repaint++) render();
+  advance(1_000);
+  await settleUI();
+  assert.equal(
+    pending.length,
+    freshRequestCount,
+    "returning and unrelated rerenders preserve a fresh page",
+  );
+
+  enabled = false;
+  assert.equal(render().visible, false);
+  enabled = true;
+  result = render();
+  assert.equal(result.people, freshPeople, "temporarily hidden search retains its completed page");
+  assert.equal(result.loading, false);
+  advance(350);
+  await settleUI();
+  assert.equal(pending.length, freshRequestCount);
+
+  // Stale pages refresh quietly: even a transient failure keeps the exact
+  // completed page visible. Explicit retry bypasses freshness but also stays
+  // quiet when there is already a completed result.
+  focused = false;
+  render();
+  advance(5 * 60_000 + 1);
+  focused = true;
+  result = render();
+  assert.equal(result.people, freshPeople);
+  assert.equal(result.loading, false);
+  assert.equal(result.error, false);
+  advance(350);
+  await settleUI();
+  assert.equal(
+    pending.length,
+    freshRequestCount + 1,
+    "stale completed pages are revalidated on return",
+  );
+  pending.at(-1)!.reply.reject(new Error("temporary network failure"));
+  await settleUI();
+  result = render();
+  assert.equal(result.people, freshPeople, "silent revalidation failure retains previous results");
+  assert.equal(result.loading, false);
+  assert.equal(result.error, false, "only an initial search failure presents the error state");
+  const beforeRetry = pending.length;
+  result.retry();
+  result = render();
+  assert.equal(result.people, freshPeople);
+  assert.equal(result.loading, false);
+  advance(350);
+  await settleUI();
+  assert.equal(pending.length, beforeRetry + 1);
+  const updatedPerson = { ...person, name: "John Updated", is_friend: true };
+  pending.at(-1)!.reply.resolve(response([updatedPerson]));
+  await settleUI();
+  await settleUI();
+  result = render();
+  assert.deepEqual(result.people, [updatedPerson]);
+  assert.equal(result.hasMore, false);
+  const updatedPeople = result.people;
+  const beforeFreshRetry = pending.length;
+  result.retry();
+  result = render();
+  assert.equal(result.people, updatedPeople);
+  assert.equal(result.loading, false);
+  advance(350);
+  await settleUI();
+  assert.equal(
+    pending.length,
+    beforeFreshRetry + 1,
+    "explicit retry bypasses the five-minute freshness window",
+  );
+  pending.at(-1)!.reply.resolve(response([updatedPerson]));
+  await settleUI();
+  await settleUI();
+
+  // Completed zero-match pages are cached results too, rather than an excuse
+  // to repeat the query or show a spinner on every focus change.
+  query = "No matches";
+  result = render();
+  assert.equal(result.loading, true);
+  assert.deepEqual(result.people, []);
+  advance(350);
+  await settleUI();
+  pending.at(-1)!.reply.resolve(response([]));
+  await settleUI();
+  await settleUI();
+  result = render();
+  assert.equal(result.loading, false);
+  const emptyRequestCount = pending.length;
+  focused = false;
+  render();
+  focused = true;
+  result = render();
+  assert.deepEqual(result.people, []);
+  assert.equal(result.loading, false);
+  advance(350);
+  await settleUI();
+  assert.equal(pending.length, emptyRequestCount, "fresh no-match pages survive navigation");
+  focused = false;
+  render();
+  advance(5 * 60_000 + 1);
+  focused = true;
+  result = render();
+  assert.equal(result.loading, false);
+  advance(350);
+  await settleUI();
+  assert.equal(pending.length, emptyRequestCount + 1);
+  pending.at(-1)!.reply.reject(new Error("offline with cached zero matches"));
+  await settleUI();
+  result = render();
+  assert.deepEqual(result.people, []);
+  assert.equal(result.loading, false);
+  assert.equal(result.error, false);
+
+  // Invalidation is scoped to the account and optionally its Kaata. A server
+  // change elsewhere must not erase this screen, while relevant changes must
+  // remove old friendship/contact state before a new page arrives.
+  const beforeIgnoredEvents = pending.length;
+  searchChanged({ accountId: accountB });
+  searchChanged({ accountId: accountA, vaultId: "unrelated-vault" });
+  result = render();
+  advance(350);
+  await settleUI();
+  assert.equal(
+    pending.length,
+    beforeIgnoredEvents,
+    "unrelated account and Kaata changes are ignored",
+  );
+  assert.equal(result.loading, false);
+  searchChanged({ accountId: accountA, vaultId: vault });
+  result = render();
+  assert.equal(result.loading, true);
+  assert.deepEqual(result.people, []);
+  assert.deepEqual(result.existingPersonIds, {});
+  advance(350);
+  await settleUI();
+  assert.equal(pending.length, beforeIgnoredEvents + 1);
+  pending.at(-1)!.reply.resolve(response([updatedPerson]));
+  await settleUI();
+  await settleUI();
+  assert.deepEqual(render().people, [updatedPerson]);
+  focused = false;
+  render();
+  const beforeInactiveEvent = pending.length;
+  searchChanged({ accountId: accountA });
+  result = render();
+  assert.deepEqual(result.people, [], "account-wide invalidation clears a paused screen too");
+  advance(350);
+  await settleUI();
+  assert.equal(
+    pending.length,
+    beforeInactiveEvent,
+    "inactive screens do not start invalidation fetches",
+  );
+  focused = true;
+  render();
+  advance(350);
+  await settleUI();
+  assert.equal(pending.length, beforeInactiveEvent + 1);
+  pending.at(-1)!.reply.resolve(response([updatedPerson]));
+  await settleUI();
+  await settleUI();
+
+  // There is only one mounted query result, not an accumulating A/B query
+  // cache. Late replies from cancelled same-query attempts must not replace it.
+  const completedQuery = query;
+  query = "Different person";
+  result = render();
+  assert.deepEqual(result.people, []);
+  advance(350);
+  await settleUI();
+  const intermediateQuery = pending.at(-1)!;
+  query = completedQuery;
+  result = render();
+  assert.deepEqual(result.people, [], "A to B to A cannot reuse discarded A results");
+  assert.equal(result.loading, true);
+  assert.equal(intermediateQuery.signal.aborted, true);
+  intermediateQuery.reply.resolve(response([person]));
+  await settleUI();
+  assert.deepEqual(render().people, []);
+  advance(350);
+  await settleUI();
+  const abortedSameQuery = pending.at(-1)!;
+  focused = false;
+  render();
+  assert.equal(abortedSameQuery.signal.aborted, true);
+  focused = true;
+  render();
+  advance(350);
+  await settleUI();
+  const liveSameQuery = pending.at(-1)!;
+  assert.notEqual(liveSameQuery, abortedSameQuery);
+  liveSameQuery.reply.resolve(response([updatedPerson]));
+  await settleUI();
+  await settleUI();
+  abortedSameQuery.reply.resolve(response([person]));
+  await settleUI();
+  assert.deepEqual(
+    render().people,
+    [updatedPerson],
+    "late replies after abort cannot overwrite a newer same-scope result",
+  );
+
+  query = "";
+  result = render();
+  assert.equal(result.visible, false);
+  assert.deepEqual(result.people, []);
+  query = completedQuery;
+  result = render();
+  assert.equal(result.loading, true, "clearing search discards the completed result");
+  assert.deepEqual(result.people, []);
+  advance(350);
+  await settleUI();
+  pending.at(-1)!.reply.resolve(response([updatedPerson]));
+  await settleUI();
+  await settleUI();
+  const completedVault = vault;
+  vault = "another-vault";
+  assert.deepEqual(render().people, []);
+  vault = completedVault;
+  result = render();
+  assert.equal(
+    result.loading,
+    true,
+    "changing Kaata discards a completed page even when switching back",
+  );
+  assert.deepEqual(result.people, []);
+  advance(350);
+  await settleUI();
+  pending.at(-1)!.reply.resolve(response([updatedPerson]));
+  await settleUI();
+  await settleUI();
+  account = accountB;
+  identityListeners.forEach((notify) => notify());
+  assert.deepEqual(render().people, []);
+  account = accountA;
+  identityListeners.forEach((notify) => notify());
+  result = render();
+  assert.equal(
+    result.loading,
+    true,
+    "changing account never revives another session's completed page",
+  );
+  assert.deepEqual(result.people, []);
+  advance(350);
+  await settleUI();
+  const timedOutInitial = pending.at(-1)!;
+  advance(15_000);
+  await settleUI();
+  result = render();
+  assert.equal(timedOutInitial.signal.aborted, true);
+  assert.equal(result.loading, false);
+  assert.equal(result.error, true, "an initial timeout offers retry instead of spinning forever");
+  timedOutInitial.reply.resolve(response([person]));
+  await settleUI();
+  await settleUI();
+  assert.deepEqual(
+    render().people,
+    [],
+    "a transport that resolves after timeout cannot revive results",
+  );
+  result.retry();
+  render();
+  advance(350);
+  await settleUI();
+  pending.at(-1)!.reply.resolve(response([updatedPerson]));
+  await settleUI();
+  await settleUI();
+  result = render();
+  assert.deepEqual(result.people, [updatedPerson]);
+  result.retry();
+  render();
+  advance(0);
+  await settleUI();
+  const timedOutRefresh = pending.at(-1)!;
+  advance(15_000);
+  await settleUI();
+  result = render();
+  assert.equal(timedOutRefresh.signal.aborted, true);
+  assert.deepEqual(result.people, [updatedPerson]);
+  assert.equal(result.loading, false);
+  assert.equal(result.error, false, "background refresh timeouts preserve the completed page");
+  timedOutRefresh.reply.resolve(response([person]));
+  await settleUI();
+  await settleUI();
+  assert.deepEqual(render().people, [updatedPerson]);
+
+  result.retry();
+  render();
+  advance(0);
+  await settleUI();
+  const invalidatedRequest = pending.at(-1)!;
+  searchChanged({ accountId: accountA });
+  invalidatedRequest.reply.resolve(response([person]));
+  await settleUI();
+  await settleUI();
+  result = render();
+  assert.deepEqual(
+    result.people,
+    [],
+    "invalidation retires pending replies before the next React render",
+  );
+  assert.equal(result.loading, true);
   hooks.unmount();
+  assert.equal(searchListeners.size, 0, "unmount removes the scoped invalidation listener");
   for (const request of pending) request.reply.resolve(response([person]));
   await settleUI();
   assert.equal(hooks.lateWrites, 0, "unmount leaves no delayed updates");
@@ -408,7 +786,11 @@ async function main() {
     ),
     "a username match can still open an existing contact when local name search missed it",
   );
-  assert.ok(resultNodes.some((node) => node.type === "Text" && node.props.children === "peopleSearch.friend"));
+  assert.ok(
+    resultNodes.some(
+      (node) => node.type === "Text" && node.props.children === "peopleSearch.friend",
+    ),
+  );
   assert.match(
     resultNodes.find((node) => node.type === "Pressable")!.props.accessibilityLabel,
     /peopleSearch\.friend/,
@@ -425,7 +807,11 @@ async function main() {
     unmappedNodes.some((node) => node.type === "Pressable"),
     "matching names never collapse separate identities",
   );
-  assert.ok(!unmappedNodes.some((node) => node.type === "Text" && node.props.children === "peopleSearch.friend"));
+  assert.ok(
+    !unmappedNodes.some(
+      (node) => node.type === "Text" && node.props.children === "peopleSearch.friend",
+    ),
+  );
   const selectedPreview: DiscoveredPerson[] = [];
   const guestNodes = nodes(
     section.PeopleSearchSection({
@@ -610,7 +996,7 @@ async function main() {
       "transport drops non-HTTPS, empty and oversized photo URLs",
     );
   console.log(
-    "people search: account photos and initials fallback, exact row selection, bounded photo URLs, query normalization, bounded results, debounce and session/scope races passed",
+    "people search: fresh navigation reuse, local mapping refresh, silent stale/empty-page revalidation, scoped invalidation, timeout/abort/identity races, account photos and directory validation passed",
   );
 }
 void main().catch((error) => {
