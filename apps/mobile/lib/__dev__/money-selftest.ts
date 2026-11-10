@@ -490,6 +490,7 @@ async function main(): Promise<void> {
   await test("actual statements, reports, CSV and PDF HTML keep cents and settlement markers", async () => {
     let archives: Array<{ link: import("../tabs/types").TabLink; entries: Entry[] }> = [];
     let personTabId: string | null = null;
+    let wrongSourceScope: "currency" | "vault" | "relationship" | null = null;
     const sharedMarkers = new Map<string, import("../tabs/types").TabSettlement[]>();
     const { Mutex } = require("../util/mutex") as typeof import("../util/mutex");
     const exportMutex = new Mutex();
@@ -560,14 +561,25 @@ async function main(): Promise<void> {
           "../projection": { applyEventMutex: exportMutex },
           "../tabs/db": {
             getFinancialTabLinkForPerson: async () =>
-              personTabId ? { tab_id: personTabId, currency: "USD" } : null,
+              personTabId
+                ? { tab_id: personTabId, currency: "USD", vault_id: "vault", relationship_id: "r" }
+                : null,
             listTabSettlements: async (tabId: string) => sharedMarkers.get(tabId) ?? [],
+            listScopedTabSettlements: async () =>
+              [...sharedMarkers].flatMap(([tab_id, markers]) =>
+                markers.map((marker) => ({ ...marker, tab_id })),
+              ),
             getTabLink: async (tabId: string) => ({
               tab_id: tabId,
-              currency: "USD",
-              vault_id: "vault",
-              relationship_id: "r",
+              currency: tabId === "old-period" && wrongSourceScope === "currency" ? "AFN" : "USD",
+              vault_id:
+                tabId === "old-period" && wrongSourceScope === "vault" ? "other-vault" : "vault",
+              relationship_id:
+                tabId === "old-period" && wrongSourceScope === "relationship"
+                  ? "other-person"
+                  : "r",
               linked_at: 4000,
+              history_order: tabId === "old-period" ? "1" : "2",
             }),
             listPreLinkEntries: async () => [],
           },
@@ -1460,6 +1472,132 @@ async function main(): Promise<void> {
       assert.ok(page.slice(0, historyStart).includes("70 $</div>"));
       assert.ok(!page.includes("140 $"), "PDF history never doubles the current balance");
     }
+
+    // Notification-only -> clear -> unlink -> mutual: a zero opening is not
+    // created. The old records therefore remain current, with THEIR original
+    // clearance receipt, regardless of the new period's unrelated sequences.
+    archives = [];
+    personTabId = "new-period";
+    sharedMarkers.clear();
+    const originalMarker = {
+      ...marker,
+      id: "original-notify-clearance",
+      through_seq: 2,
+      settled_at_ms: 15_000,
+      actor_name: "Original clearer",
+    };
+    sharedMarkers.set("old-period", [originalMarker]);
+    const oldGave = sharedEntry("old-notify-gave", 1, 5000, "debt", 9000);
+    const oldReceived = sharedEntry("old-notify-received", 2, 5000, "payment", 1000);
+    for (const entry of [oldGave, oldReceived])
+      entry.tab = {
+        ...entry.tab!,
+        tab_id: "old-period",
+        status: "recorded",
+        recording_mode: "notify",
+      };
+    fixture.splice(0, fixture.length, oldReceived, oldGave);
+    const zeroRelink = (await buildPersonStatement("person", "en", "USD", "$", 40_000))!;
+    assert.deepEqual(
+      zeroRelink.rows.map((row) =>
+        row.kind === "entry" ? row.entry.id : row.shared?.settlement.id,
+      ),
+      ["old-notify-gave", "old-notify-received", "original-notify-clearance"],
+      "retained originals keep sequence order even when business dates run backwards",
+    );
+    assert.deepEqual(
+      zeroRelink.rows.map((row) => row.balanceAfter),
+      [5000, 0, 0],
+    );
+    const originalReceipt = zeroRelink.rows.at(-1)!;
+    assert.equal(originalReceipt.kind, "settled");
+    if (originalReceipt.kind === "settled") {
+      assert.equal(originalReceipt.ms, 15_000);
+      assert.equal(originalReceipt.shared?.tabId, "old-period");
+      assert.equal(originalReceipt.shared?.settlement.through_seq, 2);
+    }
+    const relinkCsv = csvTable(csv.buildPersonCsv(zeroRelink));
+    const relinkReceipt = relinkCsv.row(originalMarker.id);
+    assert.equal(relinkCsv.cell(relinkReceipt, "Shared account ID"), "old-period");
+    assert.equal(relinkCsv.cell(relinkReceipt, "Recorded at (UTC)"), "1970-01-01T00:00:15.000Z");
+    assert.equal(relinkCsv.net("USD"), 0);
+    await pdf.renderPersonStatementPdf(zeroRelink, "fixture-relinked-clearance.pdf");
+    assert.ok(
+      html.at(-1)!.includes(`Cleared by ${isolate("Original clearer")} on ${isolate(day(15_000))}`),
+    );
+    assert.equal(settledRows(html.at(-1)!).length, 1);
+
+    // A fresh period starts its sequence at one. Neither a small sequence nor
+    // a backdated business date can move it under the old period's receipt.
+    const newTally = sharedEntry("relinked-backdated", 1, 7, "debt", 500);
+    fixture.push(newTally);
+    const newActivity = (await buildPersonStatement("person", "en", "USD", "$", 40_000))!;
+    assert.deepEqual(
+      newActivity.rows.map((row) =>
+        row.kind === "entry" ? row.entry.id : row.shared?.settlement.id,
+      ),
+      ["old-notify-gave", "old-notify-received", "original-notify-clearance", "relinked-backdated"],
+    );
+    assert.equal(newActivity.balance, 7);
+    const { scopePersonStatement } =
+      require("../export/options") as typeof import("../export/options");
+    const selected = scopePersonStatement(newActivity, { period: { startMs: 400, endMs: 600 } });
+    assert.equal(selected.balance, 7);
+    assert.deepEqual(
+      selected.rows.map((row) => (row.kind === "entry" ? row.entry.id : "unexpected-clearance")),
+      ["relinked-backdated"],
+    );
+
+    // An original period can retain its confirmed rows in today's book while
+    // cancelled originals live in the archive. Print its real receipt once.
+    const oldCancelled = {
+      ...oldGave,
+      id: "old-cancelled",
+      tab: { ...oldGave.tab!, seq: 3, voided: true },
+    };
+    archives = [
+      {
+        link: { tab_id: "old-period", currency: "USD" } as import("../tabs/types").TabLink,
+        entries: [oldCancelled],
+      },
+    ];
+    const splitEvidence = (await buildPersonStatement("person", "en", "USD", "$", 40_000))!;
+    assert.equal(splitEvidence.rows.filter((row) => row.kind === "settled").length, 1);
+    assert.equal(
+      splitEvidence.archivedSharedPeriods?.[0].rows.filter((row) => row.kind === "settled").length,
+      0,
+    );
+    assert.equal(splitEvidence.archivedSharedPeriods?.[0].rows[0].balanceAfter, 0);
+    assert.equal(splitEvidence.balance, 7);
+
+    // Repeated empty relinks and marker-only cancelled chapters do not change
+    // an original receipt's owner/date, or invent a new settlement.
+    personTabId = "third-period";
+    fixture.splice(0, fixture.length, oldGave, oldReceived);
+    archives = [];
+    const repeatedRelink = (await buildPersonStatement("person", "en", "USD", "$", 50_000))!;
+    assert.deepEqual(repeatedRelink.rows, zeroRelink.rows);
+    fixture.splice(0, fixture.length);
+    const emptyReceipt = (await buildPersonStatement("person", "en", "USD", "$", 50_000))!;
+    assert.equal(emptyReceipt.rows.length, 1);
+    assert.deepEqual(emptyReceipt.rows[0], originalReceipt);
+    assert.equal(emptyReceipt.balance, 0);
+    assert.equal(
+      csvTable(csv.buildPersonCsv(emptyReceipt)).cell(
+        csvTable(csv.buildPersonCsv(emptyReceipt)).row(originalMarker.id),
+        "Shared account ID",
+      ),
+      "old-period",
+    );
+    for (const scope of ["currency", "vault", "relationship"] as const) {
+      wrongSourceScope = scope;
+      await assert.rejects(
+        buildPersonStatement("person", "en", "USD", "$", 50_000),
+        /Shared records changed/,
+        `a mismatched ${scope} cannot supply a receipt to this export`,
+      );
+    }
+    wrongSourceScope = null;
   });
 
   console.log(`\n${passed} money regression groups passed.`);

@@ -1810,6 +1810,74 @@ async function main(): Promise<void> {
       "marker",
       "the current marker still precedes the rows it cleared",
     );
+    const sourceMarker = { ...marker, id: "original-source-clearance" };
+    for (const currentThrough of [0, 1, 100]) {
+      for (const sourceThrough of [0, 1, 2, 3]) {
+        const scoped = new Map<string, readonly TabSettlement[]>([
+          ["older-period", [{ ...sourceMarker, through_seq: sourceThrough }]],
+        ]);
+        for (const sequence of [1, 2, 3, 4]) {
+          const sourceEntry = {
+            ...carried,
+            created_at: 1,
+            tab: { ...carried.tab!, seq: sequence },
+          };
+          assert.equal(
+            chapters.afterSharedSettlement(sourceEntry, currentThrough, TAB, scoped),
+            sequence > sourceThrough,
+            "only the original period's own sequence boundary can clear a carried tally",
+          );
+          assert.equal(
+            chapters.afterSharedSettlement(
+              { ...sourceEntry, tab: { ...sourceEntry.tab, local_pending: true } },
+              currentThrough,
+              TAB,
+              scoped,
+            ),
+            true,
+            "an old source's queued change remains current even below its own marker",
+          );
+        }
+      }
+    }
+    assert.equal(
+      chapters.afterSharedSettlement(
+        carried,
+        100,
+        TAB,
+        new Map([["different-source", [sourceMarker]]]),
+      ),
+      true,
+      "a marker supplied for another source cannot clear an unmarked old period",
+    );
+    const oldReopened = {
+      ...carried,
+      id: "source-backdated-after-clearance",
+      created_at: 1,
+      tab: { ...carried.tab!, seq: 3 },
+    };
+    const newPeriodEntry = { ...old, id: "current-period-new", tab: { ...old.tab!, seq: 1 } };
+    const markerOnly = { ...marker, id: "cancelled-source-receipt" };
+    const originalMap = new Map<string, readonly TabSettlement[]>([
+      ["older-period", [sourceMarker]],
+      ["fully-cancelled-period", [markerOnly]],
+    ]);
+    const sourceSnapshot = structuredClone(originalMap);
+    const mixedHistory = chapters.sharedHistory(
+      [carried, newPeriodEntry, oldReopened],
+      [],
+      TAB,
+      originalMap,
+    );
+    const historyIds = mixedHistory.map((item) =>
+      item.kind === "entry" ? item.entry.id : item.settlement.id,
+    );
+    assert.equal(new Set(historyIds).size, historyIds.length, "each row and receipt appears once");
+    assert.ok(historyIds.indexOf(newPeriodEntry.id) < historyIds.indexOf(sourceMarker.id));
+    assert.ok(historyIds.indexOf(oldReopened.id) < historyIds.indexOf(sourceMarker.id));
+    assert.ok(historyIds.indexOf(sourceMarker.id) < historyIds.indexOf(carried.id));
+    assert.ok(historyIds.includes(markerOnly.id), "an empty source retains its original receipt");
+    assert.deepEqual(originalMap, sourceSnapshot, "rendering never rewrites source markers");
     const queuedReview = { ...old, tab: { ...old.tab!, local_pending: true } };
     assert.deepEqual(
       chapters

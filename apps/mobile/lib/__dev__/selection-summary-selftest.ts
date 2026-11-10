@@ -30,7 +30,7 @@ sql.exec(`
   CREATE INDEX tab_links_scope_order ON tab_links(vault_id,relationship_id,history_order);
   CREATE TABLE tab_entries(id TEXT PRIMARY KEY, tab_id TEXT, direction TEXT, amount_minor INTEGER, kind TEXT, status TEXT, voided_by_entry_id TEXT,
     created_by TEXT DEFAULT 'a', occurred_at INTEGER DEFAULT 100, created_at INTEGER DEFAULT 100,
-    seq INTEGER DEFAULT 1, local_pending INTEGER DEFAULT 0, local_action_pending INTEGER DEFAULT 0);
+    seq INTEGER DEFAULT 1, local_pending INTEGER DEFAULT 0, local_action_pending INTEGER DEFAULT 0, removal_state TEXT);
   CREATE INDEX tab_entries_tab ON tab_entries(tab_id);
   CREATE TABLE tab_settlements(tab_id TEXT, through_seq INTEGER);
   CREATE TABLE tab_outbox(tab_id TEXT, op TEXT);

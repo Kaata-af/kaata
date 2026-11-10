@@ -140,8 +140,8 @@ export type PersonWithBalance = Person & {
    * 1 when the account is DELIBERATELY settled: balance is zero and the
    * latest ruled-off line covers every live entry. A balance that merely
    * sums to zero is NOT settled — settling is the user's act, not
-   * arithmetic. Optional: getPerson's query doesn't compute it (the person
-   * screen derives richer settlement state itself).
+   * arithmetic. Home and detail share the same per-currency proof; optional
+   * for older cached rows and non-ledger contact fixtures.
    */
   is_settled?: number;
   // Type of the most-recent non-deleted entry (the one with max created_at).

@@ -932,6 +932,25 @@ export async function listTabSettlements(tabId: string): Promise<TabSettlement[]
   );
 }
 
+/** Original marker ownership survives unlinking and switching recording modes.
+ * The anchor only selects the book/currency; it never reassigns an old marker
+ * or makes another period's sequence numbers apply to the current tab. */
+export async function listScopedTabSettlements(
+  tabId: string,
+): Promise<Array<TabSettlement & { tab_id: string }>> {
+  return (await getDb()).getAllAsync<TabSettlement & { tab_id: string }>(
+    `SELECT s.tab_id,s.id,s.rev,s.through_seq,s.settled_at_ms,s.created_by,
+      s.actor_account_id,s.actor_name,s.actor_member_role,s.semantics_version
+     FROM tab_links anchor JOIN tab_links history
+       ON history.vault_id=anchor.vault_id AND history.relationship_id=anchor.relationship_id
+        AND history.currency=anchor.currency
+     JOIN tab_settlements s ON s.tab_id=history.tab_id
+     WHERE anchor.tab_id=?
+     ORDER BY CAST(history.history_order AS INTEGER),s.through_seq,s.id`,
+    tabId,
+  );
+}
+
 function rowToEntry(link: TabLink, r: TabEntryRow, cancellation?: TabEntryRow): Entry {
   return {
     id: r.id,

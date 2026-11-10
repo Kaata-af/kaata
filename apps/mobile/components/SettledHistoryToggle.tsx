@@ -11,6 +11,7 @@ export function SettledHistoryToggle({
   expanded,
   onToggle,
   count,
+  hasHistory = false,
   disabled = false,
   horizontalInset = 0,
 }: {
@@ -18,11 +19,13 @@ export function SettledHistoryToggle({
   expanded: boolean;
   onToggle: () => void;
   count: number;
+  /** Receipts can outlive cancelled tallies; expose them without a fake count. */
+  hasHistory?: boolean;
   disabled?: boolean;
   horizontalInset?: number;
 }) {
   const isRTL = useIsRTL();
-  if (count <= 0) return null;
+  if (count <= 0 && !hasHistory) return null;
   const label =
     kind === "accounts"
       ? t(expanded ? "home.settled.hide" : "home.settled.show")
@@ -36,7 +39,7 @@ export function SettledHistoryToggle({
       testID={`settled-${kind}-toggle`}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityValue={{ text: countLabel }}
+      accessibilityValue={count > 0 ? { text: countLabel } : undefined}
       accessibilityState={{ expanded, disabled }}
       disabled={disabled}
       onPress={() => {
@@ -59,11 +62,13 @@ export function SettledHistoryToggle({
       <Text accessible={false} style={[styles.label, textDir(isRTL)]}>
         {label}
       </Text>
-      <View accessible={false} style={styles.badge}>
-        <Text accessible={false} style={styles.count}>
-          {count}
-        </Text>
-      </View>
+      {count > 0 ? (
+        <View accessible={false} style={styles.badge}>
+          <Text accessible={false} style={styles.count}>
+            {count}
+          </Text>
+        </View>
+      ) : null}
       <Ionicons
         accessible={false}
         name={expanded ? "chevron-up" : "chevron-down"}

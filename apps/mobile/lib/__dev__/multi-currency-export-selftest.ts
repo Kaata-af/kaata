@@ -152,6 +152,7 @@ const data = compileUI("../export/data", {
         .reverse()
         .map((entry) => (invalidPreLinkCurrency ? { ...entry, currency: "AFN" } : entry)),
     listTabSettlements: async () => [],
+    listScopedTabSettlements: async () => [],
   },
   "../tabs/chapters": {},
   "../projection": { applyEventMutex: { runExclusive: (work: () => unknown) => work() } },

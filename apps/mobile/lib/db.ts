@@ -4702,6 +4702,72 @@ const financialTabLinkJoin = (currencyCode: string) => `LEFT JOIN tab_links ftl 
          AND f.currency=${currencySqlLiteral(currencyCode)} AND NOT ${unjoinedInvitationSql("f")}
        ORDER BY CAST(f.history_order AS INTEGER) DESC,f.linked_at DESC,f.tab_id DESC LIMIT 1)`;
 
+/** A new empty shared period does not reopen older, explicitly cleared rows.
+ * Each source sequence must retain its own marker. An acknowledged zero opening
+ * is only a handover: unlike a nonzero opening or one explicitly settled itself,
+ * it cannot erase an older unsettled chapter merely by checkpointing its zero. */
+const carriedSharedSettlementSql = `
+  EXISTS (SELECT 1 FROM tab_settlements marker JOIN tab_links history ON history.tab_id=marker.tab_id
+    WHERE history.vault_id=tl.vault_id AND history.relationship_id=tl.relationship_id AND history.currency=tl.currency)
+  AND NOT (${unknownHistorySql()})
+  AND NOT EXISTS (SELECT 1 FROM tab_links history
+    WHERE history.vault_id=tl.vault_id AND history.relationship_id=tl.relationship_id AND history.currency=tl.currency
+      AND history.last_synced_at IS NULL)
+  AND NOT EXISTS (SELECT 1 FROM tab_entries pending JOIN tab_links history ON history.tab_id=pending.tab_id
+    WHERE history.vault_id=tl.vault_id AND history.relationship_id=tl.relationship_id AND history.currency=tl.currency
+      AND (pending.seq IS NULL OR pending.seq<=0 OR pending.local_pending<>0 OR COALESCE(pending.local_action_pending,0)<>0))
+  AND NOT EXISTS (SELECT 1 FROM tab_entries uncleared JOIN tab_links history ON history.tab_id=uncleared.tab_id
+    WHERE history.vault_id=tl.vault_id AND history.relationship_id=tl.relationship_id AND history.currency=tl.currency
+      AND NOT (uncleared.kind='opening' AND uncleared.amount_minor=0
+        AND uncleared.status IN ('accepted','recorded') AND uncleared.voided_by_entry_id IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM tab_settlements marker
+        WHERE marker.tab_id=uncleared.tab_id AND marker.through_seq>=uncleared.seq)
+      AND NOT EXISTS (SELECT 1 FROM tab_links checkpoint JOIN tab_entries opening ON opening.tab_id=checkpoint.tab_id
+        WHERE checkpoint.vault_id=tl.vault_id AND checkpoint.relationship_id=tl.relationship_id AND checkpoint.currency=tl.currency
+          AND CAST(checkpoint.history_order AS INTEGER)>CAST(history.history_order AS INTEGER)
+          AND opening.kind='opening' AND opening.status IN ('accepted','recorded') AND opening.voided_by_entry_id IS NULL
+          AND opening.local_pending=0 AND COALESCE(opening.local_action_pending,0)=0
+          AND (opening.amount_minor<>0 OR EXISTS(SELECT 1 FROM tab_settlements marker
+            WHERE marker.tab_id=opening.tab_id AND marker.through_seq>=opening.seq))))`;
+
+/** The same deliberate-clearance classification serves Home and detail.
+ * Source sequences keep their own markers across relinks. Private rows created
+ * after the last explicitly marked shared binding cannot inherit its clearance
+ * merely because a later empty binding moved the monetary cutover. */
+const personSettledSql = (currencyCode: string) => `CASE
+  WHEN EXISTS (SELECT 1 FROM tab_entries tp JOIN tab_links pl ON pl.tab_id=tp.tab_id
+    WHERE pl.vault_id=r.vault_id AND pl.relationship_id=r.id AND pl.currency=${currencySqlLiteral(currencyCode)}
+      AND tp.kind<>'void' AND tp.voided_by_entry_id IS NULL
+      AND (tp.status='pending' OR tp.local_pending<>0 OR COALESCE(tp.local_action_pending,0)<>0
+           OR tp.removal_state='pending')
+      AND NOT (tp.kind='opening' AND ${retainedPrivateHistorySql("pl")})) THEN 0
+  WHEN ftl.tab_id IS NOT NULL
+   AND ((${effectiveFinancialBalanceSql()})
+        + ${signedEntryMinorSumSql("e", privateEntryCurrentSql("e"))}) = 0
+   AND (${carriedSharedSettlementSql})
+   AND NOT EXISTS (SELECT 1 FROM tab_entries te WHERE te.tab_id = ftl.tab_id
+        AND (te.seq IS NULL OR te.seq <= 0 OR te.local_pending <> 0 OR te.local_action_pending <> 0
+             OR (te.kind <> 'void' AND te.voided_by_entry_id IS NULL AND te.status = 'pending')))
+   AND NOT EXISTS (SELECT 1 FROM tab_outbox o JOIN tab_links ol ON ol.tab_id=o.tab_id
+        WHERE ol.vault_id=r.vault_id AND ol.relationship_id=r.id AND ol.currency=${currencySqlLiteral(currencyCode)})
+   AND NOT EXISTS (SELECT 1 FROM entries le WHERE le.relationship_id = r.id
+        AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND ${entryCurrencyMatchesSql("le", currencyCode)} AND ${privateEntryCurrentSql("le")})
+   AND NOT EXISTS (SELECT 1 FROM entries le WHERE le.relationship_id=r.id
+        AND le.vault_id=r.vault_id AND le.deleted_at IS NULL AND ${entryCurrencyMatchesSql("le", currencyCode)}
+        AND ${entryRecordedAtSql("le")} > COALESCE((SELECT marked.linked_at FROM tab_links marked
+          WHERE marked.vault_id=r.vault_id AND marked.relationship_id=r.id AND marked.currency=${currencySqlLiteral(currencyCode)}
+            AND NOT ${unjoinedInvitationSql("marked")}
+            AND EXISTS(SELECT 1 FROM tab_settlements s WHERE s.tab_id=marked.tab_id)
+          ORDER BY CAST(marked.history_order AS INTEGER) DESC,marked.linked_at DESC,marked.tab_id DESC LIMIT 1),-1))
+  THEN 1
+  WHEN ftl.tab_id IS NULL
+   AND ${signedEntryMinorSumSql("e")} = 0
+   AND (SELECT MAX(s.settled_at_ms) FROM settlements s
+         WHERE s.relationship_id = r.id AND s.vault_id = r.vault_id AND ${entryCurrencyMatchesSql("s", currencyCode)})
+       >= COALESCE(MAX(CASE WHEN e.deleted_at IS NULL THEN ${entryRecordedAtSql("e")} END), 0)
+  THEN 1 ELSE 0
+END`;
+
 /**
  * last_entry_at is the home sort key and last_entry_type the settled-person
  * side picker; for a linked contact both must consider the tab's newest row
@@ -4807,39 +4873,7 @@ async function selectAllPeopleRaw(
                 AND ${entryCurrencyMatchesSql("le", currencyCode)}
               ORDER BY le.created_at DESC, le.id DESC
               LIMIT 1) AS last_entry_type,
-            -- Deliberately settled (2026-07-27): balance zero AND the latest
-            -- ruled-off line covers every live entry. A merely-zero balance
-            -- is NOT settled — only the user's own settle act is. NULL
-            -- comparison (no settlements) falls to ELSE 0. Shared chapters
-            -- are server-sequence boundaries: even backdated new records or
-            -- queued changes reopen the account's current page.
-            CASE
-              WHEN EXISTS (SELECT 1 FROM tab_entries tp JOIN tab_links pl ON pl.tab_id=tp.tab_id
-                WHERE pl.vault_id=r.vault_id AND pl.relationship_id=r.id AND pl.currency=${currencySqlLiteral(currencyCode)}
-                  AND tp.kind<>'void' AND tp.voided_by_entry_id IS NULL
-                  AND (tp.status='pending' OR tp.local_pending<>0 OR COALESCE(tp.local_action_pending,0)<>0
-                       OR tp.removal_state='pending')
-                  AND NOT (tp.kind='opening' AND ${retainedPrivateHistorySql("pl")})) THEN 0
-              WHEN ftl.tab_id IS NOT NULL
-               AND ((${effectiveFinancialBalanceSql()})
-                    + ${signedEntryMinorSumSql("e", privateEntryCurrentSql("e"))}) = 0
-               AND EXISTS (SELECT 1 FROM tab_settlements s WHERE s.tab_id = ftl.tab_id
-                    AND s.through_seq >= COALESCE((SELECT MAX(te.seq) FROM tab_entries te WHERE te.tab_id = ftl.tab_id), 0))
-               AND NOT EXISTS (SELECT 1 FROM tab_entries te WHERE te.tab_id = ftl.tab_id
-                    AND (te.seq IS NULL OR te.seq <= 0 OR te.local_pending <> 0 OR te.local_action_pending <> 0
-                         OR (te.kind <> 'void' AND te.voided_by_entry_id IS NULL AND te.status = 'pending')))
-               AND NOT EXISTS (SELECT 1 FROM tab_outbox o JOIN tab_links ol ON ol.tab_id=o.tab_id
-                    WHERE ol.vault_id=r.vault_id AND ol.relationship_id=r.id AND ol.currency=${currencySqlLiteral(currencyCode)})
-               AND NOT EXISTS (SELECT 1 FROM entries le WHERE le.relationship_id = r.id
-                    AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND ${entryCurrencyMatchesSql("le", currencyCode)} AND ${privateEntryCurrentSql("le")})
-              THEN 1
-              WHEN ftl.tab_id IS NULL
-               AND ${signedEntryMinorSumSql("e")} = 0
-               AND (SELECT MAX(s.settled_at_ms) FROM settlements s
-                     WHERE s.relationship_id = r.id AND s.vault_id = r.vault_id AND ${entryCurrencyMatchesSql("s", currencyCode)})
-                   >= COALESCE(MAX(CASE WHEN e.deleted_at IS NULL THEN ${entryRecordedAtSql("e")} END), 0)
-              THEN 1 ELSE 0
-            END AS is_settled,
+            ${personSettledSql(currencyCode)} AS is_settled,
             ${TAB_PERSON_COLUMNS}
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
@@ -4929,18 +4963,14 @@ export async function getPerson(
     );
     const base = rows.find((row) => row.currency === currencyCode) ?? rows[0];
     if (!base) return null;
-    const active = rows.filter(
-      (row) =>
-        row.last_entry_at != null ||
-        row.balance !== 0 ||
-        row.tab_id ||
-        row.tab_unsynced === 1 ||
-        (row.tab_pending_count ?? 0) > 0,
-    );
+    const { mergeCurrencyPeople } =
+      require("./multi-currency-view") as typeof import("./multi-currency-view");
+    const combined = mergeCurrencyPeople(rows.map((row) => [row]), currencyCode)[0];
     return {
       ...base,
-      last_entry_at: Math.max(...rows.map((row) => row.last_entry_at ?? 0)) || null,
-      currency_balances: active.length ? active : [base],
+      last_entry_at: combined.last_entry_at,
+      is_settled: combined.is_settled,
+      currency_balances: combined.currency_balances,
     };
   }
   const row = await db.getFirstAsync<RawPersonRow>(
@@ -4950,12 +4980,14 @@ export async function getPerson(
             u.created_at    AS created_at,
             r.archived_at   AS archived_at,
             ${PERSON_BALANCE_SQL},
+            ${personSettledSql(currencyCode)} AS is_settled,
             MAX(CASE WHEN e.deleted_at IS NULL THEN e.created_at END) AS last_entry_at,
             ${currencySqlLiteral(currencyCode)} AS currency,
             ${TAB_PERSON_COLUMNS}
      FROM relationships r
      INNER JOIN users u ON u.id = r.user_b_id
      ${tabLinkJoin(currencyCode)}
+     ${financialTabLinkJoin(currencyCode)}
      LEFT JOIN entries e
        ON e.relationship_id = r.id
       AND e.vault_id = ?

@@ -431,6 +431,260 @@ async function main() {
   } finally {
     store.exec("ROLLBACK TO shared_currency_settlement; RELEASE shared_currency_settlement");
   }
+  store.exec("SAVEPOINT relink_settlement");
+  try {
+    person("relinked-settled");
+    store.exec(`INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,linked_at,history_order,other_joined_at,unjoined_invitation,last_synced_at,recording_mode,recording_mode_known) VALUES
+      ('old-notify','v','r-relinked-settled','a','USD',100,'1',100,0,1000,'notify',1);
+      INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status,local_pending) VALUES
+      ('notify-gave','old-notify',1,1,'a','a_to_b',10000,'entry',200,200,'recorded',0),
+      ('notify-received','old-notify',2,2,'a','b_to_a',10000,'entry',300,300,'recorded',0);
+      INSERT INTO tab_settlements(id,tab_id,rev,through_seq,settled_at_ms,created_by,actor_name,semantics_version)
+      VALUES('notify-cleared','old-notify',3,2,500,'a','Owner','tally-zero-settlement-v1');`);
+    const read = async () =>
+      (await db.listAllPeopleForSearch("v", "USD")).find((row) => row.id === "relinked-settled")!;
+    assert.equal((await read()).is_settled, 1);
+    store.exec("UPDATE tab_links SET closed_at=600 WHERE tab_id='old-notify'");
+    assert.equal(
+      (await read()).is_settled,
+      1,
+      "unlinking preserves a deliberately cleared shared period",
+    );
+    store.exec(`INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,linked_at,history_order,other_joined_at,unjoined_invitation,last_synced_at,recording_mode,recording_mode_known)
+      VALUES('new-review','v','r-relinked-settled','a','USD',700,'2',NULL,1,1000,'review',1);`);
+    assert.equal(
+      (await read()).is_settled,
+      1,
+      "an unused review invitation preserves the previous notification clearance",
+    );
+    store.exec(
+      "UPDATE tab_links SET other_joined_at=800,unjoined_invitation=0 WHERE tab_id='new-review'",
+    );
+    const relinked = await read();
+    assert.equal(relinked.balance, 0);
+    assert.deepEqual(
+      (await db.listEntries("relinked-settled", "USD")).map((row) => row.id).sort(),
+      ["notify-gave", "notify-received"],
+      "a zero-balance relink retains the original shared financial evidence",
+    );
+    assert.equal(
+      (await tabDb.getFinancialTabLinkForPerson("relinked-settled", "USD"))!.tab_id,
+      "new-review",
+    );
+    assert.equal((await tabDb.listTabSettlements("old-notify")).length, 1);
+    assert.equal(
+      relinked.is_settled,
+      1,
+      "joining an empty mutual period must not reopen the previous deliberately settled book",
+    );
+    const scopedMarkers = await tabDb.listScopedTabSettlements("new-review");
+    assert.deepEqual(
+      scopedMarkers.map((marker: any) => [marker.tab_id, marker.id]),
+      [["old-notify", "notify-cleared"]],
+    );
+    assert.deepEqual(await tabDb.listScopedTabSettlements("missing"), []);
+    const snapshot = () => ({
+      links: store
+        .prepare(
+          "SELECT * FROM tab_links WHERE relationship_id='r-relinked-settled' ORDER BY tab_id",
+        )
+        .all(),
+      entries: store
+        .prepare(
+          "SELECT * FROM tab_entries WHERE tab_id IN ('old-notify','new-review') ORDER BY id",
+        )
+        .all(),
+      markers: store
+        .prepare(
+          "SELECT * FROM tab_settlements WHERE tab_id IN ('old-notify','new-review') ORDER BY id",
+        )
+        .all(),
+    });
+    const unchanged = snapshot();
+    const scenario = async (sql: string, settled: number, label: string, balance = 0) => {
+      store.exec("SAVEPOINT relink_case");
+      try {
+        store.exec(sql);
+        const before = snapshot();
+        const row = await read();
+        assert.deepEqual([row.balance, row.is_settled], [balance, settled], label);
+        const detail = await db.getPerson("relinked-settled", "USD");
+        assert.deepEqual(
+          [detail?.balance, detail?.is_settled],
+          [row.balance, row.is_settled],
+          `${label}: Home and detail use the same per-currency clearance proof`,
+        );
+        await tabDb.listScopedTabSettlements("new-review");
+        assert.deepEqual(
+          snapshot(),
+          before,
+          `${label}: reads never rewrite links, tallies or markers`,
+        );
+      } finally {
+        store.exec("ROLLBACK TO relink_case; RELEASE relink_case");
+      }
+    };
+    for (const [oldMode, newMode, status] of [
+      ["notify", "review", "recorded"],
+      ["notify_one_way", "review", "recorded"],
+      ["review", "notify", "accepted"],
+    ]) {
+      await scenario(
+        `UPDATE tab_links SET recording_mode='${oldMode}' WHERE tab_id='old-notify';
+        UPDATE tab_links SET recording_mode='${newMode}' WHERE tab_id='new-review';
+        UPDATE tab_entries SET status='${status}' WHERE tab_id='old-notify'`,
+        1,
+        `${oldMode} to ${newMode} preserves the original explicit clearance`,
+      );
+    }
+    await scenario(
+      "UPDATE tab_links SET role='b' WHERE tab_id='new-review'",
+      1,
+      "relinking as the opposite party preserves original period clearance",
+    );
+    const opening = (
+      amount: number,
+      status = "accepted",
+    ) => `INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status,local_pending)
+      VALUES('new-opening','new-review',1,1,'a','a_to_b',${amount},'opening',900,900,'${status}',0)`;
+    for (const status of ["accepted", "recorded"])
+      await scenario(opening(0, status), 1, `${status} zero handover preserves cleared history`);
+    for (const status of ["pending", "disputed"])
+      await scenario(
+        opening(0, status),
+        0,
+        `${status} zero opening remains a current unresolved chapter`,
+      );
+    await scenario(opening(500), 0, "a new nonzero opening is not cleared by old markers", 5);
+    await scenario(
+      opening(500, "pending"),
+      0,
+      "a pending nonzero opening cannot inherit settlement",
+    );
+    const newPair = `INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status,local_pending) VALUES
+      ('new-gave','new-review',1,1,'a','a_to_b',100,'entry',1,1000,'accepted',0),
+      ('new-received','new-review',2,2,'b','b_to_a',100,'entry',2,1001,'accepted',0)`;
+    await scenario(
+      newPair,
+      0,
+      "a genuine backdated net-zero chapter still needs explicit settlement",
+    );
+    const newMarker = `INSERT INTO tab_settlements(id,tab_id,rev,through_seq,settled_at_ms,created_by,actor_name,semantics_version)
+      VALUES('review-cleared','new-review',3,2,1100,'a','Owner','tally-zero-settlement-v1')`;
+    await scenario(
+      `DELETE FROM tab_settlements WHERE tab_id='old-notify'; ${newPair}; ${newMarker}`,
+      0,
+      "a newer source marker cannot clear older unabsorbed zero-net rows",
+    );
+    await scenario(
+      `DELETE FROM tab_settlements WHERE tab_id='old-notify'; ${opening(500)};
+      INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status,local_pending)
+      VALUES('opening-repaid','new-review',2,2,'b','b_to_a',500,'entry',1000,1000,'accepted',0); ${newMarker}`,
+      1,
+      "an accepted nonzero handover and its explicit clearance still absorb older history",
+    );
+    const privatePair = (
+      first: number,
+    ) => `INSERT INTO entries(id,vault_id,relationship_id,type,amount_afn,currency,created_at,updated_at) VALUES
+      ('private-gave','v','r-relinked-settled','debt',25,'USD',${first},${first}),
+      ('private-received','v','r-relinked-settled','payment',25,'USD',${first + 1},${first + 1})`;
+    await scenario(
+      `${privatePair(650)}; DELETE FROM tab_links WHERE tab_id='new-review'`,
+      0,
+      "a post-close private zero-net chapter remains open before relinking",
+    );
+    await scenario(
+      privatePair(650),
+      0,
+      "empty relinking cannot silently clear post-close private zero-net activity",
+    );
+    await scenario(
+      `${privatePair(650)}; ${opening(0)}`,
+      0,
+      "a zero handover cannot silently clear post-close private zero-net activity",
+    );
+    await scenario(
+      privatePair(50),
+      1,
+      "private rows absorbed before an explicitly cleared shared binding remain historical",
+    );
+    await scenario(
+      `${privatePair(650)}; ${newPair}; ${newMarker}`,
+      1,
+      "a new explicit shared marker can clear the current binding's frozen private input",
+    );
+    await scenario(
+      `UPDATE tab_links SET closed_at=1100 WHERE tab_id='new-review';
+      INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,linked_at,history_order,other_joined_at,unjoined_invitation,last_synced_at,recording_mode,recording_mode_known)
+      VALUES('third-empty','v','r-relinked-settled','a','USD',1200,'3',1200,0,1300,'notify',1)`,
+      1,
+      "repeated empty mode changes preserve original clearance without moving its marker",
+    );
+    await scenario(
+      "DELETE FROM tab_settlements WHERE tab_id='old-notify'",
+      0,
+      "old net-zero activity without a marker is not settled",
+    );
+    await scenario(
+      "UPDATE tab_settlements SET through_seq=1 WHERE tab_id='old-notify'",
+      0,
+      "a stale old marker cannot cover later activity",
+    );
+    await scenario(
+      `UPDATE tab_settlements SET through_seq=1 WHERE tab_id='old-notify'; ${opening(0)}`,
+      0,
+      "zero handover cannot erase an unmarked part of older zero-net history",
+    );
+    for (const [sql, balance] of [
+      ["UPDATE tab_entries SET removal_state='pending' WHERE id='notify-gave'", 0],
+      ["UPDATE tab_entries SET local_action_pending=1 WHERE id='notify-gave'", -100],
+      ["UPDATE tab_entries SET seq=0 WHERE id='notify-gave'", 0],
+      ["UPDATE tab_links SET last_synced_at=NULL WHERE tab_id='old-notify'", 0],
+      ["UPDATE tab_links SET history_order=NULL WHERE tab_id='old-notify'", 0],
+      [
+        "INSERT INTO tab_outbox(id,tab_id,op,payload,created_at) VALUES('old-outbox','old-notify','close','{}',1000)",
+        0,
+      ],
+      [
+        "INSERT INTO tab_outbox(id,tab_id,op,payload,created_at) VALUES('new-outbox','new-review','close','{}',1000)",
+        0,
+      ],
+    ] as const)
+      await scenario(sql, 0, "unresolved or unknown work cannot inherit a settled state", balance);
+    store.exec(`INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,linked_at,history_order,last_synced_at,closed_at) VALUES
+      ('other-currency','v','r-relinked-settled','a','AFN',100,'1',1000,1000),
+      ('other-contact','v','r-elsewhere','a','USD',100,'1',1000,1000),
+      ('other-vault','elsewhere','r-relinked-settled','a','USD',100,'1',1000,1000);
+      INSERT INTO tab_settlements(id,tab_id,rev,through_seq,settled_at_ms,created_by,actor_name,semantics_version) VALUES
+      ('other-currency-marker','other-currency',1,1,1000,'a','Owner','tally-zero-settlement-v1'),
+      ('other-contact-marker','other-contact',1,1,1000,'a','Owner','tally-zero-settlement-v1'),
+      ('other-vault-marker','other-vault',1,1,1000,'a','Owner','tally-zero-settlement-v1');`);
+    assert.deepEqual(
+      await tabDb.listScopedTabSettlements("new-review"),
+      scopedMarkers,
+      "source-marker lookup is isolated by vault, contact and currency",
+    );
+    assert.deepEqual(snapshot().entries, unchanged.entries);
+    assert.deepEqual(snapshot().markers, unchanged.markers);
+    person("marker-only");
+    store.exec(
+      "INSERT INTO settlements(vault_id,relationship_id,currency,settled_at_ms) VALUES('v','r-marker-only','USD',1000)",
+    );
+    const markerOnly = await db.getPerson("marker-only", "AFN", { allCurrencies: true });
+    assert.equal(markerOnly!.currency, "AFN", "detail keeps its preferred write currency");
+    assert.equal(
+      markerOnly!.is_settled,
+      1,
+      "aggregate detail state includes a nonpreferred marker-only currency",
+    );
+    assert.deepEqual(
+      markerOnly!.currency_balances!.map((row) => row.currency),
+      ["USD"],
+    );
+    assert.equal((await db.getPerson("mixed", "AFN", { allCurrencies: true }))!.is_settled, 0);
+  } finally {
+    store.exec("ROLLBACK TO relink_settlement; RELEASE relink_settlement");
+  }
   active = null;
   assert.equal(await db.getPerson("usd-only", "AFN", { allCurrencies: true }), null);
   assert.deepEqual(await db.listEntries("usd-only", "AFN", { allCurrencies: true }), []);

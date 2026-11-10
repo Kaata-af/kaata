@@ -147,6 +147,7 @@ import {
   listPreLinkEntries,
   listFailedTabEntries,
   listTabSettlements,
+  listScopedTabSettlements,
 } from "../../lib/tabs/db";
 import { markTabNoticesSeen } from "../../lib/tabs/inbox-reads";
 import {
@@ -227,20 +228,108 @@ type CurrencyPeriod = {
   tab: TabLink | null;
   financialTab: TabLink | null;
   sharedSettlements: TabSettlement[];
+  sharedSettlementsByTab: ReadonlyMap<string, readonly TabSettlement[]>;
+  sourceLinks: TabLink[];
   before: Entry[];
   priorPeriods: Array<{ link: TabLink; entries: Entry[]; settlements: TabSettlement[] }>;
 };
 
-function currencyChapter(period: CurrencyPeriod): Entry[] {
+function afterCurrencySettlement(entry: Entry, period: CurrencyPeriod): boolean {
+  const tab = entry.tab;
+  if (tab && (tab.local_pending || tab.status === "pending" || tab.removal_state === "pending"))
+    return true;
+  if (
+    tab?.kind === "opening" &&
+    entry.amount_afn === 0 &&
+    (tab.status === "accepted" || tab.status === "recorded") &&
+    (tab.tab_id === period.financialTab?.tab_id || period.person.is_settled === 1) &&
+    period.person.is_settled !== 0
+  ) {
+    const olderMarkers = [...period.sharedSettlementsByTab].some(
+      ([source, markers]) => source !== tab.tab_id && markers.length > 0,
+    );
+    const olderRows = [
+      ...period.entries,
+      ...period.priorPeriods.flatMap((prior) => prior.entries),
+    ].filter((row) => visibleTally(row) && row.tab?.tab_id && row.tab.tab_id !== tab.tab_id);
+    const proven =
+      olderMarkers &&
+      olderRows.every((row) => {
+        if (
+          row.tab?.local_pending ||
+          row.tab?.status === "pending" ||
+          row.tab?.removal_state === "pending"
+        )
+          return false;
+        if (
+          row.tab?.kind === "opening" &&
+          row.amount_afn === 0 &&
+          (row.tab.status === "accepted" || row.tab.status === "recorded")
+        )
+          return true;
+        return !afterSharedSettlement(row, 0, tab.tab_id, period.sharedSettlementsByTab);
+      });
+    // A zero handover cannot undo a real clearance, or manufacture one over
+    // an unclosed source. The database also checks pre-link private records.
+    if (period.person.is_settled === 1 || proven) return false;
+  }
   const through = period.sharedSettlements.at(-1)?.through_seq ?? 0;
+  if (entry.tab?.tab_id || period.financialTab) {
+    return afterSharedSettlement(
+      entry,
+      through,
+      period.financialTab?.tab_id ?? period.tab?.tab_id,
+      period.sharedSettlementsByTab,
+    );
+  }
+  return (
+    period.settlement.lastSettledAtMs == null ||
+    entryRecordedAt(entry) > period.settlement.lastSettledAtMs
+  );
+}
+
+function currencyChapter(period: CurrencyPeriod): Entry[] {
   return period.entries
     .filter(visibleTally)
-    .filter((entry) =>
-      period.financialTab
-        ? afterSharedSettlement(entry, through, period.financialTab.tab_id)
-        : period.settlement.lastSettledAtMs == null ||
-          entryRecordedAt(entry) > period.settlement.lastSettledAtMs,
-    );
+    .filter((entry) => afterCurrencySettlement(entry, period));
+}
+
+function timelineSettlements(period: CurrencyPeriod, searchedRows?: Entry[]) {
+  const retained = new Set(
+    (searchedRows ?? period.entries).flatMap((entry) =>
+      entry.tab?.tab_id ? [entry.tab.tab_id] : [],
+    ),
+  );
+  const archivedWithRows = new Set(
+    period.priorPeriods
+      .filter((prior) => prior.entries.some(visibleTally))
+      .map((prior) => prior.link.tab_id),
+  );
+  return new Map(
+    [...period.sharedSettlementsByTab].filter(
+      ([source]) =>
+        source === period.financialTab?.tab_id ||
+        retained.has(source) ||
+        (!searchedRows && !archivedWithRows.has(source)),
+    ),
+  );
+}
+
+function liveSourceLinks(period: CurrencyPeriod): TabLink[] {
+  const rows = [...period.entries, ...period.priorPeriods.flatMap((prior) => prior.entries)];
+  return period.sourceLinks.filter(
+    (source) =>
+      source.closed_at == null ||
+      source.last_synced_at == null ||
+      !!source.last_error ||
+      rows.some(
+        (entry) =>
+          entry.tab?.tab_id === source.tab_id &&
+          (entry.tab.local_pending ||
+            entry.tab.status === "pending" ||
+            entry.tab.removal_state === "pending"),
+      ),
+  );
 }
 
 // Currency links may exist before they have a ledger. Keep those links in the
@@ -266,7 +355,10 @@ function currencyBalanceState(person: PersonWithBalance, period?: CurrencyPeriod
     );
   const settlements = period
     ? period.financialTab
-      ? period.sharedSettlements.length
+      ? [...period.sharedSettlementsByTab.values()].reduce(
+          (sum, markers) => sum + markers.length,
+          0,
+        )
       : period.settlement.count
     : 0;
   const active =
@@ -277,7 +369,12 @@ function currencyBalanceState(person: PersonWithBalance, period?: CurrencyPeriod
     settlements > 0 ||
     entries.some(visibleTally);
   const settled =
-    active && !unresolved && person.balance === 0 && settlements > 0 && chapter.length === 0;
+    active &&
+    !unresolved &&
+    person.is_settled !== 0 &&
+    person.balance === 0 &&
+    settlements > 0 &&
+    chapter.length === 0;
   return { active, settled, unknown, unresolved };
 }
 
@@ -289,6 +386,8 @@ function canSettlePeriod(period: CurrencyPeriod): boolean {
     period.person.tab_close_pending !== 1 &&
     period.person.balance === 0 &&
     chapter.length > 0 &&
+    (!period.financialTab ||
+      chapter.some((entry) => entry.tab?.tab_id === period.financialTab?.tab_id)) &&
     // Older private boundaries could split a balanced pair by business date.
     // An explicit new marker can close that known, zero ledger atomically;
     // the command rechecks its full balance and covers all recorded rows.
@@ -310,6 +409,7 @@ function canSettlePeriod(period: CurrencyPeriod): boolean {
       (entry) =>
         entry.tab?.tab_id &&
         entry.tab.tab_id !== period.financialTab?.tab_id &&
+        afterCurrencySettlement(entry, period) &&
         balanceContribution(entry) !== 0,
     )
   );
@@ -1002,14 +1102,7 @@ export default function PersonDetailScreen() {
           (period) => period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
         );
         if (!period) return true;
-        return period.financialTab
-          ? afterSharedSettlement(
-              entry,
-              period.sharedSettlements.at(-1)?.through_seq ?? 0,
-              period.financialTab.tab_id,
-            )
-          : period.settlement.lastSettledAtMs == null ||
-              entryRecordedAt(entry) > period.settlement.lastSettledAtMs;
+        return afterCurrencySettlement(entry, period);
       }),
     [displayedEntries, currencyPeriods, person?.currency, selectedCurrency],
   );
@@ -1034,6 +1127,9 @@ export default function PersonDetailScreen() {
       sumAmounts(currencyChapter(period).map(balanceContribution)) === period.person.balance,
   );
   const settledTallyCount = displayedEntries.length - chapterEntries.length;
+  const hasSettledReceipts = currencyPeriods.some((period) =>
+    [...timelineSettlements(period).values()].some((markers) => markers.length > 0),
+  );
   const effectiveShowFull = showFullHistory || !chapterCoherent;
   const visibleEntries = effectiveShowFull ? displayedEntries : chapterEntries;
   // Full history keeps each row in its recorded chapter and uses business
@@ -1095,6 +1191,9 @@ export default function PersonDetailScreen() {
             rows,
             searching || effectiveShowFull ? period.sharedSettlements : [],
             period.financialTab.tab_id,
+            searching || effectiveShowFull
+              ? timelineSettlements(period, searching ? rows : undefined)
+              : undefined,
           ).map((item) => (item.kind === "marker" ? { ...item, currency: period.currency } : item));
         if (!(searching || effectiveShowFull))
           return rows.map((entry) => ({ kind: "entry" as const, entry }));
@@ -1123,7 +1222,17 @@ export default function PersonDetailScreen() {
     }
     if (searching) {
       const items = financialTabHistory
-        ? sharedHistory(matchedEntries, sharedSettlements, financialTabHistory.tab_id)
+        ? sharedHistory(
+            matchedEntries,
+            sharedSettlements,
+            financialTabHistory.tab_id,
+            (() => {
+              const period = currencyPeriods.find(
+                (period) => period.financialTab?.tab_id === financialTabHistory.tab_id,
+              );
+              return period ? timelineSettlements(period, matchedEntries) : undefined;
+            })(),
+          )
         : withLocalMarkers(matchedEntries);
       const shown = items.filter(
         (item, i) => item.kind === "entry" || items[i - 1]?.kind !== "marker",
@@ -1136,6 +1245,14 @@ export default function PersonDetailScreen() {
         visibleEntries,
         effectiveShowFull ? sharedSettlements : [],
         financialTabHistory.tab_id,
+        effectiveShowFull
+          ? (() => {
+              const period = currencyPeriods.find(
+                (period) => period.financialTab?.tab_id === financialTabHistory.tab_id,
+              );
+              return period ? timelineSettlements(period) : undefined;
+            })()
+          : undefined,
       );
     if (!effectiveShowFull || boundaries.length === 0)
       return visibleEntries.map((entry) => ({ kind: "entry", entry }));
@@ -1879,7 +1996,7 @@ export default function PersonDetailScreen() {
               getFinancialTabLinkForPerson(id, code),
             ]);
             const ledgerTab = financialTab === undefined ? tab : financialTab;
-            const [before, refused, sharedSettlements, priorPeriods] = tab
+            const [before, refused, sharedSettlements, priorPeriods, scopedSettlements] = tab
               ? await Promise.all([
                   listPreLinkEntries(tab),
                   listFailedTabEntries(tab.relationship_id, {
@@ -1888,12 +2005,43 @@ export default function PersonDetailScreen() {
                   }),
                   ledgerTab ? listTabSettlements(ledgerTab.tab_id) : Promise.resolve([]),
                   listArchivedSharedPeriodsForExport(id, code),
+                  listScopedTabSettlements(tab.tab_id),
                 ])
-              : [[], [], [], []];
+              : [[], [], [], [], []];
+            const periodEntries = list.filter((entry) => (entry.currency ?? currency) === code);
+            const sharedSettlementsByTab = new Map<string, TabSettlement[]>();
+            for (const marker of scopedSettlements) {
+              const own = sharedSettlementsByTab.get(marker.tab_id) ?? [];
+              own.push(marker);
+              sharedSettlementsByTab.set(marker.tab_id, own);
+            }
+            if (ledgerTab) sharedSettlementsByTab.set(ledgerTab.tab_id, sharedSettlements);
+            const knownLinks = new Map(
+              [tab, ledgerTab, ...priorPeriods.map((prior) => prior.link)].flatMap((link) =>
+                link ? [[link.tab_id, link] as const] : [],
+              ),
+            );
+            const sourceIds = new Set([
+              ...periodEntries.flatMap((entry) => (entry.tab?.tab_id ? [entry.tab.tab_id] : [])),
+              ...sharedSettlementsByTab.keys(),
+            ]);
+            const sourceLinks = (
+              await Promise.all(
+                [...sourceIds].map(
+                  async (tabId) => knownLinks.get(tabId) ?? (await getTabLink(tabId)),
+                ),
+              )
+            ).filter(
+              (source): source is TabLink =>
+                !!source &&
+                source.vault_id === vault &&
+                source.currency === code &&
+                source.relationship_id === (tab ?? ledgerTab)?.relationship_id,
+            );
             return {
               currency: code,
               person: row,
-              entries: list.filter((entry) => (entry.currency ?? currency) === code),
+              entries: periodEntries,
               settlement,
               boundaries,
               tab,
@@ -1901,6 +2049,8 @@ export default function PersonDetailScreen() {
               before,
               refused,
               sharedSettlements,
+              sharedSettlementsByTab,
+              sourceLinks,
               priorPeriods: await Promise.all(
                 priorPeriods.map(async (prior) => ({
                   ...prior,
@@ -2007,7 +2157,9 @@ export default function PersonDetailScreen() {
         links: [
           ...new Map(
             periods.flatMap((period) =>
-              [period.tab, period.financialTab].flatMap((tab) =>
+              // Closed cached receipts stay available without keeping every
+              // historical period on the five-second sync backstop.
+              [period.tab, period.financialTab, ...liveSourceLinks(period)].flatMap((tab) =>
                 tab ? [[tab.tab_id, tab] as const] : [],
               ),
             ),
@@ -2658,8 +2810,7 @@ export default function PersonDetailScreen() {
         const tabSettlements =
           entry.tab?.tab_id === period?.financialTab?.tab_id
             ? (period?.sharedSettlements ?? [])
-            : (period?.priorPeriods.find((prior) => prior.link.tab_id === entry.tab?.tab_id)
-                ?.settlements ?? []);
+            : (period?.sharedSettlementsByTab.get(entry.tab?.tab_id ?? "") ?? []);
         const recordedInSettledChapter =
           entry.tab?.status === "recorded" &&
           tabSettlements.some((s) => s.through_seq >= (entry.tab?.seq ?? 0));
@@ -2667,6 +2818,7 @@ export default function PersonDetailScreen() {
           ? [
               period?.tab,
               period?.financialTab,
+              ...(period?.sourceLinks ?? []),
               ...(period?.priorPeriods.map((p) => p.link) ?? []),
             ].find((link) => link?.tab_id === entry.tab?.tab_id)
           : null;
@@ -3822,7 +3974,8 @@ export default function PersonDetailScreen() {
                           isRTL={isRTL}
                         />
                       ) : null
-                    ) : settledTallyCount > 0 && !effectiveShowFull ? null : (
+                    ) : (settledTallyCount > 0 || hasSettledReceipts) &&
+                      !effectiveShowFull ? null : (
                       <EmptyState
                         title={t("person.empty.title")}
                         subtitle={
@@ -3940,6 +4093,7 @@ export default function PersonDetailScreen() {
                       kind="tallies"
                       horizontalInset={16}
                       count={settledTallyCount}
+                      hasHistory={hasSettledReceipts}
                       expanded={showFullHistory}
                       disabled={selecting || selectionBusy}
                       onToggle={() => {

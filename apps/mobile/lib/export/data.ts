@@ -38,6 +38,7 @@ import {
   getFinancialTabLinkForPerson,
   getTabLink,
   listPreLinkEntries,
+  listScopedTabSettlements,
   listTabSettlements,
 } from "../tabs/db";
 import { afterSharedSettlement } from "../tabs/chapters";
@@ -116,6 +117,7 @@ function sharedStatementRows(
   entries: Entry[],
   settlements: TabSettlement[],
   tabId: string,
+  retainedSettlementsByTab: ReadonlyMap<string, readonly TabSettlement[]> = new Map(),
 ): StatementRow[] {
   const sequence = (entry: Entry) =>
     !entry.tab?.seq || entry.tab.local_pending ? Number.MAX_SAFE_INTEGER : entry.tab.seq;
@@ -124,35 +126,48 @@ function sharedStatementRows(
   );
   const rows: StatementRow[] = [];
   let running = 0;
-  let index = 0;
   const appendEntry = (entry: Entry) => {
     running = addAmounts(running, balanceContribution(entry));
     rows.push({ kind: "entry", entry, balanceAfter: running });
   };
-  // A pending replacement opening keeps older acknowledged records in the
-  // current statement. Their per-tab sequence is unrelated to this tab's
-  // clearance boundaries; retain their real receipts ahead of this period.
+  const appendPeriod = (
+    periodEntries: Entry[],
+    periodSettlements: readonly TabSettlement[],
+    periodId: string,
+  ) => {
+    let index = 0;
+    for (const settlement of [...periodSettlements].sort((a, b) => a.through_seq - b.through_seq)) {
+      while (
+        index < periodEntries.length &&
+        !afterSharedSettlement(periodEntries[index], settlement.through_seq)
+      )
+        appendEntry(periodEntries[index++]);
+      rows.push({
+        kind: "settled",
+        ms: settlement.settled_at_ms,
+        balanceAfter: running,
+        shared: { tabId: periodId, settlement },
+      });
+    }
+    while (index < periodEntries.length) appendEntry(periodEntries[index++]);
+  };
+  // A replacement period without an acknowledged opening keeps older records
+  // in this statement. Render each source's own immutable sequence/receipts,
+  // in server binding order, before the current period. Never borrow its
+  // clearance or relabel the original receipt as newly cleared.
   const retained = ordered.filter((entry) => entry.tab?.tab_id && entry.tab.tab_id !== tabId);
-  for (const entry of retained.sort(
-    (a, b) => (a.tab?.recorded_at ?? a.created_at) - (b.tab?.recorded_at ?? b.created_at),
-  ))
+  for (const [source, ownSettlements] of retainedSettlementsByTab)
+    appendPeriod(
+      retained.filter((entry) => entry.tab?.tab_id === source),
+      ownSettlements,
+      source,
+    );
+  // Older callers/archives can provide entries without a scope map. Keep the
+  // records even when original marker evidence has not been supplied.
+  for (const entry of retained.filter((entry) => !retainedSettlementsByTab.has(entry.tab!.tab_id!)))
     appendEntry(entry);
   const current = ordered.filter((entry) => !entry.tab?.tab_id || entry.tab.tab_id === tabId);
-  for (const settlement of [...settlements].sort((a, b) => a.through_seq - b.through_seq)) {
-    while (
-      index < current.length &&
-      !afterSharedSettlement(current[index], settlement.through_seq)
-    ) {
-      appendEntry(current[index++]);
-    }
-    rows.push({
-      kind: "settled",
-      ms: settlement.settled_at_ms,
-      balanceAfter: running,
-      shared: { tabId, settlement },
-    });
-  }
-  while (index < current.length) appendEntry(current[index++]);
+  appendPeriod(current, settlements, tabId);
   return rows;
 }
 
@@ -301,13 +316,51 @@ async function buildPersonStatementSnapshot(
     throw new Error("Shared history is still syncing. Please try exporting again shortly.");
   assertSingleCurrency(entries, currencyCode);
 
-  // Shared clearances follow server sequence; private chapters follow the
-  // edited business date. Keep both histories without counting an opening twice.
+  const settlementsByTab = new Map<string, TabSettlement[]>();
+  const retainedSettlementsByTab = new Map<string, readonly TabSettlement[]>();
+  if (financialTab) {
+    for (const { tab_id: source, ...settlement } of await listScopedTabSettlements(
+      financialTab.tab_id,
+    )) {
+      const markers = settlementsByTab.get(source) ?? [];
+      markers.push(settlement);
+      settlementsByTab.set(source, markers);
+    }
+    const retainedIds = new Set(
+      entries.flatMap((entry) => (entry.tab?.tab_id ? [entry.tab.tab_id] : [])),
+    );
+    const archivedIds = new Set(archivedSharedPeriods.map((period) => period.link.tab_id));
+    const sources = [...new Set([...retainedIds, ...settlementsByTab.keys()])].filter(
+      (source) =>
+        source !== financialTab.tab_id && (retainedIds.has(source) || !archivedIds.has(source)),
+    );
+    const links = await Promise.all(sources.map((source) => getTabLink(source)));
+    if (
+      links.some(
+        (link) =>
+          !link ||
+          link.currency !== currencyCode ||
+          link.vault_id !== financialTab.vault_id ||
+          link.relationship_id !== financialTab.relationship_id,
+      )
+    )
+      throw new Error("Shared records changed during export. Please try again.");
+    links.sort((a, b) => {
+      const left = BigInt(a!.history_order ?? "0"),
+        right = BigInt(b!.history_order ?? "0");
+      return left < right ? -1 : left > right ? 1 : a!.tab_id.localeCompare(b!.tab_id);
+    });
+    for (const link of links)
+      retainedSettlementsByTab.set(link!.tab_id, settlementsByTab.get(link!.tab_id) ?? []);
+  }
+  // Shared clearances follow the original period's sequence; private chapters
+  // follow immutable recording time. Neither counts a carried opening twice.
   const rows: StatementRow[] = financialTab
     ? sharedStatementRows(
         entries,
-        await listTabSettlements(financialTab.tab_id),
+        settlementsByTab.get(financialTab.tab_id) ?? [],
         financialTab.tab_id,
+        retainedSettlementsByTab,
       )
     : privateStatementRows(entries, boundaries);
   const running = rows.at(-1)?.balanceAfter ?? 0;
@@ -323,11 +376,13 @@ async function buildPersonStatementSnapshot(
 
   const archivedPeriods = await Promise.all(
     archivedSharedPeriods.map(async (period) => {
-      const rows = sharedStatementRows(
-        period.entries,
-        await listTabSettlements(period.link.tab_id),
-        period.link.tab_id,
-      );
+      // A source can have confirmed rows in the current book and cancelled
+      // evidence in its archive. Its receipt prints once beside the retained
+      // chapter, never twice as two independent clearance events.
+      const markers = retainedSettlementsByTab.has(period.link.tab_id)
+        ? []
+        : await listTabSettlements(period.link.tab_id);
+      const rows = sharedStatementRows(period.entries, markers, period.link.tab_id);
       return {
         ...period,
         rows,

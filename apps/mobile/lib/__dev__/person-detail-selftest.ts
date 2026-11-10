@@ -217,6 +217,7 @@ const intents = compileUI("../reminder-ping-intent", {
 });
 const reminderOwner = () => `account:${accountId}`;
 let settlement: any, markers: any[], boundaries: number[];
+let scopedMarkers: any[] | null = null;
 let preference = "en",
   preferenceReads = 0;
 let billLinksEnabled = true,
@@ -633,6 +634,27 @@ const mocks: Record<string, any> = {
       ...([...currencyPeriods.values()].find((period) => period.tab?.tab_id === tabId)?.markers ??
         markers),
     ],
+    listScopedTabSettlements: async (tabId: string) => {
+      if (scopedMarkers) {
+        const known = [
+          link,
+          ...tabLinksById.values(),
+          ...[...currencyPeriods.values()].map((period) => period.tab),
+        ].filter(Boolean);
+        const anchor = known.find((candidate) => candidate.tab_id === tabId);
+        return scopedMarkers.filter((marker) =>
+          known.some(
+            (source) =>
+              source.tab_id === marker.tab_id &&
+              source.currency === anchor?.currency &&
+              source.vault_id === anchor?.vault_id &&
+              source.relationship_id === anchor?.relationship_id,
+          ),
+        );
+      }
+      const scoped = [...currencyPeriods.values()].find((period) => period.tab?.tab_id === tabId);
+      return (scoped?.markers ?? markers).map((marker) => ({ ...marker, tab_id: tabId }));
+    },
   },
   "../../lib/tabs/inbox-reads": {
     markTabNoticesSeen: (value: any, context: any) => seen.push({ rev: value.rev, ...context }),
@@ -765,7 +787,7 @@ function render() {
 async function flush() {
   // Loads use real async ordering (mutex/Promise.all/focus continuation).
   // Re-render changed state and apply effects until those microtasks settle.
-  for (let i = 0; i < 15; i++) {
+  for (let i = 0; i < 25; i++) {
     if (dirty || !tree) render();
     const effects = pendingEffects;
     pendingEffects = [];
@@ -864,6 +886,7 @@ function fixture(shared = false) {
   removalImpl = async () => {};
   failed = [];
   markers = [];
+  scopedMarkers = null;
   link = null;
   entries = [
     tally("new-rice", "rice bought", 2, 400, undefined, "payment"),
@@ -2801,6 +2824,292 @@ async function aggregateCurrencyBalanceTests() {
   rtl = false;
   console.log(
     "PASS aggregate customer balances: one check/zero, unused shared currency suppression, per-currency settlement/flows/sync retained, nondefault pending reviews/removals/close and unknown vetoes in Android/iOS LTR/RTL",
+  );
+}
+
+async function relinkedSettlementHistoryTests() {
+  const check = () =>
+    nodes(tree).find((node) => node.props.testID === "customer-balance-settled-check");
+  const settleActions = () =>
+    nodes(tree).filter((node) => node.props.accessibilityLabel?.startsWith("person.settle.row"));
+  const rowIds = () => tallies().map((node) => node.props.entry.id);
+  const history = () => find("SettledHistoryToggle")!;
+  for (const os of ["android", "ios"])
+    for (const direction of [false, true]) {
+      fixture(true);
+      platform = os;
+      rtl = direction;
+      preLink = [];
+      failed = [];
+      const oldLink = {
+        ...link,
+        tab_id: "recorded-source",
+        role: "a",
+        recording_mode: "notify",
+        recording_mode_known: 1,
+        history_order: "1",
+        linked_at: 10,
+        closed_at: 300,
+        last_synced_at: 300,
+      };
+      link = {
+        ...link,
+        tab_id: "mutual-relink",
+        role: "a",
+        recording_mode: "review",
+        recording_mode_known: 1,
+        history_order: "2",
+        linked_at: 400,
+        last_synced_at: 450,
+      };
+      tabLinksById.set(oldLink.tab_id, oldLink);
+      const sourceMarker = {
+        id: "original-clearance",
+        tab_id: oldLink.tab_id,
+        rev: 4,
+        through_seq: 2,
+        settled_at_ms: 250,
+        actor_name: "Original owner",
+      };
+      scopedMarkers = [sourceMarker];
+      markers = [];
+      person = { ...person, currency: "AFN", balance: 0, is_settled: 1 };
+      const pair = (source: any, prefix: string, start: number, status: string) => [
+        {
+          ...tally(
+            `${prefix}-gave`,
+            "given",
+            5000,
+            100,
+            {
+              tab_id: source.tab_id,
+              seq: start,
+              kind: "entry",
+              status,
+              by: "me",
+              recording_mode: source.recording_mode,
+              recording_mode_known: 1,
+            },
+            "debt",
+          ),
+          currency: "AFN",
+        },
+        {
+          ...tally(
+            `${prefix}-received`,
+            "returned",
+            5000,
+            150,
+            {
+              tab_id: source.tab_id,
+              seq: start + 1,
+              kind: "entry",
+              status,
+              by: "them",
+              recording_mode: source.recording_mode,
+              recording_mode_known: 1,
+            },
+            "payment",
+          ),
+          currency: "AFN",
+        },
+      ];
+      const oldRows = pair(oldLink, "source", 1, "recorded");
+      entries = [...oldRows];
+      await flush();
+      assert.ok(
+        check(),
+        "switching a settled notification-only book to an empty mutual link preserves its clearance",
+      );
+      assert.deepEqual(rowIds(), [], "old settled source rows remain folded after relinking");
+      assert.equal(history().props.count, 2);
+      assert.equal(
+        watched.get(oldLink.tab_id) ?? 0,
+        0,
+        "a cached closed source receipt does not keep polling",
+      );
+      history().props.onToggle();
+      await flush();
+      assert.deepEqual(rowIds(), ["source-received", "source-gave"]);
+      assert.equal(
+        nodes(tree).filter(
+          (node) => node.type === "Text" && words(node).startsWith("tab.settle.history"),
+        ).length,
+        1,
+        "full history retains exactly the original receipt",
+      );
+      for (const row of tallies())
+        assert.equal(
+          row.props.onCancel,
+          undefined,
+          "settled recorded source rows cannot be cancelled under the new link",
+        );
+      history().props.onToggle();
+      await flush();
+
+      oldRows[0].tab.removal_state = "pending";
+      person.is_settled = 0;
+      blur();
+      refocus();
+      await flush();
+      assert.ok(
+        (watched.get(oldLink.tab_id) ?? 0) > 0,
+        "a historical source with an unresolved removal stays subscribed",
+      );
+      assert.ok(
+        rowIds().includes("source-gave"),
+        "pending removal cannot disappear behind its source settlement",
+      );
+      delete oldRows[0].tab.removal_state;
+      person.is_settled = 1;
+      oldLink.last_synced_at = null;
+      blur();
+      refocus();
+      await flush();
+      assert.ok(
+        (watched.get(oldLink.tab_id) ?? 0) > 0,
+        "a source without a confirmed cache requests a refresh",
+      );
+      oldLink.last_synced_at = 300;
+      blur();
+      refocus();
+      await flush();
+      assert.equal(
+        watched.get(oldLink.tab_id) ?? 0,
+        0,
+        "a resolved cached historical source releases the fast backstop",
+      );
+
+      const zeroOpening = {
+        ...tally("zero-handover", "zero opening", 0, 50, {
+          tab_id: link.tab_id,
+          seq: 1,
+          kind: "opening",
+          status: "accepted",
+          by: "me",
+          recording_mode: "review",
+          recording_mode_known: 1,
+        }),
+        currency: "AFN",
+      };
+      entries.push(zeroOpening);
+      await ledgerRefresh();
+      await flush();
+      assert.ok(
+        check(),
+        "a legacy acknowledged zero handover does not reopen a proven source clearance",
+      );
+      assert.deepEqual(rowIds(), []);
+      const middleLink = { ...link, closed_at: 500 };
+      tabLinksById.set(middleLink.tab_id, middleLink);
+      link = { ...link, tab_id: "third-empty-link", history_order: "3", linked_at: 600 };
+      await ledgerRefresh();
+      await flush();
+      assert.ok(check(), "a retained zero handover stays neutral across another empty relink");
+      assert.deepEqual(rowIds(), []);
+
+      entries = [...oldRows, ...pair(link, "new-backdated", 1, "accepted")];
+      person.is_settled = 0;
+      await ledgerRefresh();
+      await flush();
+      assert.equal(check(), undefined);
+      assert.deepEqual(
+        new Set(rowIds()),
+        new Set(["new-backdated-gave", "new-backdated-received"]),
+        "the old source seq2 marker cannot hide new seq1/2 or their backdated dates",
+      );
+      assert.equal(
+        settleActions().length,
+        1,
+        "only genuinely new balanced activity can be settled on the new tab",
+      );
+      const newestMarker = {
+        ...sourceMarker,
+        id: "new-clearance",
+        tab_id: link.tab_id,
+        through_seq: 2,
+        settled_at_ms: 800,
+      };
+      markers = [newestMarker];
+      scopedMarkers = [newestMarker];
+      await ledgerRefresh();
+      await flush();
+      assert.equal(
+        check(),
+        undefined,
+        "a newest-period marker cannot clear an unmarked older zero pair",
+      );
+      assert.deepEqual(new Set(rowIds()), new Set(["source-gave", "source-received"]));
+      assert.equal(
+        settleActions().length,
+        0,
+        "carried old activity never offers settlement on an empty/current-cleared tab",
+      );
+
+      markers = [];
+      scopedMarkers = [sourceMarker];
+      entries = [
+        ...oldRows,
+        { ...zeroOpening, tab: { ...zeroOpening.tab, tab_id: link.tab_id, status: "pending" } },
+      ];
+      person.tab_pending_count = 1;
+      await ledgerRefresh();
+      await flush();
+      assert.equal(check(), undefined);
+      assert.ok(rowIds().includes("zero-handover"), "a pending zero opening stays visible");
+      assert.equal(
+        typeof tallies().find((node) => node.props.entry.id === "zero-handover")!.props.onAccept,
+        "function",
+      );
+      person.tab_pending_count = 0;
+      entries = oldRows.map((entry) => ({ ...entry, tab: { ...entry.tab, voided: true } }));
+      person.is_settled = 1;
+      await ledgerRefresh();
+      await flush();
+      assert.ok(check(), "an all-void source keeps its explicit historical clearance");
+      assert.equal(history().props.count, 0);
+      assert.equal(
+        history().props.hasHistory,
+        true,
+        "marker-only history is reachable without an invented tally count",
+      );
+      history().props.onToggle();
+      await flush();
+      assert.deepEqual(rowIds(), []);
+      assert.equal(
+        nodes(tree).filter(
+          (node) => node.type === "Text" && words(node).startsWith("tab.settle.history"),
+        ).length,
+        1,
+      );
+
+      person.is_settled = 0;
+      preLink = [
+        tally("private-new-gave", "private after close", 20, 350),
+        tally("private-new-received", "private after close", 20, 351, undefined, "payment"),
+      ];
+      await ledgerRefresh();
+      await flush();
+      assert.equal(
+        check(),
+        undefined,
+        "canonical private-source veto prevents inheriting clearance over an unmarked post-close private pair",
+      );
+      assert.equal(settleActions().length, 0);
+      person.tab_unsynced = 1;
+      await ledgerRefresh();
+      await flush();
+      assert.equal(check(), undefined);
+      assert.ok(
+        nodes(tree).some(
+          (node) => node.props.testID === "customer-balance-value-AFN" && words(node) === "…",
+        ),
+      );
+      unmount();
+    }
+  rtl = false;
+  console.log(
+    "PASS relinked settlements: original per-tab receipts/folds, neutral zero/repeated handovers, backdated and unmarked source safety, pending/private/unknown vetoes, marker-only access and source subscriptions in Android/iOS LTR/RTL",
   );
 }
 
@@ -4863,6 +5172,7 @@ async function main() {
   await unjoinedInvitationLedgerTests();
   await singleCurrencyBalanceTests();
   await aggregateCurrencyBalanceTests();
+  await relinkedSettlementHistoryTests();
   {
     fixture();
     const afn = { ...person, currency: "AFN", balance: 100 };

@@ -113,6 +113,35 @@ for (const locale of ["en", "fa", "ps"] as const) {
     blocked.props.onPress();
     assert.equal(toggles, 2, "retained disabled controls cannot collapse history mid-action");
     assert.equal(render(false, false, 0), null, "empty history adds no control or gap");
+    if (kind === "tallies") {
+      const receiptOnly = SettledHistoryToggle({
+        kind,
+        expanded: false,
+        count: 0,
+        hasHistory: true,
+        onToggle: () => toggles++,
+      });
+      assert.equal(
+        receiptOnly.type,
+        "Pressable",
+        "a cancelled chapter's receipt remains accessible",
+      );
+      assert.equal(receiptOnly.props.accessibilityLabel, language.t(labelKey(false)));
+      assert.equal(
+        receiptOnly.props.accessibilityValue,
+        undefined,
+        "do not announce an invented tally count",
+      );
+      assert.equal(
+        nodes(receiptOnly).some(
+          (node) => node.type === "Text" && typeof node.props.children === "number",
+        ),
+        false,
+        "receipt-only history has no zero or fabricated tally badge",
+      );
+      receiptOnly.props.onPress();
+      assert.equal(toggles, 3);
+    }
     assert.ok(
       nodes(render(false, false, 155)).some(
         (node) => node.type === "Text" && node.props.children === 155,
