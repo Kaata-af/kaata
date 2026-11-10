@@ -3517,7 +3517,6 @@ const profileModule = load<{ default: () => unknown }>("../../app/onboarding/pro
   },
   "../../components/Onboarding": onboardingMock,
   "react-native-safe-area-context": { SafeAreaView: "Safe" },
-  "../../components/Button": { Button: "Button" },
   "../../components/CountryPickerSheet": { CountryPickerSheet: "CountryPicker" },
   "../../components/FormField": { FormField: "FormField" },
   // The REAL rule, worded by key.
@@ -3829,7 +3828,15 @@ componentTest(
     assert.equal(profileMeta.get("pending_tab_token"), "keep-invitation");
 
     await mount();
-    const restore = render().find((node) => node.props.label === "backups.restorePersonal")!;
+    const controls = render();
+    const restore = controls.find(
+      (node) =>
+        node.type === "Pressable" && node.props.accessibilityLabel === "backups.restorePersonal",
+    )!;
+    const continueIndex = controls.findIndex(
+      (node) => node.props.label === "onboardingProfile.continue",
+    );
+    assert.ok(continueIndex >= 0 && controls.indexOf(restore) > continueIndex);
     restore.props.onPress();
     restore.props.onPress();
     await next().props.onPress();

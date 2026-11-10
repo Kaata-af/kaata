@@ -15,7 +15,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Button } from "../../components/Button";
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
 import {
@@ -41,7 +40,7 @@ import {
   inferCountryFromE164,
   normalizeOnboardingPhone,
 } from "../../lib/phone";
-import { icon } from "../../lib/tokens";
+import { icon, TOUCH_MIN } from "../../lib/tokens";
 import { useOnboardingKeyboardScroll } from "../../lib/use-onboarding-keyboard-scroll";
 
 // Onboarding identity step — name + phone. The name IS prefilled from the
@@ -310,19 +309,6 @@ export default function OnboardingProfileScreen() {
             ) : null}
           </OnboardingIntro>
 
-          <View style={styles.restoreAction}>
-            <Button
-              label={t("backups.restorePersonal")}
-              icon="folder-open-outline"
-              variant="secondary"
-              size="hero"
-              fullWidth
-              wrapLabel
-              disabled={busy}
-              onPress={onPersonalRestore}
-            />
-          </View>
-
           <FormField
             ref={nameRef}
             onFocus={() => focusInput(nameRef.current)}
@@ -437,6 +423,20 @@ export default function OnboardingProfileScreen() {
             onPress={onSubmit}
             loading={busy}
           />
+          <Pressable
+            onPress={onPersonalRestore}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={t("backups.restorePersonal")}
+            accessibilityState={{ disabled: busy }}
+            style={({ pressed }) => [
+              styles.restoreLink,
+              pressed && { backgroundColor: colors.bgMuted },
+              busy && { opacity: 0.5 },
+            ]}
+          >
+            <Text style={[textDir(isRTL), styles.restoreText]}>{t("backups.restorePersonal")}</Text>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -457,7 +457,23 @@ export default function OnboardingProfileScreen() {
 
 const styles = StyleSheet.create({
   form: { flex: 1 },
-  restoreAction: { marginBottom: 24 },
+  restoreLink: {
+    alignSelf: "center",
+    justifyContent: "center",
+    maxWidth: "100%",
+    minHeight: TOUCH_MIN,
+    marginTop: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  restoreText: {
+    fontSize: 14,
+    fontFamily: fonts.sansMedium,
+    color: colors.textSubtle,
+    textAlign: "center",
+    lineHeight: sansLineHeight(14, 20),
+  },
   identityHint: {
     fontSize: 13,
     fontFamily: fonts.sansRegular,
