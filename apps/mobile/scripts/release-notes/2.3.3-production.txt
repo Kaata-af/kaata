@@ -1,0 +1,8 @@
+Kaata 2.3.3
+
+- More reliable connections and sign-in on older Android phones.
+- Easier backup setup and restore during onboarding.
+- Larger text follows your phone settings, including notes.
+- Customer counts on Home and clear dates and times on tallies.
+- More stable search results and name search across Latin, Dari and Pashto scripts.
+- Clearer multi-currency settlement status and preserved settled history when relinking shared tallies.

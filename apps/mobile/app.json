@@ -3,7 +3,7 @@
     "name": "Kaata",
     "slug": "kaata",
     "scheme": "kaata",
-    "version": "2.3.2",
+    "version": "2.3.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -39,7 +39,7 @@
           }
         ]
       },
-      "buildNumber": "59"
+      "buildNumber": "60"
     },
     "android": {
       "package": "af.kaata.app",
@@ -64,7 +64,7 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES"
       ],
-      "versionCode": 96
+      "versionCode": 97
     },
     "web": {
       "favicon": "./assets/favicon.png"
