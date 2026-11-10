@@ -13,7 +13,7 @@ const dayLabel = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
-function Count({ label, value, detail }: { label: string; value?: number; detail?: string }) {
+function Count({ label, value, detail }: { label: string; value?: number | null; detail?: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs font-medium leading-5 text-brand-sub">{label}</dt>
@@ -58,6 +58,7 @@ export function WebAccounts({
 }) {
   const trackingStarted =
     !!usage && Date.parse(usage.tracking_started_at) <= Date.parse(usage.generated_at);
+  const returningAccounts = trackingStarted ? usage?.returning_accounts_7d : null;
   return (
     <Card
       title="Kaata Web usage"
@@ -70,7 +71,7 @@ export function WebAccounts({
         ) : null
       }
     >
-      <dl className="grid min-w-0 grid-cols-2 gap-4 lg:grid-cols-4">
+      <dl className="grid min-w-0 grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
         {usage ? (
           <Count
             label="Recently on web"
@@ -83,6 +84,19 @@ export function WebAccounts({
           value={stats.web_active_7d}
           detail="Browser check-ins and sign-ins"
         />
+        {usage ? (
+          <Count
+            label="Returning web users · 7 days"
+            value={returningAccounts}
+            detail={
+              returningAccounts == null
+                ? "Returning-user data is currently unavailable."
+                : usage.returning_7d_partial
+                  ? `Partial coverage · tracked since ${fmtDateTime(usage.tracking_started_at)} Kabul time`
+                  : "Checked in on a later Kabul day than their first web sign-in"
+            }
+          />
+        ) : null}
         {usage ? (
           <Count
             label="First web sign-ins · 7 days"
@@ -104,9 +118,11 @@ export function WebAccounts({
 }
 
 function WebUsageHistory({ usage }: { usage: WebUsage }) {
+  const hasReturningHistory = usage.days.some((day) => day.returning_accounts !== undefined);
   const data = usage.days.map((day) => ({
     date: `${dayLabel.format(new Date(day.day))}${day.is_partial ? " *" : ""}`,
     "Active web accounts": day.active_accounts,
+    "Returning web users": day.returning_accounts ?? null,
     "First web sign-ins": day.first_sign_ins,
   }));
   return (
@@ -117,12 +133,22 @@ function WebUsageHistory({ usage }: { usage: WebUsage }) {
         users trying the web for the first time. Dates use Kabul time and the latest 7 days include
         today so far.
       </p>
+      {hasReturningHistory ? (
+        <p className="mt-1 text-xs leading-5 text-brand-sub">
+          Returning users had a visible browser check-in on a later Kabul day than their first web
+          sign-in. Each account counts once in the seven-day total.
+        </p>
+      ) : null}
       <LineChart
         className="mt-3 h-48 min-w-0 max-w-full sm:h-56"
         data={data}
         index="date"
-        categories={["Active web accounts", "First web sign-ins"]}
-        colors={[C.blue, C.green]}
+        categories={
+          hasReturningHistory
+            ? ["Active web accounts", "Returning web users", "First web sign-ins"]
+            : ["Active web accounts", "First web sign-ins"]
+        }
+        colors={hasReturningHistory ? [C.blue, C.teal, C.green] : [C.blue, C.green]}
         curveType="linear"
         connectNulls={false}
         allowDecimals={false}
@@ -152,6 +178,11 @@ function WebUsageHistory({ usage }: { usage: WebUsage }) {
               <th scope="col" className="px-2 py-2 text-right font-medium">
                 Active web accounts
               </th>
+              {hasReturningHistory ? (
+                <th scope="col" className="px-2 py-2 text-right font-medium">
+                  Returning web users
+                </th>
+              ) : null}
               <th scope="col" className="py-2 pl-2 text-right font-medium">
                 First web sign-ins
               </th>
@@ -170,6 +201,9 @@ function WebUsageHistory({ usage }: { usage: WebUsage }) {
                     {fmtInt(day.active_accounts)}
                     {day.is_partial ? <span className="ml-1 text-brand-muted">partial</span> : null}
                   </td>
+                  {hasReturningHistory ? (
+                    <td className="px-2 py-2 text-right">{fmtInt(day.returning_accounts)}</td>
+                  ) : null}
                   <td className="py-2 pl-2 text-right">{fmtInt(day.first_sign_ins)}</td>
                 </tr>
               ))}

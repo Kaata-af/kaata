@@ -24,16 +24,19 @@ const eligibleWebInstallsCTE = `
 	)`
 
 type WebUsageDay struct {
-	Day            string `json:"day"`
-	ActiveAccounts *int64 `json:"active_accounts"` // null before heartbeat history began
-	FirstSignIns   int64  `json:"first_sign_ins"`
-	IsPartial      bool   `json:"is_partial"` // tracking began mid-day, or the day is ongoing
+	Day               string `json:"day"`
+	ActiveAccounts    *int64 `json:"active_accounts"` // null before heartbeat history began
+	ReturningAccounts *int64 `json:"returning_accounts"`
+	FirstSignIns      int64  `json:"first_sign_ins"`
+	IsPartial         bool   `json:"is_partial"` // tracking began mid-day, or the day is ongoing
 }
 
 type WebUsage struct {
 	GeneratedAt            string        `json:"generated_at"`
 	TrackingStartedAt      string        `json:"tracking_started_at"`
 	RecentAccounts         int64         `json:"recent_accounts"`
+	ReturningAccounts7d    *int64        `json:"returning_accounts_7d"`
+	Returning7dPartial     bool          `json:"returning_7d_partial"`
 	FirstSignIns7d         int64         `json:"first_sign_ins_7d"`
 	FirstSignInsPrevious7d int64         `json:"first_sign_ins_previous_7d"`
 	Days                   []WebUsageDay `json:"days"`
@@ -55,33 +58,44 @@ func (s *Service) GetWebUsage(ctx context.Context) (WebUsage, error) {
 		  SELECT clock.today - offset_days AS day
 		  FROM clock CROSS JOIN generate_series(0, $3::int - 1) AS offset_days
 		), first_sign_ins AS (
-		  SELECT (MIN(first_seen_at) AT TIME ZONE 'Asia/Kabul')::date AS day
+		  SELECT resolved_account_id AS account_id,
+		         (MIN(first_seen_at) AT TIME ZONE 'Asia/Kabul')::date AS day
 		  FROM report_web_installs CROSS JOIN clock
 		  WHERE first_seen_at <= clock.now_at
 		  GROUP BY resolved_account_id
 		), first_sign_in_days AS (
 		  SELECT day, COUNT(*) AS accounts FROM first_sign_ins GROUP BY day
 		), activity AS (
-		  SELECT d.account_id, d.active_day, d.last_seen_at
+		  SELECT d.account_id, d.active_day, d.last_seen_at, d.active_day > f.day AS is_returning
 		  FROM web_workspace_days d
 		  JOIN report_web_installs w ON w.install_id = d.install_id AND w.resolved_account_id = d.account_id
+		  LEFT JOIN first_sign_ins f ON f.account_id = d.account_id
 		  CROSS JOIN clock
 		  WHERE d.active_day BETWEEN clock.today - ($3::int - 1) AND clock.today
 		    AND d.last_seen_at BETWEEN clock.started_at AND clock.now_at
 		), activity_days AS (
-		  SELECT active_day, COUNT(DISTINCT account_id) AS accounts FROM activity GROUP BY active_day
-		), recent AS (
-		  SELECT COUNT(DISTINCT account_id) AS accounts FROM activity CROSS JOIN clock
-		  WHERE last_seen_at >= clock.now_at - INTERVAL '5 minutes'
+		  SELECT active_day, COUNT(DISTINCT account_id) AS accounts,
+		         COUNT(DISTINCT account_id) FILTER (WHERE is_returning) AS returning_accounts
+		  FROM activity GROUP BY active_day
+		), activity_totals AS (
+		  SELECT COUNT(DISTINCT account_id) FILTER (
+		           WHERE last_seen_at >= clock.now_at - INTERVAL '5 minutes') AS recent_accounts,
+		         COUNT(DISTINCT account_id) FILTER (
+		           WHERE is_returning AND active_day >= clock.today - 6) AS returning_accounts_7d
+		  FROM activity CROSS JOIN clock
 		)
 		SELECT to_char(d.day, 'YYYY-MM-DD'),
 		       CASE WHEN d.day >= c.started_day AND c.started_at <= c.now_at THEN COALESCE(a.accounts, 0) END,
+		       CASE WHEN d.day >= c.started_day AND c.started_at <= c.now_at THEN COALESCE(a.returning_accounts, 0) END,
 		       COALESCE(f.accounts, 0),
 		       COALESCE(c.started_at <= c.now_at AND d.day >= c.started_day
 		         AND (d.day = c.today OR (d.day = c.started_day
 		           AND c.started_at > (d.day::timestamp AT TIME ZONE 'Asia/Kabul'))), false),
-		       c.started_at, r.accounts
-		FROM dates d CROSS JOIN clock c CROSS JOIN recent r
+		       c.started_at, totals.recent_accounts,
+		       CASE WHEN c.started_at <= c.now_at THEN totals.returning_accounts_7d END,
+		       COALESCE(c.started_at <= c.now_at
+		         AND c.started_at > ((c.today - 6)::timestamp AT TIME ZONE 'Asia/Kabul'), false)
+		FROM dates d CROSS JOIN clock c CROSS JOIN activity_totals totals
 		LEFT JOIN first_sign_in_days f ON f.day = d.day
 		LEFT JOIN activity_days a ON a.active_day = d.day
 		ORDER BY d.day
@@ -93,8 +107,8 @@ func (s *Service) GetWebUsage(ctx context.Context) (WebUsage, error) {
 	var trackingStartedAt *time.Time
 	for rows.Next() {
 		var day WebUsageDay
-		if err := rows.Scan(&day.Day, &day.ActiveAccounts, &day.FirstSignIns, &day.IsPartial,
-			&trackingStartedAt, &usage.RecentAccounts); err != nil {
+		if err := rows.Scan(&day.Day, &day.ActiveAccounts, &day.ReturningAccounts, &day.FirstSignIns, &day.IsPartial,
+			&trackingStartedAt, &usage.RecentAccounts, &usage.ReturningAccounts7d, &usage.Returning7dPartial); err != nil {
 			return WebUsage{}, err
 		}
 		usage.Days = append(usage.Days, day)

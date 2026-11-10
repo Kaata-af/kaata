@@ -6,6 +6,7 @@ import { reportingDay } from "./dates";
 export type WebUsageDay = {
   day: string;
   active_accounts: number | null;
+  returning_accounts?: number | null;
   first_sign_ins: number;
   is_partial: boolean;
 };
@@ -14,6 +15,8 @@ export type WebUsage = {
   generated_at: string;
   tracking_started_at: string;
   recent_accounts: number;
+  returning_accounts_7d?: number | null;
+  returning_7d_partial?: boolean;
   first_sign_ins_7d: number;
   first_sign_ins_previous_7d: number;
   days: WebUsageDay[];
@@ -28,6 +31,8 @@ export function parseWebUsage(value: unknown): WebUsage {
   if (
     !report ||
     !isCount(report.recent_accounts) ||
+    (report.returning_accounts_7d != null && !isCount(report.returning_accounts_7d)) ||
+    (report.returning_7d_partial !== undefined && typeof report.returning_7d_partial !== "boolean") ||
     !isCount(report.first_sign_ins_7d) ||
     !isCount(report.first_sign_ins_previous_7d) ||
     typeof report.generated_at !== "string" ||
@@ -41,6 +46,7 @@ export function parseWebUsage(value: unknown): WebUsage {
         typeof day.day !== "string" ||
         reportingDay(day.day) !== day.day ||
         (day.active_accounts !== null && !isCount(day.active_accounts)) ||
+        (day.returning_accounts != null && !isCount(day.returning_accounts)) ||
         !isCount(day.first_sign_ins) ||
         typeof day.is_partial !== "boolean",
     )
