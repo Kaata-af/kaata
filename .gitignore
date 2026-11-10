@@ -61,6 +61,8 @@ yarn-error.*
 .DS_Store
 Thumbs.db
 *.pem
+# Reviewed public CA certificate; contains no private key.
+!apps/mobile/plugins/certificates/isrg_root_x1.pem
 
 # typescript
 *.tsbuildinfo
