@@ -64,6 +64,7 @@ export type UserFilters = {
     | "all"
     | "online"
     | "web-recent"
+    | "web-today"
     | "phone-recent"
     | "today"
     | "7d"
@@ -124,6 +125,11 @@ export const PRESETS = [
     description: "Signed-in accounts with a visible web check-in in the last 5 minutes.",
   },
   {
+    id: "web-today",
+    label: "On web today",
+    description: "Signed-in accounts with a visible web check-in today, using Kabul time.",
+  },
+  {
     id: "onboarding",
     label: "Not onboarded",
     description:
@@ -134,7 +140,8 @@ export type UserPreset = (typeof PRESETS)[number]["id"];
 
 export function presetFilters(preset: UserPreset): UserFilters {
   if (preset === "active") return { ...DEFAULT_FILTERS, activity: "7d" };
-  if (preset === "web-recent") return { ...DEFAULT_FILTERS, activity: "web-recent" };
+  if (preset === "web-recent" || preset === "web-today")
+    return { ...DEFAULT_FILTERS, activity: preset };
   if (preset === "onboarding")
     return { ...DEFAULT_FILTERS, onboarding: "incomplete", includeUnidentified: true };
   return { ...DEFAULT_FILTERS };
@@ -253,21 +260,42 @@ export function isRecentChannelActivity(at: string | undefined, now: number): bo
   return timestamp <= now && timestamp >= now - 5 * 60_000;
 }
 
+export type ActivityChannel = "any" | "web" | "phone";
+
+export function activityChannel(
+  activity: UserFilters["activity"],
+  platform: string,
+): ActivityChannel {
+  if (activity === "web-recent" || activity === "web-today") return "web";
+  if (activity === "phone-recent") return "phone";
+  // A platform filter alone includes everyone who has ever used that platform.
+  return platform === "web" && activity !== "all" ? "web" : "any";
+}
+
+export function lastSeenAt(row: UserListRow, channel: ActivityChannel): string {
+  if (channel === "web") return row.last_web_active_at ?? "";
+  if (channel === "phone") return row.last_mobile_seen_at ?? "";
+  return row.last_seen;
+}
+
 export function matchesActivity(
   row: UserListRow,
   activity: UserFilters["activity"],
   now: number,
+  channel = activityChannel(activity, ""),
 ): boolean {
   if (activity === "all") return true;
-  if (activity === "web-recent") return isRecentChannelActivity(row.last_web_active_at, now);
-  if (activity === "phone-recent") return isRecentChannelActivity(row.last_mobile_seen_at, now);
-  const timestamp = Date.parse(row.last_seen);
+  const at = lastSeenAt(row, channel);
+  if (activity === "web-recent" || activity === "phone-recent")
+    return isRecentChannelActivity(at, now);
+  const timestamp = Date.parse(at);
   const known = Number.isFinite(timestamp) && timestamp <= now;
   if (activity === "never") return !known;
   if (!known) return false;
   const age = now - timestamp;
   if (activity === "online") return age < 10 * 60_000;
-  if (activity === "today") return reportingDay(timestamp) === reportingDay(now);
+  if (activity === "today" || activity === "web-today")
+    return reportingDay(timestamp) === reportingDay(now);
   if (activity === "7d") return age < 7 * 86_400_000;
   if (activity === "30d") return age < 30 * 86_400_000;
   return age >= 7 * 86_400_000;
@@ -327,12 +355,13 @@ export function filterUsers(
   now: number,
 ) {
   const minimumVersion = filters.versionOrNewer ? parseAppVersion(filters.version) : null;
+  const channel = activityChannel(filters.activity, filters.platform);
   const candidates = rows.filter((row) => {
     if (filters.signIn === "signed-in" && row.kind !== "account") return false;
     if (filters.signIn === "signed-out" && row.kind !== "install") return false;
     if (filters.onboarding !== "all" && row.onboarded !== (filters.onboarding === "complete"))
       return false;
-    if (!matchesActivity(row, filters.activity, now)) return false;
+    if (!matchesActivity(row, filters.activity, now, channel)) return false;
     if (filters.platform && !platformFacets(row.platforms).includes(filters.platform)) return false;
     if (filters.source && filters.source !== (row.source || "__unknown__")) return false;
     if (minimumVersion && !matchesMinimumVersion(row.version, minimumVersion)) return false;
@@ -362,12 +391,17 @@ export function filterUsers(
   };
 }
 
-export function sortUsers(rows: UserListRow[], key: SortKey, descending: boolean): UserListRow[] {
+export function sortUsers(
+  rows: UserListRow[],
+  key: SortKey,
+  descending: boolean,
+  channel: ActivityChannel = "any",
+): UserListRow[] {
   const direction = descending ? -1 : 1;
   const value = (row: UserListRow): string | number | null => {
     if (key === "name") return row.name || row.shop || row.email || row.phone || null;
     if (key === "last_seen" || key === "installed_at") {
-      const time = Date.parse(row[key]);
+      const time = Date.parse(key === "last_seen" ? lastSeenAt(row, channel) : row.installed_at);
       return Number.isFinite(time) ? time : null;
     }
     return row[key];
@@ -415,6 +449,7 @@ export function parsePreferences(value: unknown): UserPreferences {
       "all",
       "online",
       "web-recent",
+      "web-today",
       "phone-recent",
       "today",
       "7d",

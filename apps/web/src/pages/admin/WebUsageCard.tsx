@@ -1,7 +1,8 @@
-import { LineChart } from "@tremor/react";
+import { BarChart, LineChart } from "@tremor/react";
 import type { ReactNode } from "react";
 import { Button } from "../../components/ui/button";
 import type { Stats } from "./api";
+import { reportingDay } from "./dates";
 import { C, Card, ErrorCard, fmtDateTime, fmtInt } from "./ui";
 import { type WebUsage, useWebUsage } from "./web-usage";
 
@@ -13,7 +14,15 @@ const dayLabel = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
-function Count({ label, value, detail }: { label: string; value?: number | null; detail?: string }) {
+function Count({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value?: number | null;
+  detail?: string;
+}) {
   return (
     <div className="min-w-0">
       <dt className="text-xs font-medium leading-5 text-brand-sub">{label}</dt>
@@ -65,9 +74,14 @@ export function WebAccounts({
       sub="Signed-in accounts, counted once across browsers, including people who also use the mobile app."
       action={
         trackingStarted ? (
-          <Button asChild variant="outline" className="min-h-11">
-            <a href="#users?view=web-recent">View recent web users</a>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline" className="min-h-11">
+              <a href="#users?view=web-today">View today’s web users</a>
+            </Button>
+            <Button asChild variant="ghost" className="min-h-11">
+              <a href="#users?view=web-recent">View recent web users</a>
+            </Button>
+          </div>
         ) : null
       }
     >
@@ -119,49 +133,100 @@ export function WebAccounts({
 
 function WebUsageHistory({ usage }: { usage: WebUsage }) {
   const hasReturningHistory = usage.days.some((day) => day.returning_accounts !== undefined);
-  const data = usage.days.map((day) => ({
-    date: `${dayLabel.format(new Date(day.day))}${day.is_partial ? " *" : ""}`,
-    "Active web accounts": day.active_accounts,
-    "Returning web users": day.returning_accounts ?? null,
+  const firstSignIns = usage.days.map((day) => ({
+    date: dayLabel.format(new Date(day.day)),
     "First web sign-ins": day.first_sign_ins,
   }));
+  const browserActivity = usage.days
+    .filter((day) => day.active_accounts !== null)
+    .map((day) => ({
+      date: `${dayLabel.format(new Date(day.day))}${day.is_partial ? " *" : ""}`,
+      "Active web accounts": day.active_accounts,
+      "Returning web users": day.returning_accounts ?? null,
+    }));
+  const todayDate = reportingDay(usage.generated_at);
+  const today = usage.days.find((day) => day.day === todayDate);
+  const hasBrowserActivity = browserActivity.some((day) => (day["Active web accounts"] ?? 0) > 0);
+
   return (
     <div className="mt-5 min-w-0 border-t border-brand-border pt-4">
       <h3 className="text-sm font-semibold text-brand-ink">Daily web usage · 30 days</h3>
       <p className="mt-1 text-xs leading-5 text-brand-sub">
-        Active accounts checked in from a visible browser. First web sign-ins include existing Kaata
-        users trying the web for the first time. Dates use Kabul time and the latest 7 days include
-        today so far.
+        Dates use Kabul time. The latest 7 days include today so far.
       </p>
-      {hasReturningHistory ? (
-        <p className="mt-1 text-xs leading-5 text-brand-sub">
-          Returning users had a visible browser check-in on a later Kabul day than their first web
-          sign-in. Each account counts once in the seven-day total.
-        </p>
-      ) : null}
-      <LineChart
-        className="mt-3 h-48 min-w-0 max-w-full sm:h-56"
-        data={data}
-        index="date"
-        categories={
-          hasReturningHistory
-            ? ["Active web accounts", "Returning web users", "First web sign-ins"]
-            : ["Active web accounts", "First web sign-ins"]
-        }
-        colors={hasReturningHistory ? [C.blue, C.teal, C.green] : [C.blue, C.green]}
-        curveType="linear"
-        connectNulls={false}
-        allowDecimals={false}
-        valueFormatter={fmtInt}
-        yAxisWidth={40}
-        showAnimation={false}
-        tickGap={28}
-      />
-      <p className="mt-2 text-xs leading-5 text-brand-muted">
-        {usage.tracking_started_at
-          ? `Daily activity tracking began ${fmtDateTime(usage.tracking_started_at)} Kabul time. Earlier activity is unavailable. * marks a partial day of activity tracking.`
-          : "Daily browser activity is unavailable for this period."}
-      </p>
+      <div className="mt-3 grid min-w-0 gap-3 lg:grid-cols-2">
+        <section className="min-w-0 rounded-lg border border-brand-border p-3 sm:p-4">
+          <h4 className="text-sm font-semibold text-brand-ink">Browser activity</h4>
+          <p className="mt-1 text-xs leading-5 text-brand-sub">
+            Active accounts checked in from a visible browser.
+            {hasReturningHistory
+              ? " Returning users checked in on a later Kabul day than their first web sign-in. Each account counts once in the seven-day total."
+              : ""}
+          </p>
+          {today?.active_accounts != null ? (
+            <div className="mt-3 rounded-md bg-brand-faint px-3 py-2">
+              <p className="text-xs font-medium text-brand-ink">Today so far</p>
+              <dl className="mt-1 grid grid-cols-2 gap-3">
+                <Count label="Active web accounts" value={today.active_accounts} />
+                {hasReturningHistory ? (
+                  <Count label="Returning web users" value={today.returning_accounts} />
+                ) : null}
+              </dl>
+            </div>
+          ) : null}
+          {hasBrowserActivity ? (
+            <BarChart
+              role="region"
+              aria-label="Browser activity by tracked Kabul date"
+              className="mt-3 h-40 min-w-0 max-w-full sm:h-48"
+              data={browserActivity}
+              index="date"
+              categories={
+                hasReturningHistory
+                  ? ["Active web accounts", "Returning web users"]
+                  : ["Active web accounts"]
+              }
+              colors={hasReturningHistory ? [C.blue, C.teal] : [C.blue]}
+              allowDecimals={false}
+              valueFormatter={fmtInt}
+              yAxisWidth={32}
+              showAnimation={false}
+              tickGap={20}
+            />
+          ) : browserActivity.length ? (
+            <p className="mt-3 text-xs text-brand-sub">
+              No browser check-ins recorded on tracked days yet.
+            </p>
+          ) : null}
+          <p className="mt-2 text-xs leading-5 text-brand-muted">
+            {usage.tracking_started_at
+              ? `Daily activity tracking began ${fmtDateTime(usage.tracking_started_at)} Kabul time. Earlier activity is unavailable. * marks a partial day of activity tracking.`
+              : "Daily browser activity is unavailable for this period."}
+          </p>
+        </section>
+        <section className="min-w-0 rounded-lg border border-brand-border p-3 sm:p-4">
+          <h4 className="text-sm font-semibold text-brand-ink">First web sign-ins</h4>
+          <p className="mt-1 text-xs leading-5 text-brand-sub">
+            Includes existing Kaata users trying the web for the first time.
+          </p>
+          <LineChart
+            role="region"
+            aria-label="First web sign-ins by Kabul date"
+            className="mt-3 h-48 min-w-0 max-w-full sm:h-56"
+            data={firstSignIns}
+            index="date"
+            categories={["First web sign-ins"]}
+            colors={[C.green]}
+            curveType="linear"
+            allowDecimals={false}
+            valueFormatter={fmtInt}
+            yAxisWidth={32}
+            showAnimation={false}
+            showLegend={false}
+            tickGap={20}
+          />
+        </section>
+      </div>
       <details className="mt-3 border-t border-brand-border pt-2">
         <summary className="cursor-pointer py-2 text-xs font-medium text-brand-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary">
           View daily counts

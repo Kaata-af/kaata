@@ -32,6 +32,7 @@ test("recent browser check-ins link to the matching users and first sign-ins sho
     <WebAccounts stats={{ web_accounts_total: 31, web_active_7d: 14 }} usage={report} />,
   );
   assert.match(html, /Recently on web<\/dt><dd[^>]*>3<\/dd>/);
+  assert.match(html, /href="#users\?view=web-today"[^>]*>View today’s web users/);
   assert.match(html, /href="#users\?view=web-recent"[^>]*>View recent web users/);
   assert.match(html, /Visible browser check-in in the last 5 minutes/);
   assert.match(html, /First web sign-ins · 7 days<\/dt><dd[^>]*>10<\/dd>/);
@@ -63,6 +64,39 @@ test("returning users show observed totals and keep unobserved days distinct fro
   assert.match(html, /scope="col"[^>]*>Returning web users<\/th>/);
   assert.match(html, /Nov 8, 2026<\/th><td[^>]*>—<\/td><td[^>]*>—<\/td>/);
   assert.match(html, /Nov 9, 2026<\/th><td[^>]*>0<span[^>]*>partial<\/span><\/td><td[^>]*>0<\/td>/);
+});
+
+test("browser activity and sign-ins have separate views when only today is tracked", () => {
+  const onlyToday = (count: number): WebUsage => ({
+    ...returningReport,
+    // The report was generated Nov 10 in Kabul, while it was still Nov 9 in UTC.
+    generated_at: "2026-11-09T20:00:00Z",
+    tracking_started_at: "2026-11-09T19:35:00Z",
+    days: [
+      { ...returningReport.days[0] },
+      {
+        ...returningReport.days[1],
+        active_accounts: null,
+        returning_accounts: null,
+        is_partial: false,
+      },
+      { ...returningReport.days[2], active_accounts: count, returning_accounts: count },
+    ],
+  });
+
+  const noCheckIns = renderToStaticMarkup(<WebAccounts stats={{}} usage={onlyToday(0)} />);
+  assert.match(noCheckIns, /Today so far/);
+  assert.match(noCheckIns, /Active web accounts<\/dt><dd[^>]*>0<\/dd>/);
+  assert.match(noCheckIns, /Returning web users<\/dt><dd[^>]*>0<\/dd>/);
+  assert.match(noCheckIns, /No browser check-ins recorded on tracked days yet/);
+  assert.doesNotMatch(noCheckIns, /aria-label="Browser activity by tracked Kabul date"/);
+  assert.match(noCheckIns, /aria-label="First web sign-ins by Kabul date"/);
+
+  const matchingCounts = renderToStaticMarkup(<WebAccounts stats={{}} usage={onlyToday(2)} />);
+  assert.match(matchingCounts, /Active web accounts<\/dt><dd[^>]*>2<\/dd>/);
+  assert.match(matchingCounts, /Returning web users<\/dt><dd[^>]*>2<\/dd>/);
+  assert.match(matchingCounts, /aria-label="Browser activity by tracked Kabul date"/);
+  assert.match(matchingCounts, /aria-label="First web sign-ins by Kabul date"/);
 });
 
 test("returning user parsing accepts a true zero and rejects invalid counts and coverage", () => {
@@ -97,4 +131,5 @@ test("missing tracking metadata keeps browser presence unknown while showing fir
   assert.match(html, /Daily browser activity is unavailable for this period/);
   assert.match(html, /First web sign-ins · 7 days<\/dt><dd[^>]*>10<\/dd>/);
   assert.doesNotMatch(html, /View recent web users/);
+  assert.doesNotMatch(html, /View today’s web users/);
 });

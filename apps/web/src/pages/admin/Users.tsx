@@ -13,10 +13,12 @@ import { platformFacets, platformLabel, platformsLabel } from "./platforms";
 import {
   DEFAULT_FILTERS,
   PRESETS,
+  activityChannel,
   activePreset,
   filterUsers,
   isIdentified,
   isRecentChannelActivity,
+  lastSeenAt,
   matchesActivity,
   parseAppVersion,
   parsePreferences,
@@ -26,6 +28,7 @@ import {
   reportedRows,
   sortUsers,
   userRows,
+  type ActivityChannel,
   type SortKey,
   type UserFilters,
   type UserListRow,
@@ -84,9 +87,10 @@ const SELECTS: {
     options: [
       ["all", "Any time"],
       ["online", "Within 10 minutes"],
+      ["today", "Today · Kabul"],
+      ["web-today", "Web today · Kabul"],
       ["web-recent", "Web in last 5 minutes"],
       ["phone-recent", "Phone in last 5 minutes"],
-      ["today", "Today · Kabul"],
       ["7d", "Within 7 days"],
       ["30d", "Within 30 days"],
       ["inactive", "7+ days ago"],
@@ -197,8 +201,9 @@ export function Users() {
   // Fresh query results can contain check-ins after the last local clock tick.
   const now = Math.max(clockTick, users.dataUpdatedAt);
   const selectedPreset = activePreset(filters);
+  const channel = activityChannel(filters.activity, filters.platform);
   const webActivityUnavailable =
-    filters.activity === "web-recent" &&
+    channel === "web" &&
     !!users.data?.users.length &&
     users.data.users.every((user) => user.last_web_active_at === undefined);
   const allRows = useMemo(() => userRows(users.data), [users.data]);
@@ -207,8 +212,8 @@ export function Users() {
     [allRows, filters, search, now],
   );
   const sorted = useMemo(
-    () => sortUsers(result.visible, sortKey, sortDesc),
-    [result.visible, sortKey, sortDesc],
+    () => sortUsers(result.visible, sortKey, sortDesc, channel),
+    [result.visible, sortKey, sortDesc, channel],
   );
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const currentPage = Math.min(page, pageCount - 1);
@@ -466,7 +471,7 @@ export function Users() {
                       />
                     ))}
                     <FilterSelect
-                      label="Platform"
+                      label="Platform used"
                       value={filters.platform}
                       options={facetOptions("platform", filters.platform)}
                       onChange={(platform) => updateFilters({ platform })}
@@ -513,6 +518,11 @@ export function Users() {
                       />
                     ))}
                   </div>
+                  {filters.platform === "web" ? (
+                    <p className="mt-2 text-xs leading-5 text-brand-muted">
+                      With Web selected, general last-seen filters use browser check-ins.
+                    </p>
+                  ) : null}
                   <div className="mt-4 border-t border-brand-border pt-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="text-xs font-semibold text-brand-sub">
@@ -677,7 +687,10 @@ export function Users() {
                     value={sortKey}
                     onValueChange={(value) => sortBy(value as SortKey)}
                     className="min-h-11 min-w-0 w-auto max-w-full rounded-md border border-brand-border bg-white px-2 py-1.5 text-base text-brand-ink focus-visible:outline-brand-primary md:text-xs"
-                    options={SORT_OPTIONS.map(([value, label]) => ({ value, label }))}
+                    options={SORT_OPTIONS.map(([value, label]) => ({
+                      value,
+                      label: value === "last_seen" ? lastSeenLabel(channel) : label,
+                    }))}
                   />
                 </label>
                 <button
@@ -694,6 +707,7 @@ export function Users() {
               <UserResults
                 rows={pageRows}
                 now={now}
+                channel={channel}
                 sortKey={sortKey}
                 sortDesc={sortDesc}
                 onSort={sortBy}
@@ -826,7 +840,7 @@ function filterChips(filters: UserFilters): { key: keyof UserFilters; label: str
       });
   }
   for (const [key, label] of [
-    ["platform", "Platform"],
+    ["platform", "Platform used"],
     ["language", "Language"],
     ["source", "Source"],
   ] as const) {
@@ -915,6 +929,7 @@ const HEADERS: { label: string; key?: SortKey; className?: string }[] = [
 type UserResultsProps = {
   rows: UserListRow[];
   now: number;
+  channel: ActivityChannel;
   sortKey: SortKey;
   sortDesc: boolean;
   onSort: (key: SortKey) => void;
@@ -956,7 +971,34 @@ function ChannelSeen({ label, at, now }: { label: "Web" | "Phone"; at?: string; 
   );
 }
 
-function LastSeenChannels({ row, now }: { row: UserListRow; now: number }) {
+function lastSeenLabel(channel: ActivityChannel): string {
+  if (channel === "web") return "Last web check-in";
+  if (channel === "phone") return "Last phone check-in";
+  return "Last seen";
+}
+
+function lastSeenDisplay(row: UserListRow, channel: ActivityChannel, now: number) {
+  const at = lastSeenAt(row, channel);
+  const timestamp = Date.parse(at);
+  if (!Number.isFinite(timestamp) || timestamp > now)
+    return { at: "", label: "Not recorded", online: false };
+  const seen = lastSeenInfo(at);
+  return {
+    at,
+    label: seen.label,
+    online: channel === "any" ? seen.online : isRecentChannelActivity(at, now),
+  };
+}
+
+function LastSeenChannels({
+  row,
+  now,
+  channel,
+}: {
+  row: UserListRow;
+  now: number;
+  channel: ActivityChannel;
+}) {
   if (
     row.kind !== "account" ||
     (row.last_web_active_at === undefined && row.last_mobile_seen_at === undefined)
@@ -964,8 +1006,10 @@ function LastSeenChannels({ row, now }: { row: UserListRow; now: number }) {
     return null;
   return (
     <div className="mt-1 text-[11px] font-normal leading-5 text-brand-sub">
-      <ChannelSeen label="Web" at={row.last_web_active_at} now={now} />
-      <ChannelSeen label="Phone" at={row.last_mobile_seen_at} now={now} />
+      {channel !== "web" ? <ChannelSeen label="Web" at={row.last_web_active_at} now={now} /> : null}
+      {channel !== "phone" ? (
+        <ChannelSeen label="Phone" at={row.last_mobile_seen_at} now={now} />
+      ) : null}
     </div>
   );
 }
@@ -987,11 +1031,7 @@ function UserCards(props: UserResultsProps) {
       {props.rows.map((row) => {
         const open = !!props.expanded[row.id];
         const detailsId = `user-card-details-${row.id}`;
-        const seenValid =
-          Number.isFinite(Date.parse(row.last_seen)) && Date.parse(row.last_seen) <= props.now;
-        const seen = seenValid
-          ? lastSeenInfo(row.last_seen)
-          : { label: "Not recorded", online: false };
+        const seen = lastSeenDisplay(row, props.channel, props.now);
         return (
           <article
             key={row.id}
@@ -1039,7 +1079,7 @@ function UserCards(props: UserResultsProps) {
             </div>
             <dl className="mt-4 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-y border-brand-faint py-3">
               <div className="min-w-0">
-                <dt className="text-[11px] text-brand-muted">Last seen</dt>
+                <dt className="text-[11px] text-brand-muted">{lastSeenLabel(props.channel)}</dt>
                 <dd className="mt-1 min-w-0 text-sm font-medium text-brand-ink">
                   <span className="flex min-w-0 items-center gap-1.5">
                     {seen.online ? (
@@ -1047,12 +1087,12 @@ function UserCards(props: UserResultsProps) {
                     ) : null}
                     <span className="[overflow-wrap:anywhere]">{seen.label}</span>
                   </span>
-                  {seenValid ? (
+                  {seen.at ? (
                     <span className="mt-0.5 block text-[11px] font-normal leading-5 text-brand-muted [overflow-wrap:anywhere]">
-                      {fmtDateTime(row.last_seen)}
+                      {fmtDateTime(seen.at)}
                     </span>
                   ) : null}
-                  <LastSeenChannels row={row} now={props.now} />
+                  <LastSeenChannels row={row} now={props.now} channel={props.channel} />
                 </dd>
               </div>
               <div className="min-w-0">
@@ -1139,7 +1179,7 @@ function UsersTable(props: UserResultsProps) {
                     className="inline-flex items-center gap-1 rounded focus-visible:outline-2 focus-visible:outline-brand-primary"
                     onClick={() => props.onSort(column.key!)}
                   >
-                    {column.label}
+                    {column.key === "last_seen" ? lastSeenLabel(props.channel) : column.label}
                     <span
                       className={
                         column.key === props.sortKey ? "text-brand-ink" : "text-neutral-300"
@@ -1160,11 +1200,7 @@ function UsersTable(props: UserResultsProps) {
         <tbody>
           {props.rows.map((row) => {
             const open = !!props.expanded[row.id];
-            const seenValid =
-              Number.isFinite(Date.parse(row.last_seen)) && Date.parse(row.last_seen) <= props.now;
-            const seen = seenValid
-              ? lastSeenInfo(row.last_seen)
-              : { label: "Not recorded", online: false };
+            const seen = lastSeenDisplay(row, props.channel, props.now);
             const detailsId = `user-details-${row.id}`;
             return (
               <Fragment key={row.id}>
@@ -1240,12 +1276,12 @@ function UsersTable(props: UserResultsProps) {
                         seen.label
                       )}
                     </div>
-                    {seenValid ? (
+                    {seen.at ? (
                       <p className="mt-1 whitespace-nowrap text-[11px] text-neutral-400">
-                        {fmtDateTime(row.last_seen)}
+                        {fmtDateTime(seen.at)}
                       </p>
                     ) : null}
-                    <LastSeenChannels row={row} now={props.now} />
+                    <LastSeenChannels row={row} now={props.now} channel={props.channel} />
                   </td>
                   <td className="px-4 py-4 text-right">
                     <p className="text-sm font-semibold tabular-nums text-brand-ink">

@@ -4,6 +4,7 @@ import type { InstallRow, UserRow, UsersResult } from "./api";
 import { accountPlatforms, platformFacets, platformsLabel } from "./platforms.ts";
 import {
   DEFAULT_FILTERS,
+  activityChannel,
   activePreset,
   filterUsers,
   installTime,
@@ -397,6 +398,76 @@ test("recent web and phone activity uses separate check-ins instead of linked or
     parsePreferences({ filters: { activity: "phone-recent" } }).filters.activity,
     "phone-recent",
   );
+});
+
+test("web today requires a browser check-in on the current Kabul day and sorts by it", () => {
+  const phoneSeen = "2026-09-13T19:59:00Z";
+  const rows = userRows(
+    data(
+      [],
+      [
+        account({
+          account_id: "phone-today",
+          platforms: ["ios", "web"],
+          last_seen: phoneSeen,
+          last_mobile_seen_at: phoneSeen,
+        }),
+        account({ account_id: "auth-only", platform: "web", last_seen: phoneSeen }),
+        account({
+          account_id: "web-yesterday",
+          platform: "web",
+          last_seen: phoneSeen,
+          last_web_active_at: "2026-09-13T19:29:59Z",
+        }),
+        account({
+          account_id: "web-at-midnight",
+          platforms: ["ios", "web"],
+          last_seen: phoneSeen,
+          last_mobile_seen_at: phoneSeen,
+          last_web_active_at: "2026-09-13T19:30:00Z",
+        }),
+        account({
+          account_id: "web-later",
+          platform: "web",
+          last_seen: "2026-09-13T19:45:00Z",
+          last_web_active_at: "2026-09-13T19:45:00Z",
+        }),
+        account({
+          account_id: "future",
+          platform: "web",
+          last_web_active_at: "2026-09-13T20:00:01Z",
+        }),
+        account({ account_id: "invalid", platform: "web", last_web_active_at: "invalid" }),
+      ],
+    ),
+  );
+  const filters = presetFilters("web-today");
+  const expected = ["a:web-at-midnight", "a:web-later"];
+  for (const selection of [
+    filters,
+    { ...DEFAULT_FILTERS, activity: "today" as const, platform: "web" },
+  ]) {
+    const { visible } = filterUsers(rows, selection, "", NOW);
+    assert.deepEqual(
+      visible.map((row) => row.id),
+      expected,
+    );
+    assert.deepEqual(
+      sortUsers(
+        visible,
+        "last_seen",
+        true,
+        activityChannel(selection.activity, selection.platform),
+      ).map((row) => row.id),
+      [...expected].reverse(),
+    );
+  }
+  assert.equal(
+    filterUsers(rows, { ...DEFAULT_FILTERS, platform: "web" }, "", NOW).visible.length,
+    rows.length,
+  );
+  assert.equal(activePreset(filters), "web-today");
+  assert.equal(parsePreferences({ filters }).filters.activity, "web-today");
 });
 
 test("active and onboarding presets have explicit useful definitions", () => {
