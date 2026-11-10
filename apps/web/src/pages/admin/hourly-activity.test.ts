@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   busiestHours,
+  hasRecognizedDeviceCounts,
   hourlyProfile,
   hourlyTimeline,
   type HourlyStats,
@@ -153,6 +154,27 @@ test("averages include fully tracked zeroes and compare different sample counts 
   assert.equal(profile[9].activitySamples, 1);
   assert.deepEqual(busiestHours(profile, "active"), { hours: [9], average: 4 });
   assert.deepEqual(busiestHours(profile, "installs"), { hours: [9], average: 4 });
+});
+
+test("recognized devices preserve zeroes and unknown periods separately from raw setups", () => {
+  const input = stats({
+    series: [
+      { t: "2026-10-13T08:00", installs: 4, active: 4 },
+      { t: "2026-10-14T08:00", installs: 2, active: 2, first_recognized_devices: 0 },
+      { t: "2026-10-15T08:00", installs: 6, active: 6, first_recognized_devices: 2 },
+    ],
+  });
+  assert.equal(hasRecognizedDeviceCounts(stats().series), false);
+  assert.equal(hasRecognizedDeviceCounts(input.series), true);
+  assert.deepEqual(
+    hourlyTimeline(input).map((point) => point.recognizedDevices),
+    [null, 0, 2],
+  );
+  const profile = hourlyProfile(input);
+  assert.equal(profile[8].installAverage, 4);
+  assert.equal(profile[8].recognizedDeviceAverage, 1);
+  assert.equal(profile[8].recognizedDeviceSamples, 2);
+  assert.deepEqual(busiestHours(profile, "recognizedDevices"), { hours: [8], average: 1 });
 });
 
 test("all positive ties remain explicit and zero-only profiles do not name a busiest hour", () => {

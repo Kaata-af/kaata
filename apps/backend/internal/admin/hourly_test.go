@@ -86,6 +86,9 @@ func TestHourlyStatsEffectiveInstallTimeAndTimezone(t *testing.T) {
 	}
 	account := seedActivityAccount(t, pool)
 	fastClock := seedActivityInstall(t, pool, &account, "2026-10-14T19:29:57Z")
+	if _, err := pool.Exec(ctx, `UPDATE accounts SET created_at='2026-10-14T19:29:57Z' WHERE id=$1`, account); err != nil {
+		t.Fatal(err)
+	}
 	earlierDevice := seedActivityInstall(t, pool, nil, "2026-10-14T19:45:12Z")
 	missingTime := seedActivityInstall(t, pool, nil, "2026-10-14T19:30:04Z")
 	futureObserved := seedActivityInstall(t, pool, nil, "2026-10-14T20:10:00Z")
@@ -127,9 +130,9 @@ func TestHourlyStatsEffectiveInstallTimeAndTimezone(t *testing.T) {
 				t.Errorf("series = %+v, want %+v", st.Series, want)
 			}
 			wantRecent := []RecentInstall{
-				{InstallID: missingTime, Name: "Device name", Platform: "android", InstalledAt: "2026-10-14T19:30:04Z", FirstSeenAt: "2026-10-14T19:30:04Z"},
-				{InstallID: fastClock, Name: "Activity test", Platform: "android", InstalledAt: "2026-10-14T19:29:57Z", FirstSeenAt: "2026-10-14T19:29:57Z"},
-				{InstallID: earlierDevice, Name: "Device name", Platform: "android", InstalledAt: "2026-10-14T19:10:09Z", FirstSeenAt: "2026-10-14T19:45:12Z"},
+				{InstallID: missingTime, Name: "Device name", Platform: "android", InstalledAt: "2026-10-14T19:30:04Z", FirstSeenAt: "2026-10-14T19:30:04Z", DeviceStatus: "unverified"},
+				{InstallID: fastClock, Name: "Activity test", Platform: "android", InstalledAt: "2026-10-14T19:29:57Z", FirstSeenAt: "2026-10-14T19:29:57Z", DeviceStatus: "unverified"},
+				{InstallID: earlierDevice, Name: "Device name", Platform: "android", InstalledAt: "2026-10-14T19:10:09Z", FirstSeenAt: "2026-10-14T19:45:12Z", DeviceStatus: "unverified"},
 			}
 			if !reflect.DeepEqual(st.LatestInstalls, wantRecent) {
 				t.Errorf("recent feed = %+v, want %+v", st.LatestInstalls, wantRecent)

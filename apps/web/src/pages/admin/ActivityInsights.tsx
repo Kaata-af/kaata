@@ -2,7 +2,13 @@ import { AreaChart, BarChart, type CustomTooltipProps } from "@tremor/react";
 import type { ReactNode } from "react";
 import type { Stats } from "./api";
 import { fmtExactDateTime } from "./dates";
-import { busiestHours, hourlyProfile, hourlyTimeline, type HourlyPeak } from "./hourly-activity";
+import {
+  busiestHours,
+  hasRecognizedDeviceCounts,
+  hourlyProfile,
+  hourlyTimeline,
+  type HourlyPeak,
+} from "./hourly-activity";
 import { C, Card, ErrorCard, fmtInt } from "./ui";
 import { DayComparison } from "./DayComparison";
 import { platformLabel } from "./platforms";
@@ -33,9 +39,12 @@ export function ActivityInsights(props: {
     props.view === "day" ? [7, 30, 90] : props.view === "profile" ? [168, 720] : [24, 168, 720];
   const reportedRange = rangeLabel(props.stats?.points ?? props.range, props.view);
   const refreshing = props.fetching && !props.pending;
+  const acquisitionLabel = hasRecognizedDeviceCounts(props.stats?.series ?? [])
+    ? "first recognized devices"
+    : "app setups";
   return (
     <Card
-      title="Activity & app installs"
+      title="App activity & device history"
       sub={
         props.view === "compare"
           ? "Compare Kabul days through the same completed hour"
@@ -70,8 +79,8 @@ export function ActivityInsights(props: {
             <p className="flex min-w-0 items-center gap-2 text-xs text-brand-sub">
               <span>
                 {props.view === "profile"
-                  ? "Average active app installs and new app installs at each hour of the day"
-                  : "Active app installs and new app installs"}
+                  ? `Average active app installs and ${acquisitionLabel} at each hour of the day`
+                  : `Active app installs and ${acquisitionLabel}`}
               </span>
               <span
                 role="status"
@@ -139,26 +148,34 @@ function hourRange(hour: number): string {
 function HourlyChart({ stats, profile }: { stats: Stats; profile: boolean }) {
   const timeline = hourlyTimeline(stats);
   const byHour = hourlyProfile(timeline);
+  const showRecognizedDevices = hasRecognizedDeviceCounts(stats.series);
+  const acquisition = showRecognizedDevices ? "First recognized devices" : "App setups";
   const data = profile
     ? byHour.map((point) => ({
         time: point.label,
         hint: `${hourRange(point.hour)} · Kabul`,
-        "Active devices": point.activeAverage,
-        "New installs": point.installAverage,
+        "Active app installs": point.activeAverage,
+        "First recognized devices": point.recognizedDeviceAverage,
+        "App setups": point.installAverage,
+        acquisition,
         activitySamples: point.activitySamples,
-        installSamples: point.installSamples,
+        acquisitionSamples: showRecognizedDevices
+          ? point.recognizedDeviceSamples
+          : point.installSamples,
         average: true,
       }))
     : timeline.map((point) => ({
         time: timeline.length <= 24 ? point.label : `${point.date.slice(5)} ${point.label}`,
         hint: point.fullHourLabel,
-        "Active devices": point.active,
-        "New installs": point.installs,
+        "Active app installs": point.active,
+        "First recognized devices": point.recognizedDevices,
+        "App setups": point.installs,
+        acquisition,
         partial: !point.complete,
         average: false,
       }));
   const hasData = data.some(
-    (point) => (point["Active devices"] ?? 0) > 0 || (point["New installs"] ?? 0) > 0,
+    (point) => (point["Active app installs"] ?? 0) > 0 || (point[acquisition] ?? 0) > 0,
   );
   return (
     <div className="min-w-0 max-w-full">
@@ -170,7 +187,7 @@ function HourlyChart({ stats, profile }: { stats: Stats; profile: boolean }) {
               : "No recorded activity in this range"}
           </p>
           <p className="text-xs text-brand-sub">
-            Choose a longer range to look for earlier installs and check-ins.
+            Choose a longer range to look for earlier device history and check-ins.
           </p>
         </div>
       ) : profile ? (
@@ -178,7 +195,7 @@ function HourlyChart({ stats, profile }: { stats: Stats; profile: boolean }) {
           className="h-56 min-w-0 max-w-full sm:h-64"
           data={data}
           index="time"
-          categories={["Active devices", "New installs"]}
+          categories={["Active app installs", acquisition]}
           colors={[C.blue, C.teal]}
           allowDecimals
           valueFormatter={average}
@@ -192,7 +209,7 @@ function HourlyChart({ stats, profile }: { stats: Stats; profile: boolean }) {
           className="h-56 min-w-0 max-w-full sm:h-64"
           data={data}
           index="time"
-          categories={["Active devices", "New installs"]}
+          categories={["Active app installs", acquisition]}
           colors={[C.blue, C.teal]}
           curveType="linear"
           connectNulls={false}
@@ -209,12 +226,12 @@ function HourlyChart({ stats, profile }: { stats: Stats; profile: boolean }) {
           <Peak
             label="Busiest usage hour"
             peak={busiestHours(byHour, "active")}
-            unit="active devices"
+            unit="active app installs"
           />
           <Peak
-            label="Busiest install hour"
-            peak={busiestHours(byHour, "installs")}
-            unit="new installs"
+            label={showRecognizedDevices ? "Most first recognized devices" : "Busiest setup hour"}
+            peak={busiestHours(byHour, showRecognizedDevices ? "recognizedDevices" : "installs")}
+            unit={acquisition.toLowerCase()}
           />
         </div>
       ) : null}
@@ -225,10 +242,13 @@ function HourlyChart({ stats, profile }: { stats: Stats; profile: boolean }) {
       </p>
       <p className="mt-2 text-xs leading-relaxed text-brand-sub">
         {stats.hourly_tracking_since
-          ? `Hourly check-in history starts at ${fmtExactDateTime(stats.hourly_tracking_since)}. Earlier or partly recorded hours have no active-device value.`
-          : "The start of hourly tracking is unavailable. Active-device values remain unknown."}{" "}
+          ? `Hourly check-in history starts at ${fmtExactDateTime(stats.hourly_tracking_since)}. Earlier or partly recorded hours have no active-install value.`
+          : "The start of hourly tracking is unavailable. Active-install values remain unknown."}{" "}
         Check-ins show when devices reach the server, including background checks; they do not
         measure time spent in the app. Operator and test devices are excluded.
+        {showRecognizedDevices
+          ? " First recognized devices count once, at their earliest known setup with an identifier."
+          : " App setups include reinstalls and resets."}
       </p>
     </div>
   );
@@ -268,10 +288,12 @@ function HourlyTooltip({ active, payload }: CustomTooltipProps) {
     hint: string;
     partial?: boolean;
     average: boolean;
-    "Active devices": number | null;
-    "New installs": number | null;
+    "Active app installs": number | null;
+    "First recognized devices": number | null;
+    "App setups": number | null;
+    acquisition: "First recognized devices" | "App setups";
     activitySamples?: number;
-    installSamples?: number;
+    acquisitionSamples?: number;
   };
   return (
     <div className="max-w-72 rounded-lg border border-brand-border bg-white p-3 text-xs shadow-md">
@@ -279,8 +301,8 @@ function HourlyTooltip({ active, payload }: CustomTooltipProps) {
       {row.partial ? <p className="mt-1 text-brand-sub">Hour in progress</p> : null}
       {(
         [
-          ["Active devices", C.blue, row.activitySamples],
-          ["New installs", C.teal, row.installSamples],
+          ["Active app installs", C.blue, row.activitySamples],
+          [row.acquisition, C.teal, row.acquisitionSamples],
         ] as const
       ).map(([label, color, samples]) => (
         <div key={label} className="mt-2 flex justify-between gap-4">
@@ -307,14 +329,13 @@ function HourlyTooltip({ active, payload }: CustomTooltipProps) {
 
 export function RecentInstalls({ stats }: { stats: Stats }) {
   return (
-    <Card title="Latest app installs" sub="Reported install times · Kabul (UTC+04:30)">
+    <Card title="Latest app setups" sub="Reported setup times · Kabul (UTC+04:30)">
       {stats.latest_installs === undefined ? (
         <p className="py-5 text-sm text-brand-sub">
-          Exact install history is unavailable right now. Recorded install times are available in
-          Users.
+          Exact setup history is unavailable right now. Recorded setup times are available in Users.
         </p>
       ) : stats.latest_installs.length === 0 ? (
-        <p className="py-5 text-sm text-brand-sub">No recorded installs yet.</p>
+        <p className="py-5 text-sm text-brand-sub">No recorded setups yet.</p>
       ) : (
         <ul className="divide-y divide-brand-border">
           {stats.latest_installs.map((install) => (
@@ -324,8 +345,24 @@ export function RecentInstalls({ stats }: { stats: Stats }) {
             >
               <div className="min-w-0">
                 <p className="break-words text-sm font-medium text-brand-ink [overflow-wrap:anywhere]">
-                  {install.name || "Unidentified install"}
+                  {install.name || "Unidentified setup"}
                 </p>
+                {install.device_status || install.existing_account ? (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] text-brand-sub">
+                    {install.device_status ? (
+                      <span className="rounded bg-brand-faint px-1.5 py-0.5">
+                        {install.device_status === "first_recognized"
+                          ? "First recognized device"
+                          : install.device_status === "returning"
+                            ? "Returning device"
+                            : "Device unverified"}
+                      </span>
+                    ) : null}
+                    {install.existing_account ? (
+                      <span className="rounded bg-brand-faint px-1.5 py-0.5">Existing account</span>
+                    ) : null}
+                  </div>
+                ) : null}
                 <p className="mt-0.5 text-xs text-brand-sub">
                   {platformLabel(install.platform) === "Unknown"
                     ? "Platform unknown"
@@ -344,11 +381,12 @@ export function RecentInstalls({ stats }: { stats: Stats }) {
         </ul>
       )}
       <p className="mt-4 border-t border-brand-border pt-3 text-xs leading-relaxed text-brand-sub">
-        Install time is the earlier of the device's recorded install and its first server contact.
-        Offline installs can reach the server later. Browser sessions are reported separately.
-        Operator and test devices are excluded.{" "}
+        Clearing app data or reinstalling creates another setup record. Returning devices have an
+        identifier that matches an earlier setup. Device and account history are shown separately.
+        Setup time is the earlier of the device's reported time and its first server contact.
+        Browser sessions, operator devices and test devices are left out.{" "}
         <a className="font-medium text-brand-ink hover:underline" href="#users">
-          See all installs in Users →
+          See setup records in Users →
         </a>
       </p>
     </Card>

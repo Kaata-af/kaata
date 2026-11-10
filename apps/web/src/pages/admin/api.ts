@@ -49,13 +49,20 @@ export type SourceRow = {
   excluded?: number;
 };
 export type LocaleCount = { locale: string; count: number };
-export type SeriesPoint = { t: string; installs: number; active: number };
+export type SeriesPoint = {
+  t: string;
+  installs: number;
+  active: number;
+  first_recognized_devices?: number;
+};
 export type LatestInstall = {
   install_id: string;
   name: string;
   platform: string;
   installed_at: string;
   first_seen_at: string;
+  device_status?: "first_recognized" | "returning" | "unverified";
+  existing_account?: boolean;
 };
 
 // Separate from installation/activity history. Installs without an identifier
@@ -68,6 +75,14 @@ export type DeviceEstimate = {
   total_installs: number;
 };
 
+export type AudienceEstimate = {
+  estimated_users: number;
+  signed_in_accounts: number;
+  signed_out_recognized_devices: number;
+  signed_out_unidentified_installs: number;
+  repeat_signed_out_setups: number;
+};
+
 export type Stats = {
   installs_total: number;
   // Same population as the Users page, excluding operator/test records.
@@ -76,6 +91,7 @@ export type Stats = {
   users_total?: number;
   users_accounts?: number;
   users_anonymous?: number;
+  audience_estimate?: AudienceEstimate;
   web_accounts_total?: number;
   web_active_7d?: number;
   // Optional while the dashboard and backend roll out independently.

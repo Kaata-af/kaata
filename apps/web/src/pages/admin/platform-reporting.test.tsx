@@ -55,6 +55,43 @@ test("a web platform in an older latest-installs response is identified correctl
   assert.doesNotMatch(html, /Platform unknown/);
 });
 
+test("setup history keeps recognized devices and account status independent", () => {
+  const setup = {
+    platform: "android",
+    installed_at: "2026-10-31T08:00:00Z",
+    first_seen_at: "2026-10-31T08:00:00Z",
+  };
+  const html = renderToStaticMarkup(
+    <RecentInstalls
+      stats={
+        {
+          latest_installs: [
+            {
+              ...setup,
+              install_id: "reset",
+              name: "Reset phone",
+              device_status: "returning",
+              existing_account: true,
+            },
+            {
+              ...setup,
+              install_id: "another",
+              name: "New phone",
+              device_status: "first_recognized",
+              existing_account: true,
+            },
+            { ...setup, install_id: "unknown", name: "Unknown phone", device_status: "unverified" },
+          ],
+        } as Stats
+      }
+    />,
+  );
+  assert.match(html, /Latest app setups/);
+  assert.match(html, /Reset phone.*Returning device.*Existing account/);
+  assert.match(html, /New phone.*First recognized device.*Existing account/);
+  assert.match(html, /Unknown phone.*Device unverified/);
+});
+
 test("web account metrics remain separate from installs and rollout unknowns never become zero", () => {
   const html = renderToStaticMarkup(
     <WebAccounts stats={{ web_accounts_total: 12, web_active_7d: 5 }} />,

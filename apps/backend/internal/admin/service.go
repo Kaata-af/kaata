@@ -69,29 +69,33 @@ type LocaleCount struct {
 // signed-out/read-only sessions, exactly like DAU. Hours use Kabul-aligned
 // check-in records; older date-only history remains available for wider buckets.
 type SeriesPoint struct {
-	T        string `json:"t"`
-	Installs int64  `json:"installs"`
-	Active   int64  `json:"active"`
+	T                      string `json:"t"`
+	Installs               int64  `json:"installs"`
+	Active                 int64  `json:"active"`
+	FirstRecognizedDevices int64  `json:"first_recognized_devices"`
 }
 
 // RecentInstall exposes the known install instant as well as the server's
 // first observation. Device-reported clocks can be wrong; the effective
 // install time is the earlier of installed_at and first_seen_at, like Users.
 type RecentInstall struct {
-	InstallID   string `json:"install_id"`
-	Name        string `json:"name"`
-	Platform    string `json:"platform"`
-	InstalledAt string `json:"installed_at"`
-	FirstSeenAt string `json:"first_seen_at"`
+	InstallID       string `json:"install_id"`
+	Name            string `json:"name"`
+	Platform        string `json:"platform"`
+	InstalledAt     string `json:"installed_at"`
+	FirstSeenAt     string `json:"first_seen_at"`
+	DeviceStatus    string `json:"device_status"`
+	ExistingAccount bool   `json:"existing_account"`
 }
 
 type Stats struct {
 	// Users follow the directory's units: one non-excluded account, including
 	// dormant accounts without installs, plus one non-excluded installation
 	// without a proven account link. These are not deduplicated people.
-	UsersTotal     int64 `json:"users_total"`
-	UsersAccounts  int64 `json:"users_accounts"`
-	UsersAnonymous int64 `json:"users_anonymous"`
+	UsersTotal       int64            `json:"users_total"`
+	UsersAccounts    int64            `json:"users_accounts"`
+	UsersAnonymous   int64            `json:"users_anonymous"`
+	AudienceEstimate AudienceEstimate `json:"audience_estimate"`
 	// Browser session credentials are collapsed by their proven account link.
 	// They never enter the installation or device metrics below.
 	WebAccountsTotal int64 `json:"web_accounts_total"`
@@ -202,7 +206,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	// install funnel. Reuse the directory's account resolver, without loading
 	// its identities, kaatas or snapshots, so a concurrent sign-in cannot make
 	// the account and anonymous counts come from different states.
-	if err := s.pool.QueryRow(ctx, userReportInstalls+`, `+reportExclusionCTEs+`,
+	if err := s.pool.QueryRow(ctx, userReportInstalls+`, `+reportExclusionCTEs+`, `+audienceEstimateCTEs+`,
 		user_counts AS (
 		  SELECT
 		    (SELECT COUNT(*) FROM accounts a
@@ -224,6 +228,11 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		  (SELECT accounts + anonymous FROM user_counts),
 		  (SELECT accounts FROM user_counts),
 		  (SELECT anonymous FROM user_counts),
+		  (SELECT estimated_users FROM report_audience_estimate),
+		  (SELECT signed_in_accounts FROM report_audience_estimate),
+		  (SELECT signed_out_recognized_devices FROM report_audience_estimate),
+		  (SELECT signed_out_unidentified_installs FROM report_audience_estimate),
+		  (SELECT repeat_signed_out_setups FROM report_audience_estimate),
 		  (SELECT accounts FROM web_counts), (SELECT active_7d FROM web_counts),
 		  COUNT(*) FILTER (WHERE keep),
 		  COUNT(*) FILTER (WHERE keep AND has_onboarded),
@@ -245,6 +254,9 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		) i
 	`, s.operatorAccountIDs, now).Scan(
 		&st.UsersTotal, &st.UsersAccounts, &st.UsersAnonymous,
+		&st.AudienceEstimate.EstimatedUsers, &st.AudienceEstimate.SignedInAccounts,
+		&st.AudienceEstimate.SignedOutRecognizedDevices, &st.AudienceEstimate.SignedOutUnidentifiedInstalls,
+		&st.AudienceEstimate.RepeatSignedOutSetups,
 		&st.WebAccountsTotal, &st.WebActive7d,
 		&st.InstallsTotal, &st.Onboarded, &st.WithEntries, &st.WithShares,
 		&st.Active7d, &st.Active30d, &st.EverActive, &st.DistinctAccounts,
@@ -284,7 +296,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	// lands between them. "Active" means checked in, not uploaded ledger edits.
 	// All new day/hour/week/month boundaries are explicitly Kabul-local.
 	rows, err := s.pool.Query(ctx, `
-		WITH `+installMetricCTEs+`,
+		WITH `+installMetricCTEs+`, `+firstRecognizedDevicesCTE+`,
 		clock AS (
 		  SELECT $6::timestamptz AT TIME ZONE 'Asia/Kabul' AS local_now
 		), buckets AS (
@@ -304,6 +316,13 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		    AND CASE WHEN $2 = 'hour' THEN LEAST(i.installed_at, i.first_seen_at)
 		      ELSE COALESCE(i.installed_at, i.first_seen_at) END <= $6
 		    AND i.first_seen_at <= $6
+		  GROUP BY 1
+		), first_devices AS (
+		  SELECT admin_bucket_start($2, CASE WHEN $2 = 'hour'
+		    THEN i.first_seen_at AT TIME ZONE 'Asia/Kabul'
+		    ELSE d.first_seen_date::timestamp END) AS b, COUNT(*) AS n
+		  FROM report_first_native_devices i JOIN admin_install_dates d USING (install_id)
+		  WHERE i.first_seen_at <= $6 AND i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		  GROUP BY 1
 		),
 		days AS (
@@ -331,13 +350,14 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		    COUNT(DISTINCT install_id) FILTER (WHERE active_date >= (SELECT local_now::date FROM clock) - 29) AS mau
 		  FROM days
 		)
-		SELECT to_char(buckets.b, $5), COALESCE(ins.n, 0), COALESCE(act.n, 0),
+		SELECT to_char(buckets.b, $5), COALESCE(ins.n, 0), COALESCE(act.n, 0), COALESCE(first_devices.n, 0),
 		       engagement.dau, engagement.wau, engagement.mau,
 		       to_char(calendar.kabul_since, 'YYYY-MM-DD'), calendar.started_at
 		FROM buckets
 		CROSS JOIN engagement CROSS JOIN analytics_calendar calendar
 		LEFT JOIN ins ON ins.b = buckets.b
 		LEFT JOIN act ON act.b = buckets.b
+		LEFT JOIN first_devices ON first_devices.b = buckets.b
 		ORDER BY buckets.b ASC
 	`, s.operatorAccountIDs, spec.field, spec.interval, points, spec.format, now)
 	if err != nil {
@@ -346,7 +366,8 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	for rows.Next() {
 		var p SeriesPoint
 		var hourlyTrackingSince time.Time
-		if err := rows.Scan(&p.T, &p.Installs, &p.Active, &st.DAU, &st.WAU, &st.MAU, &st.ActivityTimezoneSince, &hourlyTrackingSince); err != nil {
+		if err := rows.Scan(&p.T, &p.Installs, &p.Active, &p.FirstRecognizedDevices,
+			&st.DAU, &st.WAU, &st.MAU, &st.ActivityTimezoneSince, &hourlyTrackingSince); err != nil {
 			rows.Close()
 			return st, err
 		}
@@ -358,17 +379,23 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 		return st, err
 	}
 
-	// A small exact-time feed makes new installs visible without loading the
-	// whole Users directory. Apply the same exclusion rules as the charts and
-	// do not show installations first observed after this report's clock.
+	// Show setup history with independent device and account evidence. A new
+	// installation ID can represent an existing account, an existing device, or both.
 	irrows, err := s.pool.Query(ctx, `
-		WITH `+installMetricCTEs+`
+		`+userReportInstalls+`, `+reportExclusionCTEs+`, `+firstRecognizedDevicesCTE+`
 		SELECT i.install_id::text,
 		       COALESCE(NULLIF(a.display_name, ''), NULLIF(a.name, ''), i.self_name, ''),
 		       COALESCE(i.platform, ''),
-		       LEAST(i.installed_at, i.first_seen_at), i.first_seen_at
-		FROM report_native_installs i LEFT JOIN accounts a ON a.id = i.account_id
-		WHERE i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
+		       LEAST(i.installed_at, i.first_seen_at), i.first_seen_at,
+		       CASE WHEN first_device.install_id IS NULL THEN 'unverified'
+		            WHEN first_device.install_id = i.install_id THEN 'first_recognized'
+		            ELSE 'returning' END,
+		       COALESCE(a.created_at < i.first_seen_at, false)
+		FROM report_installs i
+		LEFT JOIN accounts a ON a.id = i.resolved_account_id
+		LEFT JOIN report_first_native_devices first_device USING (device_id_kind, device_id_hash)
+		WHERE NOT i.is_web_session
+		  AND i.install_id NOT IN (SELECT install_id FROM report_excluded_installs)
 		  AND LEAST(i.installed_at, i.first_seen_at) <= $2
 		  AND i.first_seen_at <= $2
 		ORDER BY LEAST(i.installed_at, i.first_seen_at) DESC, i.install_id ASC
@@ -380,7 +407,7 @@ func (s *Service) GetStats(ctx context.Context, bucket string, points int) (Stat
 	for irrows.Next() {
 		var r RecentInstall
 		var installedAt, firstSeenAt time.Time
-		if err := irrows.Scan(&r.InstallID, &r.Name, &r.Platform, &installedAt, &firstSeenAt); err != nil {
+		if err := irrows.Scan(&r.InstallID, &r.Name, &r.Platform, &installedAt, &firstSeenAt, &r.DeviceStatus, &r.ExistingAccount); err != nil {
 			irrows.Close()
 			return st, err
 		}

@@ -172,7 +172,7 @@ export function DayComparisonPanel({
     ...Object.fromEntries(dates.map((date) => [labels[date], point.values[date]])),
   }));
   const cutoff = `${String(model.cutoff).padStart(2, "0")}:00`;
-  const metricLabel = preferences.metric === "active" ? "active installs" : "new installs";
+  const metricLabel = preferences.metric === "active" ? "active installs" : "app setups";
   const first = model.totals[0];
   const hasData = model.points.some((point) =>
     model.visibleDates.some((date) => point.values[date] !== null),
@@ -307,7 +307,7 @@ export function DayComparisonPanel({
           label="Comparison metric"
           values={[
             ["active", "Active installs"],
-            ["installs", "New installs"],
+            ["installs", "App setups"],
           ]}
           value={preferences.metric}
           onChange={(metric) => update({ metric: metric as ComparisonPreferences["metric"] })}
@@ -545,8 +545,9 @@ export function DayComparisonPanel({
         unavailable.
       </p>
       <p className="mt-2 text-xs leading-relaxed text-brand-sub">
-        Active installs include signed-out and background check-ins. These counts are separate from
-        accounts and the device estimate. Operator and test installations are excluded.
+        Active installs include signed-out and background check-ins. App setups include reinstalls
+        and resets. These counts are separate from accounts and the device estimate. Operator and
+        test installations are excluded.
         {data.tracking_since
           ? ` Hourly activity tracking began ${fmtExactDateTime(data.tracking_since)} Kabul.`
           : ""}

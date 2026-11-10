@@ -23,3 +23,14 @@ const installReportingCTEs = `
 	)`
 
 const installMetricCTEs = reportExclusionCTEs + "," + installReportingCTEs
+
+// Rank by server contact, not the device clock. A device already seen in test
+// activity is still a returning device after a new installation ID appears.
+const firstRecognizedDevicesCTE = `
+	report_first_native_devices AS (
+	  SELECT DISTINCT ON (device_id_kind, device_id_hash)
+	         install_id, device_id_kind, device_id_hash, first_seen_at
+	  FROM report_native_installs
+	  WHERE device_id_kind IS NOT NULL AND device_id_hash IS NOT NULL
+	  ORDER BY device_id_kind, device_id_hash, first_seen_at, install_id
+	)`

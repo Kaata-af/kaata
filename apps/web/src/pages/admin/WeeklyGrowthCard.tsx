@@ -24,13 +24,16 @@ function weekLabel(week: string): string {
 
 export function WeeklyGrowthCard({ growth, stats }: { growth: Growth | null; stats?: Stats }) {
   const reporting = reportingWeekLabels(growth?.week_starts_on);
-  const goal = userGoal(stats?.users_total, stats?.generated_at ?? "");
+  const goal = userGoal(
+    stats?.audience_estimate?.estimated_users ?? stats?.users_total,
+    stats?.generated_at ?? "",
+  );
   const { available, completed, latest, current } = weeklyGrowthView(growth);
   const comparable = latest !== null && comparableWeek(latest);
   return (
     <Card
       title="Weekly activity"
-      sub={`Weekly active devices · ${reporting.range} reporting weeks`}
+      sub={`Weekly active app installs · ${reporting.range} reporting weeks`}
     >
       {!available ? (
         <p className="py-6 text-sm text-brand-sub">
@@ -55,12 +58,12 @@ export function WeeklyGrowthCard({ growth, stats }: { growth: Growth | null; sta
               {latest ? (
                 <>
                   <p className="mt-3 text-sm tabular-nums text-brand-ink">
-                    {fmtInt(latest.previous_active ?? 0)} → {fmtInt(latest.active ?? 0)} active
-                    devices
+                    {fmtInt(latest.previous_active ?? 0)} → {fmtInt(latest.active ?? 0)} active app
+                    installs
                   </p>
                   <p className="mt-1 text-xs leading-relaxed text-brand-sub">
                     {comparable
-                      ? `Change: ${latest.change! > 0 ? "+" : ""}${fmtInt(latest.change ?? 0)} active devices from the previous week.`
+                      ? `Change: ${latest.change! > 0 ? "+" : ""}${fmtInt(latest.change ?? 0)} active app installs from the previous week.`
                       : comparisonUnavailable(latest, growth?.activity_tracking_since)}
                   </p>
                   {latest.recorded_at ? (
@@ -86,8 +89,8 @@ export function WeeklyGrowthCard({ growth, stats }: { growth: Growth | null; sta
               >
                 <table className="w-full text-left text-xs tabular-nums">
                   <caption className="sr-only">
-                    Change in weekly active devices, compared with the previous calendar week. Weeks
-                    start on {reporting.start}. The reporting calendar is noted for each week.
+                    Change in weekly active app installs, compared with the previous calendar week.
+                    Weeks start on {reporting.start}. The reporting calendar is noted for each week.
                   </caption>
                   <thead className="border-b border-brand-border text-brand-sub">
                     <tr>
@@ -95,7 +98,7 @@ export function WeeklyGrowthCard({ growth, stats }: { growth: Growth | null; sta
                         Week of
                       </th>
                       <th scope="col" className="px-3 py-3 text-right font-medium">
-                        Active devices
+                        Active app installs
                       </th>
                       <th scope="col" className="px-3 py-3 text-right font-medium">
                         Change
@@ -148,7 +151,8 @@ export function WeeklyGrowthCard({ growth, stats }: { growth: Growth | null; sta
         <div className="mt-2 space-y-2 leading-relaxed">
           <p>
             Each app install counts once in a week when it checks in, including signed-out use and
-            people who only open the app. Two phones belonging to one person count twice.
+            people who only open the app. A reinstall or reset can create another installation on
+            the same phone.
           </p>
           <p>
             Test data is left out of every week, the same as in every other dashboard metric:
@@ -228,23 +232,23 @@ function CurrentWeek({
       <p className="text-xs font-medium text-brand-sub">Current week · in progress</p>
       <p className="mt-1 text-sm text-brand-ink">Week of {weekLabel(row.week)}</p>
       <p className="mt-3 text-2xl font-semibold tabular-nums text-brand-ink">
-        {fmtInt(active)} <span className="text-xs font-normal">active devices so far</span>
+        {fmtInt(active)} <span className="text-xs font-normal">active app installs so far</span>
       </p>
       {pace ? (
         <div className="mt-4">
           <p className="text-xs leading-5 text-brand-sub">
             Activity pace target by {deadlineLabel}:{" "}
             <strong className="font-semibold tabular-nums text-brand-ink">
-              {fmtInt(pace.target)} devices
+              {fmtInt(pace.target)} app installs
             </strong>
           </p>
           <div
             role="progressbar"
-            aria-label="Current week active devices toward the activity pace target"
+            aria-label="Current week active app installs toward the activity pace target"
             aria-valuemin={0}
             aria-valuemax={pace.target}
             aria-valuenow={Math.min(pace.active, pace.target)}
-            aria-valuetext={`${fmtInt(pace.active)} active devices so far; activity target ${fmtInt(pace.target)} by ${deadlineLabel}. Week still in progress.`}
+            aria-valuetext={`${fmtInt(pace.active)} active app installs so far; activity target ${fmtInt(pace.target)} by ${deadlineLabel}. Week still in progress.`}
             className="mt-3 h-2 overflow-hidden rounded-full bg-white"
           >
             <div

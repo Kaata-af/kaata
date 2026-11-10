@@ -3,7 +3,8 @@ import { Card, fmtDateTime, fmtInt } from "./ui";
 import { goalProgressLabel, requiredRateLabel, userGoal, USER_GOAL } from "./user-goal";
 
 export function UserGoalCard({ stats }: { stats: Stats }) {
-  const goal = userGoal(stats.users_total, stats.generated_at);
+  const estimate = stats.audience_estimate;
+  const goal = userGoal(estimate?.estimated_users ?? stats.users_total, stats.generated_at);
   const available = goal.status !== "unavailable";
   const open = goal.status === "open";
   return (
@@ -26,7 +27,7 @@ export function UserGoalCard({ stats }: { stats: Stats }) {
                   <strong className="mr-1.5 text-2xl font-semibold tabular-nums text-brand-ink">
                     {fmtInt(goal.total)}
                   </strong>
-                  users so far
+                  {estimate ? "estimated users so far" : "users so far"}
                 </p>
                 <p className="text-xs font-medium tabular-nums text-brand-sub">
                   {goalProgressLabel(goal.progress)} of the goal
@@ -135,21 +136,40 @@ export function UserGoalCard({ stats }: { stats: Stats }) {
       ) : null}
       <div className="border-t border-brand-faint px-5 py-3 text-xs leading-5 text-brand-muted sm:px-6">
         <p>
-          Signed-in accounts + Ninja users · operator and test records excluded.
+          {estimate
+            ? "Signed-in accounts + estimated signed-out users · operator and test records excluded."
+            : "Signed-in accounts + Ninja users · operator and test records excluded."}
           {available ? ` Snapshot: ${fmtDateTime(goal.asOf)} Kabul.` : ""}
         </p>
         <details className="mt-1">
           <summary className="w-fit cursor-pointer rounded-sm font-medium text-brand-sub outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2">
             How we count and plan
           </summary>
+          {estimate ? (
+            <>
+              <p className="mt-2 max-w-3xl">
+                The estimate counts each signed-in account once, plus one per recognized signed-out
+                device with no linked account. Signed-out setups without a device identifier count
+                individually. The Users directory keeps the separate setup records.
+              </p>
+              <p className="mt-2 max-w-3xl">
+                {fmtInt(estimate.signed_in_accounts)} signed-in accounts ·{" "}
+                {fmtInt(estimate.signed_out_recognized_devices)} recognized signed-out devices ·{" "}
+                {fmtInt(estimate.signed_out_unidentified_installs)} signed-out setups without an
+                identifier. {fmtInt(estimate.repeat_signed_out_setups)} signed-out setups were
+                already represented by another setup or account.
+              </p>
+            </>
+          ) : (
+            <p className="mt-2 max-w-3xl">
+              The directory total counts each signed-in account and each unlinked Ninja
+              installation. Repeat Ninja setups can count separately in this view.
+            </p>
+          )}
           <p className="mt-2 max-w-3xl">
-            The count matches the Users page: one record per signed-in account, plus one per
-            unlinked Ninja installation, including users without profile details. Ninja reinstalls
-            can count separately, so this is a tracked-user total rather than a verified count of
-            unique people. The deadline is the end of December 31, 2026 in Kabul. Required growth
-            compounds over the exact time remaining in this snapshot; it recalculates as the total
-            changes. The daily average is a separate, even pace. Weekly activity below measures
-            active installations.
+            The deadline is the end of December 31, 2026 in Kabul. Required growth compounds over
+            the exact time remaining in this snapshot and recalculates as the total changes. The
+            daily average is an even pace. Weekly activity below measures active installations.
           </p>
         </details>
       </div>

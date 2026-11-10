@@ -36,6 +36,31 @@ test("a backend without the user aggregate cannot show a fabricated zero or rate
   assert.doesNotMatch(html, /role="progressbar"|0 users so far|NaN|Infinity/);
 });
 
+test("the goal uses the audience estimate while retaining the raw setup count for the directory", () => {
+  const html = renderToStaticMarkup(
+    <UserGoalCard
+      stats={
+        {
+          users_total: 85_000,
+          generated_at: "2026-12-17T19:30:00Z",
+          audience_estimate: {
+            estimated_users: 50_000,
+            signed_in_accounts: 35_000,
+            signed_out_recognized_devices: 10_000,
+            signed_out_unidentified_installs: 5_000,
+            repeat_signed_out_setups: 35_000,
+          },
+        } as Stats
+      }
+    />,
+  );
+  assert.match(html, /aria-valuenow="50000"/);
+  assert.match(html, /estimated users so far/);
+  assert.match(html, /35,000 signed-in accounts/);
+  assert.match(html, /10,000 recognized signed-out devices/);
+  assert.match(html, /35,000 signed-out setups were already represented/);
+});
+
 test("zero users and final-day overflow retain an actionable absolute requirement", () => {
   const zero = render(0);
   assert.match(zero, /A growth percentage needs a starting user/);

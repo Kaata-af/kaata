@@ -111,7 +111,7 @@ export function comparisonUnavailable(row: GrowthWeek, trackingSince?: string): 
     return "The reporting calendar changed in this week or its baseline; a clean comparison is unavailable.";
   }
   if (row.previous_active === 0)
-    return "The previous week had no active devices; a percentage is undefined.";
+    return "The previous week had zero active app installs, so percentage growth is undefined.";
   return "A comparable weekly rate is currently unavailable.";
 }
 

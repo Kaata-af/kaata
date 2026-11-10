@@ -67,15 +67,29 @@ test("current activity uses the total-user pace without rewriting recorded histo
   assert.match(html, /aria-valuenow="595"/);
   assert.match(html, /aria-valuemax="752"/);
   assert.match(html, /157/);
-  assert.match(html, /active devices so far/);
+  assert.match(html, /active app installs so far/);
   assert.match(html, /activity benchmark/);
   assert.match(html, /total users separately/);
   assert.match(html, /Friday/);
   assert.match(html, /\+26\.75%/);
-  assert.match(html, /400 → 507 active devices/);
+  assert.match(html, /400 → 507 active app installs/);
   assert.match(html, /Recorded Oct 17, 2026, 04:30/);
   assert.doesNotMatch(html, /7% target|aria-valuemax="543"|on track|met the year-end goal/i);
   assert.equal(JSON.stringify(data), before);
+});
+
+test("weekly activity pace uses the same audience estimate as the year-end goal", () => {
+  const html = render(growth(), {
+    ...stats(100_000),
+    audience_estimate: {
+      estimated_users: 1690,
+      signed_in_accounts: 1690,
+      signed_out_recognized_devices: 0,
+      signed_out_unidentified_installs: 0,
+      repeat_signed_out_setups: 98_310,
+    },
+  });
+  assert.match(html, /aria-valuemax="752"/);
 });
 
 test("zero and exceeded activity counts preserve measured counts and bounded progress", () => {

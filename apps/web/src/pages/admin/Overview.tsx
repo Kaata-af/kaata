@@ -8,6 +8,7 @@ import { ActivityInsights, RecentInstalls, type ActivityView } from "./ActivityI
 import { DeviceEstimateCard } from "./DeviceEstimateCard";
 import { UserGoalCard } from "./UserGoalCard";
 import { WebUsageSection } from "./WebUsageCard";
+import { hasRecognizedDeviceCounts } from "./hourly-activity";
 
 export { WebAccounts } from "./WebUsageCard";
 
@@ -180,11 +181,16 @@ function dateLabel(iso: string): string {
 }
 
 function ActivityChart({ stats: s }: { stats: Stats }) {
-  const hasData = s.series.some((p) => p.active > 0 || p.installs > 0);
+  const showRecognizedDevices = hasRecognizedDeviceCounts(s.series);
+  const acquisition = showRecognizedDevices ? "First recognized devices" : "App setups";
+  const hasData = s.series.some(
+    (p) =>
+      p.active > 0 || (showRecognizedDevices ? (p.first_recognized_devices ?? 0) : p.installs) > 0,
+  );
   const data = s.series.map((p) => ({
     date: dateLabel(p.t),
-    "Active devices": p.active,
-    "New installs": p.installs,
+    "Active app installs": p.active,
+    [acquisition]: showRecognizedDevices ? (p.first_recognized_devices ?? null) : p.installs,
   }));
   return (
     <div className="min-w-0 max-w-full">
@@ -202,7 +208,7 @@ function ActivityChart({ stats: s }: { stats: Stats }) {
           className="h-56 min-w-0 max-w-full sm:h-64"
           data={data}
           index="date"
-          categories={["Active devices", "New installs"]}
+          categories={["Active app installs", acquisition]}
           colors={[C.blue, C.teal]}
           curveType="monotone"
           allowDecimals={false}
@@ -212,8 +218,11 @@ function ActivityChart({ stats: s }: { stats: Stats }) {
         />
       )}
       <p className="mt-3 text-xs leading-relaxed text-brand-sub">
-        Today is still in progress. Its active-device count matches Active today above; daily counts
-        do not add up to unique weekly or monthly devices.
+        Today is still in progress. Its active-install count matches Active today above. Weekly and
+        monthly activity count each installation once per period.
+        {showRecognizedDevices
+          ? " First recognized devices count once, at their earliest known setup with an identifier."
+          : " App setups include reinstalls and resets."}
         {s.activity_timezone_since
           ? ` Dates before ${s.activity_timezone_since} keep their original UTC history; later days use Kabul.`
           : " Earlier date-only history may use UTC boundaries."}

@@ -1,4 +1,4 @@
-import type { Stats } from "./api";
+import type { SeriesPoint, Stats } from "./api";
 
 const HOUR_MS = 3_600_000;
 const KABUL_OFFSET_MS = 270 * 60_000;
@@ -15,6 +15,7 @@ export type HourlyTimelinePoint = {
   timestamp: number;
   hour: number;
   installs: number;
+  recognizedDevices: number | null;
   active: number | null;
   complete: boolean;
 };
@@ -24,8 +25,10 @@ export type HourlyProfilePoint = {
   label: string;
   activeAverage: number | null;
   installAverage: number | null;
+  recognizedDeviceAverage: number | null;
   activitySamples: number;
   installSamples: number;
+  recognizedDeviceSamples: number;
 };
 
 export type HourlyPeak = { hours: number[]; average: number };
@@ -87,8 +90,12 @@ function hourLabel(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`;
 }
 
-function validCount(value: number): boolean {
-  return Number.isSafeInteger(value) && value >= 0;
+function validCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+export function hasRecognizedDeviceCounts(series: readonly SeriesPoint[]): boolean {
+  return series.some((point) => validCount(point.first_recognized_devices));
 }
 
 // `t` is an offsetless Kabul bucket from the backend, not a browser-local
@@ -115,6 +122,9 @@ export function hourlyTimeline(stats: HourlyStats | null | undefined): HourlyTim
       timestamp: parsed.timestamp,
       hour: parsed.hour,
       installs: row.installs,
+      recognizedDevices: validCount(row.first_recognized_devices)
+        ? row.first_recognized_devices
+        : null,
       active:
         trackingSince !== null && parsed.timestamp >= trackingSince && validCount(row.active)
           ? row.active
@@ -137,14 +147,20 @@ export function hourlyProfile(
     hour,
     active: 0,
     installs: 0,
+    recognizedDevices: 0,
     activitySamples: 0,
     installSamples: 0,
+    recognizedDeviceSamples: 0,
   }));
   for (const point of timeline) {
     if (!point.complete) continue;
     const total = totals[point.hour];
     total.installs += point.installs;
     total.installSamples += 1;
+    if (point.recognizedDevices !== null) {
+      total.recognizedDevices += point.recognizedDevices;
+      total.recognizedDeviceSamples += 1;
+    }
     if (point.active !== null) {
       total.active += point.active;
       total.activitySamples += 1;
@@ -155,8 +171,12 @@ export function hourlyProfile(
     label: hourLabel(total.hour),
     activeAverage: total.activitySamples ? total.active / total.activitySamples : null,
     installAverage: total.installSamples ? total.installs / total.installSamples : null,
+    recognizedDeviceAverage: total.recognizedDeviceSamples
+      ? total.recognizedDevices / total.recognizedDeviceSamples
+      : null,
     activitySamples: total.activitySamples,
     installSamples: total.installSamples,
+    recognizedDeviceSamples: total.recognizedDeviceSamples,
   }));
 }
 
@@ -164,9 +184,15 @@ export function hourlyProfile(
 // one hour as the busiest. A wholly unknown or zero-only profile has no peak.
 export function busiestHours(
   profile: readonly HourlyProfilePoint[],
-  metric: "active" | "installs",
+  metric: "active" | "installs" | "recognizedDevices",
 ): HourlyPeak | null {
-  const key = metric === "active" ? "activeAverage" : "installAverage";
+  const key = (
+    {
+      active: "activeAverage",
+      installs: "installAverage",
+      recognizedDevices: "recognizedDeviceAverage",
+    } as const
+  )[metric];
   let peak: HourlyPeak | null = null;
   for (const point of profile) {
     const average = point[key];
