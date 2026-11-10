@@ -396,16 +396,10 @@ export function accountRefusal(err: unknown): Refusal | null {
   }
 }
 
-/**
- * The words for any failure on a signed-in account screen: the refusal's own
- * words when the server named one, "couldn't reach Kaata" for a timeout or a
- * dropped connection, else a short retry line with the failure's code
- * (e.g. "server 500"), which is what support asks for.
- */
-export function accountFailureText(err: unknown): string {
-  const refusal = accountRefusal(err);
-  if (refusal) return refusal.text;
+/** The same actionable connection guidance on onboarding and Account. */
+export function connectionFailureText(err: unknown): string | null {
   const failure = err as { stage?: unknown; code?: unknown; detail?: unknown } | null;
+  if (failure?.stage === "google_network") return t("auth.error.googleNetwork");
   if (
     failure?.stage === "network" &&
     typeof failure.detail === "string" &&
@@ -413,7 +407,22 @@ export function accountFailureText(err: unknown): string {
   ) {
     return t("auth.error.secureConnection");
   }
-  if (failure?.stage === "timeout" || failure?.stage === "network") {
+  if (failure?.stage === "network") {
+    if (failure.detail === "dns private_dns") return t("auth.error.privateDns");
+    if (failure.detail === "dns vpn") return t("auth.error.vpnConnection");
+    if (failure.detail === "dns network_policy") return t("auth.error.networkAccess");
+    return t("auth.error.networkConnection");
+  }
+  return null;
+}
+
+export function accountFailureText(err: unknown): string {
+  const refusal = accountRefusal(err);
+  if (refusal) return refusal.text;
+  const connection = connectionFailureText(err);
+  if (connection) return connection;
+  const failure = err as { stage?: unknown; code?: unknown } | null;
+  if (failure?.stage === "timeout") {
     return t("account.signin.network");
   }
   return typeof failure?.stage === "string" && typeof failure.code === "string"

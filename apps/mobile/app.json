@@ -137,6 +137,7 @@
       ],
       "./plugins/withBackupRules",
       "./plugins/withLegacyAndroidTls",
+      "./plugins/withAndroidDnsFallback",
       "./plugins/withNearbyWifiNeverForLocation",
       "./plugins/withGradleJvmArgs",
       "./plugins/withNeutralAndroidAccent",

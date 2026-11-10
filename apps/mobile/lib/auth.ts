@@ -200,6 +200,7 @@ export class SignInCancelledByUserError extends Error {
 export type SignInStage =
   | "play_services" // Google Play Services missing or too old (Android)
   | "google_native" // Google's native chooser or configuration failed
+  | "google_network" // Google's own sign-in connection failed, before a Kaata request
   | "no_id_token" // Google returned no credential
   | "timeout" // our backend didn't answer in time
   | "network" // couldn't reach Google or Kaata
@@ -574,8 +575,17 @@ async function signInForIdToken(lib: GoogleSigninModule): Promise<string | null>
     if (isCancellation(err)) throw err;
     const code = lib.isErrorWithCode(err) ? String(err.code) : "";
     // Google Play Services CommonStatusCodes.NETWORK_ERROR.
-    if (Platform.OS === "android" && code === "7") {
-      throw new SignInFailedError("network", "Couldn't reach Google to sign in.", "google 7");
+    if (
+      Platform.OS === "android" &&
+      (code === "7" ||
+        code === "NETWORK_ERROR" ||
+        (err instanceof Error && err.message.trim() === "NETWORK_ERROR"))
+    ) {
+      throw new SignInFailedError(
+        "google_network",
+        "Couldn't reach Google to sign in.",
+        code === "7" ? "7" : "NETWORK_ERROR",
+      );
     }
     throw new SignInFailedError(
       "google_native",
@@ -742,8 +752,8 @@ async function postAuthTracked(
 
 // Only fixed diagnostic tags leave this classifier. Native messages can contain
 // hostnames, URLs or certificate subjects, so never put their raw contents into
-// the TLS code shown in reports or the UI. Bound both cause depth and text size.
-function tlsFailureReason(err: unknown): string | null {
+// the code shown in reports or the UI. Bound both cause depth and text size.
+function boundedFailureText(err: unknown): string {
   const seen = new Set<unknown>();
   let current = err;
   let text = "";
@@ -760,6 +770,10 @@ function tlsFailureReason(err: unknown): string | null {
     }
     current = cause.cause;
   }
+  return text;
+}
+
+function tlsFailureReason(text: string): string | null {
   if (
     /CertificateExpiredException|CERT_HAS_EXPIRED|certificate has expired|NSURLErrorDomain[^\n]*-1201/i.test(
       text,
@@ -799,6 +813,39 @@ function tlsFailureReason(err: unknown): string | null {
   return null;
 }
 
+function networkFailureReason(text: string): string {
+  // These fixed markers describe the platform state observed by the native
+  // resolver. They never contain a private DNS provider, VPN name or address.
+  if (/\bKAATA_DNS_PRIVATE_DNS\b/.test(text)) return "dns private_dns";
+  if (/\bKAATA_DNS_VPN\b/.test(text)) return "dns vpn";
+  if (/\bKAATA_DNS_OFFLINE\b/.test(text)) return "no_network";
+  if (/\bKAATA_DNS_(?:NETWORK_POLICY|CAPTIVE_PORTAL)\b/.test(text)) return "dns network_policy";
+  if (
+    /ENETUNREACH|EHOSTUNREACH|network is unreachable|NSURLErrorNotConnectedToInternet|NSURLErrorDomain[^\n]*-1009/i.test(
+      text,
+    )
+  ) {
+    return "no_network";
+  }
+  if (
+    /UnknownHostException|Unable to resolve host|ENOTFOUND|EAI_AGAIN|NSURLErrorCannotFindHost|NSURLErrorDNSLookupFailed|NSURLErrorDomain[^\n]*-100[36]/i.test(
+      text,
+    )
+  ) {
+    return "dns";
+  }
+  if (
+    /ConnectException|ECONNREFUSED|ECONNRESET|connection (?:refused|reset)|failed to connect|NSURLErrorCannotConnectToHost|NSURLErrorDomain[^\n]*-1004/i.test(
+      text,
+    )
+  ) {
+    return "connect";
+  }
+  // A generic fetch failure does not prove the phone is offline. Keep its
+  // diagnosis unknown rather than exposing a raw native exception or URL.
+  return "request_failed";
+}
+
 function transportFailure(err: unknown, timedOut: boolean): SignInFailedError {
   if (timedOut || (err instanceof Error && err.name === "AbortError")) {
     return new SignInFailedError(
@@ -806,7 +853,8 @@ function transportFailure(err: unknown, timedOut: boolean): SignInFailedError {
       "Sign-in timed out — check your connection and try again.",
     );
   }
-  const tlsReason = tlsFailureReason(err);
+  const text = boundedFailureText(err);
+  const tlsReason = tlsFailureReason(text);
   if (tlsReason) {
     return new SignInFailedError(
       "network",
@@ -817,7 +865,7 @@ function transportFailure(err: unknown, timedOut: boolean): SignInFailedError {
   return new SignInFailedError(
     "network",
     "Couldn't reach Kaata — check your connection and try again.",
-    err instanceof Error ? err.message.slice(0, 60) : "",
+    networkFailureReason(text),
   );
 }
 

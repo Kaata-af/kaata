@@ -41,6 +41,7 @@ import {
   SignInFailedError,
 } from "../../lib/auth";
 import { queueCrashReport } from "../../lib/crash-report";
+import { connectionFailureText } from "../../lib/account-rules";
 import { colors } from "../../lib/colors";
 import { getAppMeta, getLocalSelf, setAppMeta } from "../../lib/db";
 import { getActiveVaultIdSyncMaybe, setActiveVaultId } from "../../lib/db-tx";
@@ -115,9 +116,8 @@ function describeSignInFailure(err: unknown): {
     if (err.stage === "token_expired") {
       return { text: t("auth.error.tokenExpired"), retired: false, known: true };
     }
-    if (err.stage === "network" && (err.detail === "tls" || err.detail.startsWith("tls "))) {
-      return { text: t("auth.error.secureConnection"), retired: false, known: false };
-    }
+    const connection = connectionFailureText(err);
+    if (connection) return { text: connection, retired: false, known: false };
     if (err.stage === "server" && err.detail === "apple_unavailable") {
       return { text: t("auth.error.appleUnavailable"), retired: false, known: true };
     }

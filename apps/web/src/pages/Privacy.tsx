@@ -8,7 +8,7 @@ import { SiteFooter, SiteHeader } from "../components/SiteChrome";
 // require a reachable, truthful privacy policy URL once any personal data is
 // collected — this page is that URL (kaata.af/privacy) and must stay accurate to
 // what the app actually does. When you change a data flow, change this page.
-const UPDATED = "9 November 2026";
+const UPDATED = "10 November 2026";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -283,6 +283,17 @@ export function Privacy() {
             with the name, shop name and phone number already saved in your app profile. We use
             these details to review your proposal and contact you about it, and keep its review
             status and our internal follow-up notes.
+          </p>
+        </Section>
+
+        <Section title="Connection recovery">
+          <p>
+            If an Android phone cannot resolve our API server’s address, Kaata may ask Google
+            Public DNS or Cloudflare’s public DNS service over an encrypted HTTPS connection.
+            These services receive the server hostname and your connection’s IP address, but no
+            Kaata password, sign-in token, customer records, or ledger content. This fallback
+            respects a configured Private DNS provider and VPN connections. It does not change
+            your phone’s network settings.
           </p>
         </Section>
 

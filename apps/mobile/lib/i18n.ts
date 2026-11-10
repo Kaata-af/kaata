@@ -416,6 +416,16 @@ const en = {
   "auth.error.tokenExpired": "Sign-in took too long. Please sign in again.",
   "auth.error.secureConnection":
     "Your phone couldn't make a secure connection to Kaata. Check its date and time. If this continues, contact support. Your saved records are still on this phone.",
+  "auth.error.networkConnection":
+    "Couldn't connect to Kaata. Try switching between Wi-Fi and mobile data, then try again. Your saved records are still on this phone.",
+  "auth.error.privateDns":
+    "Your phone couldn't find Kaata while using Private DNS. Check your Private DNS settings or try another network. Your saved records are still on this phone.",
+  "auth.error.vpnConnection":
+    "Your phone couldn't find Kaata while a VPN was connected. Check your VPN connection or try another network. Your saved records are still on this phone.",
+  "auth.error.networkAccess":
+    "This network couldn't reach Kaata. If Wi-Fi needs a sign-in, complete it first, or try mobile data. Your saved records are still on this phone.",
+  "auth.error.googleNetwork":
+    "Google couldn't connect for sign-in. Try another network, or choose Continue with email.",
   "auth.error.appleUnavailable":
     "Apple sign-in is unavailable right now. Please choose another sign-in option.",
   "auth.wait.seconds": "{n} seconds",
@@ -3245,6 +3255,16 @@ const fa: Partial<Record<Key, string>> = {
   "auth.error.tokenExpired": "ورود زیاد طول کشید. لطفاً دوباره وارد شوید.",
   "auth.error.secureConnection":
     "تلفون شما نتوانست اتصال امن با کاتا برقرار کند. تاریخ و ساعت تلفون را بررسی کنید. اگر مشکل ادامه داشت، با پشتیبانی تماس بگیرید. حساب‌های ذخیره‌شده هنوز روی همین تلفون هستند.",
+  "auth.error.networkConnection":
+    "اتصال به کاتا برقرار نشد. بین وای‌فای و انترنت سیم‌کارت جابه‌جا شوید و دوباره امتحان کنید. حساب‌های ذخیره‌شده هنوز روی همین تلفون هستند.",
+  "auth.error.privateDns":
+    "تلفون شما هنگام استفاده از DNS خصوصی نتوانست کاتا را پیدا کند. تنظیمات DNS خصوصی را بررسی کنید یا شبکۀ دیگری را امتحان کنید. حساب‌های ذخیره‌شده هنوز روی همین تلفون هستند.",
+  "auth.error.vpnConnection":
+    "تلفون شما هنگام وصل بودن VPN نتوانست کاتا را پیدا کند. اتصال VPN را بررسی کنید یا شبکۀ دیگری را امتحان کنید. حساب‌های ذخیره‌شده هنوز روی همین تلفون هستند.",
+  "auth.error.networkAccess":
+    "این شبکه نتوانست به کاتا وصل شود. اگر وای‌فای نیاز به ورود دارد، نخست وارد شوید یا انترنت سیم‌کارت را امتحان کنید. حساب‌های ذخیره‌شده هنوز روی همین تلفون هستند.",
+  "auth.error.googleNetwork":
+    "گوگل نتوانست برای ورود وصل شود. شبکۀ دیگری را امتحان کنید یا «ادامه با ایمیل» را انتخاب کنید.",
   "auth.error.appleUnavailable":
     "ورود با اپل فعلاً در دسترس نیست. لطفاً روش دیگری برای ورود انتخاب کنید.",
   "auth.wait.seconds": "{n} ثانیه",
@@ -5790,6 +5810,16 @@ const ps: Record<Key, string> = {
   "auth.error.tokenExpired": "ننوتلو ډېر وخت واخیست. بیا ننوځئ.",
   "auth.error.secureConnection":
     "ستاسې ټیلیفون له کاټې سره خوندي اړیکه ټینګه نه کړای شوه. د ټیلیفون نېټه او وخت وګورئ. که ستونزه دوام وکړي، له ملاتړ سره اړیکه ونیسئ. ستاسې خوندي شوي حسابونه لا هم په همدې ټیلیفون کې دي.",
+  "auth.error.networkConnection":
+    "له کاټې سره اړیکه ټینګه نه شوه. له وای‌فای څخه د سیم‌کارت انټرنېټ ته، یا برعکس، واوړئ او بیا هڅه وکړئ. ستاسې خوندي شوي حسابونه لا هم په همدې ټیلیفون کې دي.",
+  "auth.error.privateDns":
+    "ستاسې ټیلیفون د شخصي DNS د کارولو پر مهال کاټه ونه موندله. د شخصي DNS امستنې وګورئ یا بله شبکه وازمویئ. ستاسې خوندي شوي حسابونه لا هم په همدې ټیلیفون کې دي.",
+  "auth.error.vpnConnection":
+    "ستاسې ټیلیفون د VPN د نښلېدو پر مهال کاټه ونه موندله. د VPN اړیکه وګورئ یا بله شبکه وازمویئ. ستاسې خوندي شوي حسابونه لا هم په همدې ټیلیفون کې دي.",
+  "auth.error.networkAccess":
+    "دا شبکه له کاټې سره وصل نه شوه. که وای‌فای ننوتلو ته اړتیا لري، لومړی ننوځئ، یا د سیم‌کارت انټرنېټ وازمویئ. ستاسې خوندي شوي حسابونه لا هم په همدې ټیلیفون کې دي.",
+  "auth.error.googleNetwork":
+    "ګوګل د ننوتلو لپاره وصل نه شو. بله شبکه وازمویئ یا «په برېښنالیک دوام» وټاکئ.",
   "auth.error.appleUnavailable":
     "د Apple له لارې ننوتل اوس شوني نه دي. مهرباني وکړئ د ننوتلو بله لاره وټاکئ.",
   "auth.wait.seconds": "{n} ثانیې",

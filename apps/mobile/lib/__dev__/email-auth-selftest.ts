@@ -461,10 +461,25 @@ test("Google chooser failures preserve the native code and cancellations stay si
   const failure = await rejection(nativeAuth.signInWithGoogle());
   assert.ok(failure instanceof nativeAuth.SignInFailedError);
   assert.equal(failure.code, "google_native 10");
-  nativeError = Object.assign(new Error("NETWORK_ERROR"), { code: "7" });
-  const networkFailure = await rejection(nativeAuth.signInWithGoogle());
-  assert.ok(networkFailure instanceof nativeAuth.SignInFailedError);
-  assert.equal(networkFailure.code, "network google 7");
+  for (const code of ["7", "NETWORK_ERROR", ""]) {
+    nativeError = Object.assign(new Error("NETWORK_ERROR"), { code });
+    const networkFailure = await rejection(nativeAuth.signInWithGoogle());
+    assert.ok(networkFailure instanceof nativeAuth.SignInFailedError);
+    assert.equal(networkFailure.code, `google_network ${code === "7" ? "7" : "NETWORK_ERROR"}`);
+    for (const locale of ["en", "fa", "ps"] as const) {
+      i18n.setLocale(locale);
+      assert.equal(rules.accountFailureText(networkFailure), i18n.t("auth.error.googleNetwork"));
+    }
+    i18n.setLocale("en");
+  }
+  nativeError = Object.assign(new Error("INTERNAL_ERROR"), { code: "8" });
+  const internalFailure = await rejection(nativeAuth.signInWithGoogle());
+  assert.ok(internalFailure instanceof nativeAuth.SignInFailedError);
+  assert.equal(
+    internalFailure.code,
+    "google_native 8",
+    "an internal error does not prove a network failure",
+  );
   nativeError = Object.assign(new Error("cancelled"), { code: "SIGN_IN_CANCELLED" });
   assert.equal(nativeAuth.isCancellation(await rejection(nativeAuth.signInWithGoogle())), true);
   assert.equal(calls.length, 0, "no Kaata auth request without a Google token");
@@ -593,6 +608,125 @@ test("TLS failures in email and Apple use bounded diagnostic tags and localized 
     assert.equal(appleFailure.code, `network tls ${reason}`);
     assert.equal(secure.has(SESSION_KEY), false);
   }
+});
+
+test("connection diagnostics are bounded, preserve records and keep the existing two-attempt limit", async () => {
+  const cyclic = new Error("UnknownHostException: private.example.com");
+  cyclic.cause = cyclic;
+  const cases: Array<[unknown, string, Parameters<typeof i18n.t>[0]]> = [
+    [
+      new Error('java.net.UnknownHostException: Unable to resolve host "private.example.com"'),
+      "dns",
+      "auth.error.networkConnection",
+    ],
+    [
+      new Error("fetch failed", {
+        cause: new Error("java.net.ConnectException: Failed to connect to private.example.com"),
+      }),
+      "connect",
+      "auth.error.networkConnection",
+    ],
+    [
+      new Error("java.net.ConnectException: ENETUNREACH private.example.com"),
+      "no_network",
+      "auth.error.networkConnection",
+    ],
+    [
+      new Error("NSURLErrorDomain Code=-1009 private@example.com"),
+      "no_network",
+      "auth.error.networkConnection",
+    ],
+    [
+      new Error("NSURLErrorDomain Code=-1003 private@example.com"),
+      "dns",
+      "auth.error.networkConnection",
+    ],
+    [
+      new Error("fetch failed", {
+        cause: new Error("KAATA_DNS_PRIVATE_DNS UnknownHostException: private.example.com"),
+      }),
+      "dns private_dns",
+      "auth.error.privateDns",
+    ],
+    [
+      new Error("KAATA_DNS_VPN UnknownHostException: private.example.com"),
+      "dns vpn",
+      "auth.error.vpnConnection",
+    ],
+    [
+      new Error("KAATA_DNS_OFFLINE UnknownHostException: private.example.com"),
+      "no_network",
+      "auth.error.networkConnection",
+    ],
+    [
+      new Error("KAATA_DNS_NETWORK_POLICY UnknownHostException: private.example.com"),
+      "dns network_policy",
+      "auth.error.networkAccess",
+    ],
+    [
+      new Error("KAATA_DNS_CAPTIVE_PORTAL UnknownHostException: private.example.com"),
+      "dns network_policy",
+      "auth.error.networkAccess",
+    ],
+    [
+      new Error("Network request failed: private@example.com"),
+      "request_failed",
+      "auth.error.networkConnection",
+    ],
+    [
+      new Error(`${"x".repeat(3000)} KAATA_DNS_PRIVATE_DNS`),
+      "request_failed",
+      "auth.error.networkConnection",
+    ],
+    [cyclic, "dns", "auth.error.networkConnection"],
+  ];
+  for (const [error, detail, key] of cases) {
+    boundPhone();
+    const beforeMeta = fixture.prepare("SELECT key, value FROM app_meta ORDER BY key").all();
+    const beforePeople = fixture.prepare("SELECT * FROM users ORDER BY id").all();
+    const fail = () => {
+      throw error;
+    };
+    script = [fail, fail];
+    const failure = await rejection(auth.emailSignIn("a@example.com", "password"));
+    assert.ok(failure instanceof auth.SignInFailedError);
+    assert.equal(failure.code, `network ${detail}`);
+    assert.doesNotMatch(
+      `${failure.message} ${failure.code}`,
+      /private@|example\.com|java\.|NSURLErrorDomain|KAATA_DNS/,
+    );
+    assert.equal(calls.length, 2, "no new auth replay or preflight requests");
+    assert.deepEqual(calls[0], calls[1], "the existing single retry keeps the same request");
+    assert.deepEqual(
+      fixture.prepare("SELECT key, value FROM app_meta ORDER BY key").all(),
+      beforeMeta,
+    );
+    assert.deepEqual(fixture.prepare("SELECT * FROM users ORDER BY id").all(), beforePeople);
+    assert.equal(trace.includes("resetAllLocalData"), false);
+    assert.equal(secure.has(SESSION_KEY), false);
+    for (const locale of ["en", "fa", "ps"] as const) {
+      i18n.setLocale(locale);
+      assert.equal(rules.accountFailureText(failure), i18n.t(key));
+      assert.notEqual(i18n.t(key), key, "each supported language has the recovery message");
+    }
+    i18n.setLocale("en");
+  }
+});
+
+test("a transient DNS failure can recover on the existing sign-in retry", async () => {
+  freshPhone();
+  script = [
+    () => {
+      throw new Error("java.net.UnknownHostException: Unable to resolve host");
+    },
+    reply(200, session("acct-recovered", "a@example.com")),
+  ];
+  const user = await auth.emailSignIn("a@example.com", "password");
+  assert.equal(user.email, "a@example.com");
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], calls[1]);
+  assert.equal(metaGet("account_id"), "acct-recovered");
+  assert.equal(trace.includes("resetAllLocalData"), false);
 });
 
 function refusal(err: unknown, reason: string, status: number) {
@@ -1662,7 +1796,7 @@ test("copy: every error code of §6 has its own words, in English and Dari", asy
   assert.equal(rules.accountRefusal(new Error("x")), null);
   assert.equal(
     rules.accountFailureText(new auth.SignInFailedError("network", "x")),
-    i18n.t("account.signin.network"),
+    i18n.t("auth.error.networkConnection"),
   );
   assert.equal(
     rules.accountFailureText(new auth.SignInFailedError("server", "x", "500")),
@@ -4276,6 +4410,7 @@ const screen = load<{
   "../../components/NinjaIcon": { NinjaIcon: "Ninja" },
   "../../components/ConfirmDialog": { ConfirmDialog: "Dialog" },
   "../../lib/recovery": { recoverAllVaults: async () => ({ recovered: [], failed: [] }) },
+  "../../lib/account-rules": keyRules,
   "../../lib/sync/reconcile": { reconcileVaultRegistrations: async () => {} },
   "../../lib/auth": {
     isGoogleSignInAvailable: () => true,
@@ -4555,6 +4690,28 @@ componentTest("screen: the flow runs through the screen's gate and outcome", asy
   assert.ok(
     nodes(flowIn(tree)?.props.notice).some((n) => textOf(n) === "auth.error.secureConnection"),
   );
+  console.warn = () => {};
+  try {
+    for (const [failure, expected] of [
+      [new auth.SignInFailedError("network", "failed", "dns"), "auth.error.networkConnection"],
+      [new auth.SignInFailedError("network", "failed", "dns private_dns"), "auth.error.privateDns"],
+      [new auth.SignInFailedError("network", "failed", "dns vpn"), "auth.error.vpnConnection"],
+      [
+        new auth.SignInFailedError("network", "failed", "dns network_policy"),
+        "auth.error.networkAccess",
+      ],
+      [
+        new auth.SignInFailedError("google_network", "Google failed", "7"),
+        "auth.error.googleNetwork",
+      ],
+    ] as const) {
+      flowIn(tree)?.props.onFailure(failure);
+      tree = renderScreen();
+      assert.ok(nodes(flowIn(tree)?.props.notice).some((n) => textOf(n) === expected));
+    }
+  } finally {
+    console.warn = warn;
+  }
   flowIn(tree)?.props.onFailure(
     new auth.SignInFailedError("server", "disabled", "apple_unavailable"),
   );

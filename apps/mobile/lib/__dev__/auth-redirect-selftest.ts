@@ -107,6 +107,8 @@ const mocks: Record<string, any> = {
     },
   },
   "../../lib/crash-report": { queueCrashReport: async () => {} },
+  // Connection wording is exercised with the real helper in email-auth-selftest.
+  "../../lib/account-rules": { connectionFailureText: () => null },
   "../../lib/colors": { colors: {} },
   "../../lib/db": {
     getAppMeta: async (k: string) => meta.get(k),
