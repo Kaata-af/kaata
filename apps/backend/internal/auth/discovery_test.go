@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/matee/kaata-backend/internal/db"
 	"github.com/matee/kaata-backend/internal/testutil"
 )
 
@@ -241,6 +242,65 @@ func TestPeopleDiscoveryCrossScriptNames(t *testing.T) {
 	page, err := svc.SearchPeopleWithFriends(t.Context(), self, "Basit", "", true)
 	if err != nil || index(page, private) < 0 || !page.People[index(page, private)].IsFriend {
 		t.Fatalf("explicit friend scope lost a private cross-script friend: %+v %v", page, err)
+	}
+}
+
+func TestPeopleDiscoveryNameIndexWithExistingAccounts(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	self := seedGoogleAccount(t, pool, "index-owner@example.test", uuid.NewString())
+	person := seedGoogleAccount(t, pool, "index-person@example.test", uuid.NewString())
+	if _, err := pool.Exec(t.Context(), `UPDATE accounts SET display_name='باسط',discovery_enabled=TRUE WHERE id=$1::uuid`, person); err != nil {
+		t.Fatal(err)
+	}
+	// Reapply only the new migrations to a populated pre-098 schema. On an
+	// empty accounts table CREATE INDEX never invokes the PL/pgSQL body, hiding
+	// failures caused by PostgreSQL's restricted index-build search_path.
+	if _, err := pool.Exec(t.Context(), `DROP INDEX public.accounts_discovery_name_sound;
+ DROP FUNCTION public.people_name_sound_keys(TEXT,BOOLEAN);
+ DELETE FROM schema_migrations WHERE name IN ('098_people_name_sound_search.sql','099_people_name_sound_search_path.sql');`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(t.Context(), pool); err != nil {
+		t.Fatalf("upgrade with existing accounts: %v", err)
+	}
+	if _, err := pool.Exec(t.Context(), `REINDEX INDEX public.accounts_discovery_name_sound`); err != nil {
+		t.Fatalf("rebuild populated search index: %v", err)
+	}
+	svc := NewService(pool, "", emailTestSecret)
+	page, err := svc.SearchPeople(t.Context(), self, "Basit")
+	if err != nil || len(page.People) != 1 || page.People[0].AccountID != person {
+		t.Fatalf("upgraded directory lost existing account: %+v %v", page, err)
+	}
+	// Also cover a database that had already installed the original function
+	// on an empty table: only 099 will run there, so its old body must work.
+	var definition string
+	if err := pool.QueryRow(t.Context(), `SELECT pg_get_functiondef('public.people_name_sound_keys(text,boolean)'::regprocedure)`).Scan(&definition); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), strings.ReplaceAll(definition, "public.people_search_text", "people_search_text")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `ALTER FUNCTION public.people_name_sound_keys(TEXT,BOOLEAN) RESET search_path;
+ DELETE FROM schema_migrations WHERE name='099_people_name_sound_search_path.sql';`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Migrate(t.Context(), pool); err != nil {
+		t.Fatalf("repair already-installed function: %v", err)
+	}
+	if _, err := pool.Exec(t.Context(), `REINDEX INDEX public.accounts_discovery_name_sound`); err != nil {
+		t.Fatalf("rebuild originally unqualified function: %v", err)
+	}
+	tx, err := pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context())
+	if _, err := tx.Exec(t.Context(), `SET LOCAL search_path=pg_catalog,pg_temp`); err != nil {
+		t.Fatal(err)
+	}
+	var matches bool
+	if err := tx.QueryRow(t.Context(), `SELECT public.people_name_sound_keys('باسط') @> public.people_name_sound_keys('Basit',true)`).Scan(&matches); err != nil || !matches {
+		t.Fatalf("restricted search path: matched=%t err=%v", matches, err)
 	}
 }
 

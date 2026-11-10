@@ -16,7 +16,9 @@ DECLARE
   letter_index INTEGER;
   eligible BOOLEAN;
 BEGIN
-  cleaned := people_search_text(normalize(value, NFKD));
+  -- CREATE INDEX / REINDEX use a restricted search_path while evaluating
+  -- existing accounts, so this application helper must be schema-qualified.
+  cleaned := public.people_search_text(normalize(value, NFKD));
   -- Accent/vowel marks carry no consonant identity. Joining and directional
   -- controls are removed, not turned into artificial name-word boundaries.
   cleaned := regexp_replace(cleaned,
