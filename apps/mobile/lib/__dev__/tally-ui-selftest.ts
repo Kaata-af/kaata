@@ -21,6 +21,7 @@ let slots: any[] = [],
   rtl = false;
 let capturedStyles: any;
 let tallyViewport = { width: 390, height: 844, fontScale: 1, scale: 3 };
+const exactTimestamp = "10 Nov 2026 · 12:15 PM";
 const colors = require("../colors").colors;
 const mocks: Record<string, any> = {
   "./ProtectedModal": { ProtectedModal: "Modal" },
@@ -96,7 +97,7 @@ const mocks: Record<string, any> = {
   "../lib/format": {
     formatAmount: String,
     formatRelative: () => "yesterday",
-    formatTimestamp: () => "12:15 PM",
+    formatTimestamp: () => exactTimestamp,
   },
   "../lib/tokens": { radius: { sm: 8, md: 12, pill: 999 } },
   "../lib/i18n": {
@@ -421,7 +422,8 @@ for (const [isRTL, short, multiline, shortAgain] of [
     );
     assert.equal(words(tree).includes("common.more"), false);
     assert.ok(style(noteText(tree, multiline).props.style).fontSize >= 16);
-    const date = nodes(tree).find((node) => node.type === "Text" && words(node) === "yesterday");
+    const date = nodes(tree).find((node) => node.type === "Text" && words(node) === exactTimestamp);
+    assert.ok(date, "the full date and time remain visible at large font sizes");
     assert.equal(date?.props.numberOfLines, undefined, "large dates can wrap below the amount");
     const longAmountProps = props(multiline);
     tree = render({
@@ -607,6 +609,17 @@ for (const isRTL of [false, true]) {
     const tile = c.key === "disputed" ? colors.bgSubtle : colors.payBg;
     slots = [];
     const collapsed = render(props);
+    const collapsedTime = nodes(collapsed).find(
+      (node) => node.type === "Text" && node.props.children === exactTimestamp,
+    );
+    assert.ok(collapsedTime, `${what}: exact date and time are visible before any tap`);
+    assert.equal(
+      collapsedTime.props.numberOfLines,
+      undefined,
+      "long localized dates can wrap without losing time",
+    );
+    assert.equal(words(collapsed).includes("yesterday"), false);
+    assert.equal(body(collapsed)?.props.accessibilityHint, "entry.showDetails");
     assert.deepEqual(
       paint(collapsed),
       [
@@ -630,7 +643,7 @@ for (const isRTL of [false, true]) {
           next: words(afterDot),
           silent: closedDot?.props.accessibilityElementsHidden === true,
         },
-        { shape: { width: 6, height: 6, borderRadius: 3 }, next: "yesterday", silent: true },
+        { shape: { width: 6, height: 6, borderRadius: 3 }, next: exactTimestamp, silent: true },
         `${what}: a silent 6px pending dot right before the time`,
       );
     }
@@ -647,6 +660,11 @@ for (const isRTL of [false, true]) {
     );
 
     const tree = opened(props);
+    assert.ok(
+      nodes(tree).some((node) => node.type === "Text" && node.props.children === exactTimestamp),
+      `${what}: tapping for details keeps the exact timestamp`,
+    );
+    assert.equal(body(tree)?.props.accessibilityHint, "entry.hideDetails");
     const pill = pillOf(tree);
     assert.deepEqual(
       paint(tree, pill),
@@ -778,7 +796,11 @@ for (const isRTL of [false, true]) {
           ? [rtl ? "رد شده: Wrong amount" : "Rejected: Wrong amount"]
           : []),
         ...(reviewed
-          ? [rtl ? "بررسی‌کننده: Ahmad · 12:15 PM" : "Reviewed by Ahmad · 12:15 PM"]
+          ? [
+              rtl
+                ? `بررسی‌کننده: Ahmad · ${exactTimestamp}`
+                : `Reviewed by Ahmad · ${exactTimestamp}`,
+            ]
           : []),
         ...(tab.status === "disputed"
           ? [rtl ? "در ماندهٔ حساب حساب نمی‌شود." : "Not included in the balance."]
@@ -1172,6 +1194,7 @@ for (const direction of [false, true]) {
     tab: { by: "them", status: "pending", author_name: "Synthetic reviewer" },
   };
   const row = render(props);
+  assert.ok(words(row).includes(exactTimestamp), "selection preserves the full date and time");
   assert.equal(body(row)?.props.accessibilityRole, "checkbox");
   assert.deepEqual(body(row)?.props.accessibilityState, { checked: true, disabled: undefined });
   assert.equal(
@@ -1184,6 +1207,10 @@ for (const direction of [false, true]) {
   body(row)?.props.onPress();
   body(row)?.props.onLongPress();
   body(row)?.props.onAccessibilityAction({ nativeEvent: { actionName: "activate" } });
+  assert.ok(
+    words(render(props)).includes(exactTimestamp),
+    "selecting a tally never switches its timestamp to relative time",
+  );
   assert.deepEqual(
     selected,
     ["1", "1", "1"],

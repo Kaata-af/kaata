@@ -10,7 +10,7 @@ import { useCalendar } from "../lib/calendar";
 import { getCurrentCurrencyCode } from "../lib/currency";
 import { rowDir, textDir, trackingSafe, useIsRTL } from "../lib/direction";
 import { fonts, sansLineHeight } from "../lib/fonts";
-import { formatAmount, formatRelative, formatTimestamp } from "../lib/format";
+import { formatAmount, formatTimestamp } from "../lib/format";
 import { t } from "../lib/i18n";
 import { radius } from "../lib/tokens";
 import type { TabEntryMeta } from "../lib/tabs/types";
@@ -117,11 +117,9 @@ export const EntryRow = memo(function EntryRow(props: {
       ? { bg: colors.payBg, fg: colors.payStrong }
       : { bg: colors.collectBg, fg: colors.collectStrong };
 
-  // ONE open/closed state per row (Matee, 2026-09): a tap anywhere on the
-  // tally is the toggle, exactly like the note's more/less. Open shows the
-  // exact date and time in the date's own slot (never dropped under the
-  // amount) and, when the note is clipped, expands the note in the same tap;
-  // closed shows relative time and a one-line note at standard text sizes.
+  // A tap expands the note and review/author details. The exact date and time
+  // stay visible in both states, including while selecting tallies.
+  // Closed rows keep a one-line note at standard text sizes.
   // Larger system text keeps the complete note visible. The note only
   // expands once we've measured that it actually overflows (`clipped`), so a
   // short note never grows a "less" cue.
@@ -157,10 +155,8 @@ export const EntryRow = memo(function EntryRow(props: {
   if (voided) return null;
   const rowOpen = open && !props.selecting;
   const expanded = rowOpen && clipped && !showFullNote;
-  const when = rowOpen
-    ? formatTimestamp(entry.created_at)
-    : formatRelative(entry.created_at, Date.now(), { alwaysRelative: true });
-  const toggleLabel = t(open ? "entry.showRelativeTime" : "entry.showExactTime");
+  const when = formatTimestamp(entry.created_at);
+  const toggleLabel = t(rowOpen ? "entry.hideDetails" : "entry.showDetails");
 
   // ATTRIBUTION (shared kaatas only; see the prop's comment).
   //
@@ -172,8 +168,8 @@ export const EntryRow = memo(function EntryRow(props: {
   // looks exactly as it did before.
   //
   // Opened, the row spells the whole thing out in words. That is where a name
-  // belongs: the trailing slot already carries the exact date and time after
-  // a tap, and stacking a name in there would squeeze one of the two.
+  // belongs: the trailing slot already carries the exact date and time,
+  // and stacking a name in there would squeeze one of the two.
   const chipActor = chipActorFor(props.attribution);
   const chipTint = chipActor ? memberTintFor(chipActor.accountId) : null;
   const nameOf = (actor: { name: string | null; isSelf: boolean }) =>
@@ -265,7 +261,7 @@ export const EntryRow = memo(function EntryRow(props: {
       ]}
     >
       <Pressable
-        // A row tap toggles the row open/closed (exact time + note). The
+        // A row tap toggles the note and details open/closed. The
         // edit/delete sheet stays on TAP-AND-HOLD — like contact rows.
         // delayLongPress 250ms so a quick tap doesn't accidentally trigger it;
         // Pressable cancels if the finger moves enough to start a scroll, so it
@@ -394,13 +390,8 @@ export const EntryRow = memo(function EntryRow(props: {
                     importantForAccessibility="no"
                   />
                 ) : null}
-                {/* Larger system text can wrap the full timestamp below the amount. */}
-                <Text
-                  numberOfLines={fontScale > 1.2 ? undefined : 1}
-                  style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}
-                >
-                  {when}
-                </Text>
+                {/* Keep the full date and time visible, wrapping when needed. */}
+                <Text style={[styles.when, { textAlign: isRTL ? "left" : "right" }]}>{when}</Text>
               </View>
             </View>
             {note ? (
@@ -675,14 +666,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
-  // Trailing meta: the author chip (fixed) + the date (shrinks). flexShrink on
-  // the WRAPPER, minWidth:0 so it can go below the date's intrinsic width.
+  // Trailing meta: the author chip (fixed) and a timestamp that wraps within
+  // the row rather than hiding the date or clock on a narrow screen.
   meta: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     flexShrink: 1,
     minWidth: 0,
+    maxWidth: "100%",
     justifyContent: "flex-end",
   },
   amountRow: {

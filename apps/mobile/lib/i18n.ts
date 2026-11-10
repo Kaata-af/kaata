@@ -1078,8 +1078,8 @@ const en = {
   "entry.edit.hint":
     'Direction can\'t be changed. To turn this into "{otherVerb}", delete this entry and add a new one.',
   "entry.notFound": "This entry no longer exists.",
-  "entry.showExactTime": "Show exact date and time",
-  "entry.showRelativeTime": "Show relative time",
+  "entry.showDetails": "Show tally details",
+  "entry.hideDetails": "Hide tally details",
   "entry.options": "Tally options",
   // Attribution on a shared kaata's tally row. The collapsed row shows only a
   // tinted initial; these words appear when the row is opened, and as the
@@ -3882,8 +3882,8 @@ const fa: Partial<Record<Key, string>> = {
   "entry.edit.hint":
     'جهت قابل تغییر نیست. برای تبدیل به "{otherVerb}" این ثبت را حذف کنید و یکی نو اضافه کنید.',
   "entry.notFound": "این ثبت دیگر وجود ندارد.",
-  "entry.showExactTime": "نمایش تاریخ و ساعت دقیق",
-  "entry.showRelativeTime": "نمایش زمان گذشته",
+  "entry.showDetails": "نمایش جزئیات ثبت",
+  "entry.hideDetails": "پنهان کردن جزئیات ثبت",
   "entry.options": "گزینه‌های ثبت",
   "entry.addedBy": "ثبت‌شده توسط {name}",
   "entry.editedBy": "ویرایش توسط {name}",
@@ -6785,8 +6785,8 @@ const ps: Record<Key, string> = {
   "entry.edit.hint":
     "لوری نه شي بدلېدای. د «{otherVerb}» د ثبتولو لپاره دا راکړه ورکړه ړنګه کړئ او نوې ورزیاته کړئ.",
   "entry.notFound": "دا راکړه ورکړه نور نشته.",
-  "entry.showExactTime": "کره نېټه او وخت وښایئ",
-  "entry.showRelativeTime": "تېر شوی وخت وښایئ",
+  "entry.showDetails": "د راکړې ورکړې جزییات وښایئ",
+  "entry.hideDetails": "د راکړې ورکړې جزییات پټ کړئ",
   "entry.options": "د راکړې ورکړې غوراوي",
   "entry.addedBy": "د {name} له خوا ورزیاته شوې",
   "entry.editedBy": "{name} سمون ورکړی",
