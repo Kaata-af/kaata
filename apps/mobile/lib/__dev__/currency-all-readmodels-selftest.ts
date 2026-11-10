@@ -195,9 +195,52 @@ async function main() {
   const totals = Object.fromEntries(
     currencyBalances(people, "AFN").map((row) => [row.currency, row]),
   );
-  assert.deepEqual(totals.AFN, { currency: "AFN", collect: 101.3, pay: 0, pending: false });
-  assert.deepEqual(totals.USD, { currency: "USD", collect: 65, pay: 100, pending: false });
+  assert.deepEqual(totals.AFN, {
+    currency: "AFN",
+    collect: 101.3,
+    pay: 0,
+    collectCount: 3,
+    payCount: 0,
+    pending: false,
+  });
+  assert.deepEqual(totals.USD, {
+    currency: "USD",
+    collect: 65,
+    pay: 100,
+    collectCount: 2,
+    payCount: 1,
+    pending: false,
+  });
   assert.equal(totals.EUR.pending, true);
+  assert.equal(
+    totals.EUR.collectCount,
+    0,
+    "zero and unknown balances do not count as customers to collect from",
+  );
+  assert.equal(totals.EUR.payCount, 0);
+  const staleUnknown = currencyBalances(
+    people.map((person) => ({
+      ...person,
+      currency_balances: person.currency_balances?.map((row) =>
+        row.tab_unsynced === 1 ? { ...row, balance: 500 } : row,
+      ),
+    })),
+    "AFN",
+  ).find((row) => row.currency === "EUR")!;
+  assert.equal(
+    staleUnknown.collectCount,
+    0,
+    "an unrestored shared cache cannot invent a customer to collect from",
+  );
+  assert.equal(staleUnknown.pending, true);
+  const repeated = currencyBalances([...people, byId.get("decimal")!], "AFN").find(
+    (row) => row.currency === "AFN",
+  )!;
+  assert.equal(
+    repeated.collectCount,
+    3,
+    "counts use distinct customers even if a source row is repeated",
+  );
   const summaries = Object.fromEntries(
     selectedPeopleByCurrency(people, "AFN").map((row) => [row.currency, row.summary]),
   );

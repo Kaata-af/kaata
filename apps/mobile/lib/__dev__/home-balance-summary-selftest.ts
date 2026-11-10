@@ -3,6 +3,7 @@ import { colors } from "../colors";
 import { formatMoneyAmount, fromMinorUnits } from "../money";
 import { currencyBalances, personCurrencyRows } from "../multi-currency-view";
 import type { PersonWithBalance } from "../types";
+import type { HomeCurrencyBalance } from "../../components/HomeBalanceSummary";
 import {
   selectedCustomerCurrencyCodes,
   type CustomerBalanceFilter,
@@ -66,7 +67,19 @@ const contrast = (foreground: string, background: string) => {
 const pageStep = (scroll: UINode): number =>
   scroll.props.snapToOffsets[1] ??
   style(children(scroll)[0]).width + flattenStyle(scroll.props.contentContainerStyle).gap;
-type Balance = { currency: string; collect: number; pay: number; pending: boolean };
+type Balance = Omit<HomeCurrencyBalance, "collectCount" | "payCount"> &
+  Partial<Pick<HomeCurrencyBalance, "collectCount" | "payCount">>;
+// Existing motion fixtures model one customer per nonzero side unless the
+// case explicitly exercises counts. Production values always supply counts.
+const withCounts = (row: Balance): HomeCurrencyBalance => ({
+  collectCount: row.collect > 0 ? 1 : 0,
+  payCount: row.pay > 0 ? 1 : 0,
+  ...row,
+});
+const customerCount = (count: number | string) =>
+  language.t(count === 1 ? "customers.filteredCount.one" : "customers.filteredCount.other", {
+    count,
+  });
 type SummaryProps = {
   people: readonly PersonWithBalance[];
   balances?: readonly Balance[];
@@ -271,7 +284,9 @@ function fixture(
   const render = (next: Partial<SummaryProps> = {}) => {
     props = { ...props, ...next };
     renderedKeys = new Set();
-    const tree = hooks.render(() => module.HomeBalanceSummary(props));
+    const tree = hooks.render(() =>
+      module.HomeBalanceSummary({ ...props, balances: props.balances?.map(withCounts) }),
+    );
     for (const [identity, child] of cardHooks) {
       if (renderedKeys.has(identity)) continue;
       child.unmount();
@@ -403,8 +418,62 @@ const balances = [
   { currency: "AFN", collect: 100, pay: 100, pending: false },
   { currency: "USD", collect: 0.3, pay: 9.12, pending: false },
   { currency: "EUR", collect: 0, pay: 0, pending: false },
-];
+].map(withCounts);
 async function main() {
+  for (const locale of ["en", "fa", "ps"] as const) {
+    for (const platform of ["ios", "android"]) {
+      const current = fixture(locale, 320, 1, 568, platform);
+      const counted = [
+        { currency: "AFN", collect: 100, pay: 100, collectCount: 2, payCount: 1, pending: false },
+        { currency: "USD", collect: 100, pay: 0, collectCount: 3, payCount: 0, pending: false },
+      ];
+      current.render({ balances: counted, direction: "collect", onDirectionChange: () => {} });
+      for (const row of counted) {
+        for (const side of ["collect", "pay"] as const) {
+          const count = row[side === "collect" ? "collectCount" : "payCount"];
+          const label = customerCount(count);
+          assert.equal(
+            text(byId(current.hooks.tree, `home-balance-count-${side}-${row.currency}`)),
+            label,
+          );
+          assert.ok(
+            byId(
+              current.hooks.tree,
+              `home-balance-${side}-${row.currency}`,
+            ).props.accessibilityLabel.includes(label),
+          );
+        }
+      }
+      assert.equal(
+        byId(current.hooks.tree, "home-balance-amount-pay-AFN"),
+        undefined,
+        "the collapsed pay side still shows its customer count while its amount is spoken",
+      );
+      const renderedBefore = current.cardRenders().get("AFN:real")!;
+      current.render({
+        balances: counted.map((row) =>
+          row.currency === "AFN" ? { ...row, collectCount: 4, payCount: 5 } : row,
+        ),
+      });
+      assert.ok(
+        current.cardRenders().get("AFN:real")! > renderedBefore,
+        "count-only changes invalidate Android memoized cards",
+      );
+      assert.equal(
+        text(byId(current.hooks.tree, "home-balance-count-collect-AFN")),
+        customerCount(4),
+      );
+      assert.equal(text(byId(current.hooks.tree, "home-balance-count-pay-AFN")), customerCount(5));
+      assert.ok(summaryLabel(current.hooks.tree).includes(customerCount(4)));
+      current.setFontScale(2);
+      for (const side of ["collect", "pay"] as const) {
+        const count = byId(current.hooks.tree, `home-balance-count-${side}-AFN`);
+        assert.equal(count.props.numberOfLines, undefined);
+        assert.notEqual(count.props.adjustsFontSizeToFit, true);
+      }
+      current.hooks.unmount();
+    }
+  }
   for (const locale of ["en", "fa", "ps"] as const) {
     for (const fontScale of [1.4, 2, 3]) {
       const current = fixture(locale, 320, fontScale);
@@ -447,7 +516,7 @@ async function main() {
       current.setFontScale(1);
       assert.equal(
         style(current.scroll()).height,
-        132,
+        156,
         "restoring normal text size restores the compact card height",
       );
       current.hooks.unmount();
@@ -775,8 +844,10 @@ async function main() {
             language.t("home.total.title"),
             language.t("home.total.label.collect"),
             formatMoneyAmount(row.collect),
+            customerCount(row.collectCount),
             language.t("home.total.label.pay"),
             formatMoneyAmount(row.pay),
+            customerCount(row.payCount),
           ],
           "the board contains the currency, both labeled balances, and no invented rates, trends or percentages",
         );
@@ -812,7 +883,7 @@ async function main() {
       assert.equal(style(current.scroll()).direction, "ltr");
       assert.equal(
         style(current.scroll()).height,
-        132,
+        156,
         "search does not shrink the cards as currencies change",
       );
       current.measure();
@@ -932,7 +1003,7 @@ async function main() {
       ["AFN", "USD"],
     );
     assert.deepEqual(module.visibleCurrencyBalances([], "USD"), [
-      { currency: "USD", collect: 0, pay: 0, pending: false },
+      { currency: "USD", collect: 0, pay: 0, collectCount: 0, payCount: 0, pending: false },
     ]);
     const pending = current.render({
       people: [],
@@ -947,6 +1018,12 @@ async function main() {
       /-amount-(collect|pay)-/.test(node.props.testID ?? ""),
     );
     assert.deepEqual(pendingAmounts.map(text), ["…", "…"]);
+    for (const side of ["collect", "pay"])
+      assert.equal(
+        text(byId(pending, `home-balance-count-${side}-USD`)),
+        customerCount("…"),
+        "partial known-customer counts are not presented as complete",
+      );
     assert.ok(
       pendingAmounts.every((amount) => style(amount).color === colors.textSubtle),
       "unknown balances are neutral rather than directional claims",
@@ -956,6 +1033,8 @@ async function main() {
       /-amount-(collect|pay)-/.test(node.props.testID ?? ""),
     );
     assert.deepEqual(zeroAmounts.map(text), ["0", "0"]);
+    for (const side of ["collect", "pay"])
+      assert.equal(text(byId(empty, `home-balance-count-${side}-USD`)), customerCount(0));
     assert.ok(zeroAmounts.every((amount) => style(amount).color === colors.textSubtle));
     assert.equal(byId(empty, "home-balance-currency-USD"), undefined);
     assert.ok(summaryLabel(empty).includes("USD"));
@@ -1883,7 +1962,7 @@ async function main() {
         current.render({ searchOpen: paused });
         assert.equal(
           style(current.scroll()).height,
-          132,
+          156,
           "Android IME window resize keeps card height stable",
         );
         assert.equal(

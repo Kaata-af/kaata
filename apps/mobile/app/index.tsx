@@ -85,7 +85,6 @@ import {
   getLocalSelf,
   listActiveVaults,
   listAllPeopleForSearch,
-  type CurrencyBalanceSummary,
   listAllVaultsIncludingArchived,
   setAppMeta,
 } from "../lib/db";
@@ -211,7 +210,7 @@ export default function HomeScreen() {
   const [summarySnapshot, setSummarySnapshot] = useState<{
     vaultId: string | null;
     accountId: string | null;
-    balances: CurrencyBalanceSummary[];
+    balances: ReturnType<typeof currencyBalances>;
   } | null>(null);
   const [keyboardShown, setKeyboardShown] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);

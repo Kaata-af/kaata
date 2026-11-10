@@ -55,16 +55,18 @@ export function currencyBalances(people: readonly PersonWithBalance[], fallback:
       rows.push(row);
       grouped.set(code, rows);
     }
-  return [...grouped].map(([currency, rows]) => ({
-    currency,
-    collect: sumAmounts(
-      rows.filter((row) => row.tab_unsynced !== 1 && row.balance > 0).map((row) => row.balance),
-    ),
-    pay: sumAmounts(
-      rows.filter((row) => row.tab_unsynced !== 1 && row.balance < 0).map((row) => -row.balance),
-    ),
-    pending: rows.some((row) => row.tab_unsynced === 1),
-  }));
+  return [...grouped].map(([currency, rows]) => {
+    const collect = rows.filter((row) => row.tab_unsynced !== 1 && row.balance > 0);
+    const pay = rows.filter((row) => row.tab_unsynced !== 1 && row.balance < 0);
+    return {
+      currency,
+      collect: sumAmounts(collect.map((row) => row.balance)),
+      pay: sumAmounts(pay.map((row) => -row.balance)),
+      collectCount: new Set(collect.map((row) => row.id)).size,
+      payCount: new Set(pay.map((row) => row.id)).size,
+      pending: rows.some((row) => row.tab_unsynced === 1),
+    };
+  });
 }
 
 export function selectedPeopleByCurrency(

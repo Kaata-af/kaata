@@ -47,12 +47,14 @@ const board = {
   pay: colors.payStrong,
 } as const;
 
-export type HomeCurrencyBalance = {
-  currency: string;
-  collect: number;
-  pay: number;
-  pending: boolean;
-};
+export type HomeCurrencyBalance = ReturnType<typeof currencyBalances>[number];
+
+function customerCountLabel(row: HomeCurrencyBalance, side: "collect" | "pay") {
+  const count = row.pending ? "…" : row[side === "collect" ? "collectCount" : "payCount"];
+  return t(count === 1 ? "customers.filteredCount.one" : "customers.filteredCount.other", {
+    count,
+  });
+}
 
 export function visibleCurrencyBalances(
   balances: readonly HomeCurrencyBalance[],
@@ -67,6 +69,8 @@ export function visibleCurrencyBalances(
           currency: fallback,
           collect: 0,
           pay: 0,
+          collectCount: 0,
+          payCount: 0,
           pending: false,
         },
       ];
@@ -113,7 +117,9 @@ export function HomeBalanceSummary({
   const largeText = fontScale > 1.3;
   // Like the customer balance carousel, large text uses the tallest page's
   // natural height. Native layout responds to language and text-size changes.
-  const cardHeight = largeText ? undefined : (small ? 104 : 132) - (multiple ? 0 : small ? 28 : 32);
+  const cardHeight = largeText
+    ? undefined
+    : ((small ? 104 : 132) - (multiple ? 0 : small ? 28 : 32) + 24) * Math.max(1, fontScale);
   const selectedCurrencies = selectedCustomerCurrencyCodes(currencyFilter);
   const [position, setPosition] = useState(0);
   const selectedCode = useRef(rows[0].currency);
@@ -412,7 +418,7 @@ export function HomeBalanceSummary({
   );
   const summaryLabel = current.pending
     ? `${getCurrencyLabel(current.currency)}, ${t("home.total.pending")}`
-    : `${getCurrencyLabel(current.currency)}, ${t("home.total.label.collect")}: ${formatAmount(current.collect)}, ${t("home.total.label.pay")}: ${formatAmount(current.pay)}`;
+    : `${getCurrencyLabel(current.currency)}, ${t("home.total.label.collect")}: ${formatAmount(current.collect)}, ${customerCountLabel(current, "collect")}, ${t("home.total.label.pay")}: ${formatAmount(current.pay)}, ${customerCountLabel(current, "pay")}`;
   const thumbWidth = Math.min(viewport, Math.max(24, viewport / rows.length));
   return (
     <View
@@ -615,6 +621,8 @@ function sameAndroidCard(before: CurrencyBalanceCardProps, after: CurrencyBalanc
         before.row.currency === after.row.currency &&
         Object.is(before.row.collect, after.row.collect) &&
         Object.is(before.row.pay, after.row.pay) &&
+        before.row.collectCount === after.row.collectCount &&
+        before.row.payCount === after.row.payCount &&
         before.row.pending === after.row.pending
       );
     return Object.is(before[key], after[key]);
@@ -723,6 +731,7 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
           const title = t(collect ? "home.total.label.collect" : "home.total.label.pay");
           const tone = collect ? board.collect : board.pay;
           const amount = row.pending ? "…" : formatAmount(row[side]);
+          const countLabel = customerCountLabel(row, side);
           const symbol = multiple ? null : getCurrencySymbol(row.currency);
           const symbolSize = small ? 12 : 14;
           const symbolWidth = symbol
@@ -746,7 +755,7 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
               testID={`${idPrefix}-${side}-${row.currency}`}
               accessible
               accessibilityRole="button"
-              accessibilityLabel={`${getCurrencyLabel(row.currency)}, ${title}: ${amount}`}
+              accessibilityLabel={`${getCurrencyLabel(row.currency)}, ${title}: ${amount}, ${countLabel}`}
               accessibilityHint={selected ? t("customers.balanceFilter.clear") : undefined}
               accessibilityState={{
                 selected,
@@ -828,6 +837,15 @@ const CurrencyBalanceCard = memo(function CurrencyBalanceCard({
                   </View>
                 </View>
               ) : null}
+              <Text
+                testID={`${idPrefix}-count-${side}-${row.currency}`}
+                accessible={false}
+                style={[styles.customerCount, textDir(isRTL), compact && styles.collapsedCount]}
+                numberOfLines={largeText ? undefined : compact ? 2 : 1}
+                adjustsFontSizeToFit={!largeText}
+              >
+                {countLabel}
+              </Text>
             </AnimatedPressable>
           );
         })}
@@ -880,6 +898,8 @@ const styles = StyleSheet.create({
   heading: { flexDirection: "row", alignItems: "center", gap: 5, direction: "ltr" },
   collapsedHeading: { flexDirection: "column", gap: 6 },
   collapsedLabel: { flex: 0, textAlign: "center", color: board.text },
+  customerCount: { fontSize: 12, fontFamily: fonts.sansMedium, color: board.muted, marginTop: 4 },
+  collapsedCount: { textAlign: "center" },
   label: { flex: 1, fontSize: 11, fontFamily: fonts.sansMedium, color: board.muted },
   values: {
     flex: 1,
