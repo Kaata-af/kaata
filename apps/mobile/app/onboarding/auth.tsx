@@ -115,6 +115,12 @@ function describeSignInFailure(err: unknown): {
     if (err.stage === "token_expired") {
       return { text: t("auth.error.tokenExpired"), retired: false, known: true };
     }
+    if (err.stage === "network" && (err.detail === "tls" || err.detail.startsWith("tls "))) {
+      return { text: t("auth.error.secureConnection"), retired: false, known: false };
+    }
+    if (err.stage === "server" && err.detail === "apple_unavailable") {
+      return { text: t("auth.error.appleUnavailable"), retired: false, known: true };
+    }
     const hint =
       err.stage === "play_services"
         ? t("onboardingMode.signInFailed.playServices")
@@ -191,20 +197,20 @@ export function AuthScreen({
   // A redirected sign-in restores the account's kaatas before it returns;
   // show that instead of a frozen card (audit #2).
   const [restoring, setRestoring] = useState<RecoveryProgress | "start" | null>(null);
-  // Apple on Android depends on the server's web sign-in; ask before offering.
+  // A connection failure must not make a configured provider disappear.
   const [appleAvailable, setAppleAvailable] = useState(isAppleSignInAvailable);
   useEffect(() => {
-    if (appleAvailable) return;
+    if (Platform.OS === "ios") return;
     let alive = true;
     refreshAppleSignInAvailability()
       .then((ok) => {
-        if (alive && ok) setAppleAvailable(true);
+        if (alive) setAppleAvailable(ok);
       })
       .catch(() => undefined);
     return () => {
       alive = false;
     };
-  }, [appleAvailable]);
+  }, []);
   // WHICH sign-in is mid-handshake (null = idle). Every control disables
   // while one runs, but only the tapped one shows the spinner — a shared
   // boolean used to put a spinner on BOTH cards at once. "reset" = the
@@ -536,6 +542,7 @@ export function AuthScreen({
   const googleAvailable = isGoogleSignInAvailable();
 
   function showSignInFailure(provider: "google" | "apple" | "email", err: unknown) {
+    if (provider === "apple") setAppleAvailable(isAppleSignInAvailable());
     const failure = describeSignInFailure(err);
     setError(failure.text);
     setRetired(failure.retired);

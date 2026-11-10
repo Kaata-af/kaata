@@ -414,6 +414,10 @@ const en = {
   "auth.error.emailFixed": "Your password must use your account's email address.",
   "auth.error.providerSessionRequired": "Sign in with Google or Apple to remove the password.",
   "auth.error.tokenExpired": "Sign-in took too long. Please sign in again.",
+  "auth.error.secureConnection":
+    "Your phone couldn't make a secure connection to Kaata. Check its date and time. If this continues, contact support. Your saved records are still on this phone.",
+  "auth.error.appleUnavailable":
+    "Apple sign-in is unavailable right now. Please choose another sign-in option.",
   "auth.wait.seconds": "{n} seconds",
   "auth.wait.minute": "1 minute",
   "auth.wait.minutes": "{n} minutes",
@@ -3239,6 +3243,10 @@ const fa: Partial<Record<Key, string>> = {
   "auth.error.emailFixed": "برای گذاشتن رمز، از آدرس ایمیل همین حساب استفاده کنید.",
   "auth.error.providerSessionRequired": "برای حذف رمز، با گوگل یا اپل وارد شوید.",
   "auth.error.tokenExpired": "ورود زیاد طول کشید. لطفاً دوباره وارد شوید.",
+  "auth.error.secureConnection":
+    "تلفون شما نتوانست اتصال امن با کاتا برقرار کند. تاریخ و ساعت تلفون را بررسی کنید. اگر مشکل ادامه داشت، با پشتیبانی تماس بگیرید. حساب‌های ذخیره‌شده هنوز روی همین تلفون هستند.",
+  "auth.error.appleUnavailable":
+    "ورود با اپل فعلاً در دسترس نیست. لطفاً روش دیگری برای ورود انتخاب کنید.",
   "auth.wait.seconds": "{n} ثانیه",
   "auth.wait.minute": "1 دقیقه",
   "auth.wait.minutes": "{n} دقیقه",
@@ -5780,6 +5788,10 @@ const ps: Record<Key, string> = {
   "auth.error.emailFixed": "ستاسې پټنوم باید ستاسې د حساب له برېښنالیک پتې سره تړلی وي.",
   "auth.error.providerSessionRequired": "د پټنوم د لرې کولو لپاره د Google یا Apple له لارې ننوځئ.",
   "auth.error.tokenExpired": "ننوتلو ډېر وخت واخیست. بیا ننوځئ.",
+  "auth.error.secureConnection":
+    "ستاسې ټیلیفون له کاټې سره خوندي اړیکه ټینګه نه کړای شوه. د ټیلیفون نېټه او وخت وګورئ. که ستونزه دوام وکړي، له ملاتړ سره اړیکه ونیسئ. ستاسې خوندي شوي حسابونه لا هم په همدې ټیلیفون کې دي.",
+  "auth.error.appleUnavailable":
+    "د Apple له لارې ننوتل اوس شوني نه دي. مهرباني وکړئ د ننوتلو بله لاره وټاکئ.",
   "auth.wait.seconds": "{n} ثانیې",
   "auth.wait.minute": "1 دقیقه",
   "auth.wait.minutes": "{n} دقیقې",

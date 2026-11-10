@@ -1,1 +1,1 @@
-Fixed a startup crash on Android 7 and Android 8.0.
+Fixed secure connections and sign-in on older Android phones. Improved sign-in error messages and Apple sign-in availability.

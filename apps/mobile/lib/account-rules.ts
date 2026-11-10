@@ -405,7 +405,14 @@ export function accountRefusal(err: unknown): Refusal | null {
 export function accountFailureText(err: unknown): string {
   const refusal = accountRefusal(err);
   if (refusal) return refusal.text;
-  const failure = err as { stage?: unknown; code?: unknown } | null;
+  const failure = err as { stage?: unknown; code?: unknown; detail?: unknown } | null;
+  if (
+    failure?.stage === "network" &&
+    typeof failure.detail === "string" &&
+    (failure.detail === "tls" || failure.detail.startsWith("tls "))
+  ) {
+    return t("auth.error.secureConnection");
+  }
   if (failure?.stage === "timeout" || failure?.stage === "network") {
     return t("account.signin.network");
   }

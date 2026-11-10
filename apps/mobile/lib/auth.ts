@@ -515,30 +515,45 @@ export function isGoogleSignInAvailable(): boolean {
 }
 
 // Apple on Android is a web flow that needs the server's Apple Services ID.
-// Android offers it after the server probe succeeds; iOS uses the native sheet.
+// A failed connection cannot tell us whether the provider is configured. Keep
+// the choice visible unless the server explicitly says it is unavailable.
+// iOS uses the native sheet.
 let appleWebConfigured: boolean | null = null;
 
 export function isAppleSignInAvailable(): boolean {
-  return Platform.OS === "ios" || appleWebConfigured === true;
+  return Platform.OS === "ios" || appleWebConfigured !== false;
 }
 
 export async function refreshAppleSignInAvailability(): Promise<boolean> {
   if (Platform.OS === "ios") return true;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
   try {
     const baseUrl = await getBackendUrl();
-    const probe = await fetch(`${baseUrl}/v1/auth/apple/web/start?state=probe`, {
-      redirect: "manual",
-      signal: controller.signal,
-    });
-    appleWebConfigured = probe.status !== 404 && probe.status !== 400;
+    await probeAppleWebSignIn(baseUrl, 5000);
   } catch {
-    // Offline: keep what was known; a web sign-in needs the network anyway.
-  } finally {
-    clearTimeout(timer);
+    // A timeout, TLS failure or server outage preserves the last known state.
   }
-  return appleWebConfigured === true;
+  return isAppleSignInAvailable();
+}
+
+async function probeAppleWebSignIn(baseUrl: string, timeoutMs: number): Promise<boolean> {
+  const { res } = await requestAuthReply(
+    `${baseUrl}/v1/auth/apple/web/start?state=probe`,
+    { redirect: "manual" },
+    timeoutMs,
+  );
+  if (res.status === 404 || res.status === 400) {
+    appleWebConfigured = false;
+  } else if (res.status === 0 || (res.status >= 200 && res.status < 400)) {
+    // Native fetch can expose a manual redirect as an opaque status 0.
+    appleWebConfigured = true;
+  } else {
+    throw new SignInFailedError(
+      "server",
+      "Apple sign-in is temporarily unavailable.",
+      String(res.status),
+    );
+  }
+  return appleWebConfigured;
 }
 
 // One interactive Google sign-in attempt → its ID token (or null if the result
@@ -725,11 +740,78 @@ async function postAuthTracked(
   throw lastErr instanceof Error ? lastErr : new SignInFailedError("unknown", "Sign-in failed.");
 }
 
+// Only fixed diagnostic tags leave this classifier. Native messages can contain
+// hostnames, URLs or certificate subjects, so never put their raw contents into
+// the TLS code shown in reports or the UI. Bound both cause depth and text size.
+function tlsFailureReason(err: unknown): string | null {
+  const seen = new Set<unknown>();
+  let current = err;
+  let text = "";
+  for (let depth = 0; depth < 4 && current && !seen.has(current); depth++) {
+    seen.add(current);
+    if (typeof current === "string") {
+      text += ` ${current.slice(0, 2048)}`;
+      break;
+    }
+    if (typeof current !== "object") break;
+    const cause = current as { name?: unknown; message?: unknown; code?: unknown; cause?: unknown };
+    for (const value of [cause.name, cause.message, cause.code]) {
+      if (typeof value === "string") text += ` ${value.slice(0, 2048)}`;
+    }
+    current = cause.cause;
+  }
+  if (
+    /CertificateExpiredException|CERT_HAS_EXPIRED|certificate has expired|NSURLErrorDomain[^\n]*-1201/i.test(
+      text,
+    )
+  ) {
+    return "expired";
+  }
+  if (
+    /CertificateNotYetValidException|CERT_NOT_YET_VALID|certificate is not yet valid|NSURLErrorDomain[^\n]*-1204/i.test(
+      text,
+    )
+  ) {
+    return "not_yet_valid";
+  }
+  if (
+    /hostname[^\n]*(?:not verified|mismatch|not match)|ERR_TLS_CERT_ALTNAME_INVALID|No subject alternative DNS name|No subjectAltNames/i.test(
+      text,
+    )
+  ) {
+    return "hostname";
+  }
+  if (
+    /trust anchor|CERT_AUTHORITY_INVALID|unable to get (?:local )?issuer certificate|UNABLE_TO_GET_ISSUER_CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|self[- ]signed certificate|unknown ca/i.test(
+      text,
+    )
+  ) {
+    return "trust_anchor";
+  }
+  if (/CertPathValidatorException|CertPathBuilderException/i.test(text)) return "cert_path";
+  if (
+    /SSLHandshakeException|SSLPeerUnverifiedException|CertificateException|certificate (?:verify|validation)|ERR_SSL|NSURLErrorDomain[^\n]*-120[0-6]/i.test(
+      text,
+    )
+  ) {
+    return "handshake";
+  }
+  return null;
+}
+
 function transportFailure(err: unknown, timedOut: boolean): SignInFailedError {
   if (timedOut || (err instanceof Error && err.name === "AbortError")) {
     return new SignInFailedError(
       "timeout",
       "Sign-in timed out — check your connection and try again.",
+    );
+  }
+  const tlsReason = tlsFailureReason(err);
+  if (tlsReason) {
+    return new SignInFailedError(
+      "network",
+      "Couldn't establish a secure connection to Kaata.",
+      `tls ${tlsReason}`,
     );
   }
   return new SignInFailedError(
@@ -1035,14 +1117,12 @@ async function acquireAppleTokenWeb(): Promise<AcquiredAppleToken> {
   // Pre-flight: a redirect (302) means the backend has APPLE_SERVICES_ID
   // configured; 404 means the flow is off — fail HERE with a clear error
   // instead of opening a browser onto a JSON error page.
-  const probe = await fetch(`${baseUrl}/v1/auth/apple/web/start?state=probe`, {
-    redirect: "manual",
-  });
-  // RN fetch reports a manual-mode redirect as an opaque 0/302 depending on
-  // the platform; anything that is NOT an explicit error status counts as
-  // configured.
-  if (probe.status === 404 || probe.status === 400) {
-    throw new Error("Sign in with Apple isn't set up on this server yet.");
+  if (!(await probeAppleWebSignIn(baseUrl, AUTH_TIMEOUT_MS))) {
+    throw new SignInFailedError(
+      "server",
+      "Sign in with Apple isn't available on this server.",
+      "apple_unavailable",
+    );
   }
 
   const Crypto = await import("expo-crypto");

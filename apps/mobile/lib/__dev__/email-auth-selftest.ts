@@ -470,6 +470,131 @@ test("Google chooser failures preserve the native code and cancellations stay si
   assert.equal(calls.length, 0, "no Kaata auth request without a Google token");
 });
 
+test("Android Apple stays visible through connection failures and only hides on an explicit disabled response", async () => {
+  freshPhone();
+  const nativeAuth = load<Auth>("../auth", authMocks);
+  assert.equal(nativeAuth.isAppleSignInAvailable(), true, "unknown is still offered");
+  for (const response of [
+    lost,
+    reply(503, {}),
+    () => {
+      throw new Error("javax.net.ssl.SSLHandshakeException: trust anchor not found");
+    },
+    () => {
+      throw Object.assign(new Error("Aborted"), { name: "AbortError" });
+    },
+  ]) {
+    script = [response];
+    assert.equal(await nativeAuth.refreshAppleSignInAvailability(), true);
+  }
+  for (const status of [400, 404]) {
+    script = [reply(status, {})];
+    assert.equal(await nativeAuth.refreshAppleSignInAvailability(), false);
+    assert.equal(nativeAuth.isAppleSignInAvailable(), false);
+    for (const response of [lost, reply(503, {})]) {
+      script = [response];
+      assert.equal(
+        await nativeAuth.refreshAppleSignInAvailability(),
+        false,
+        "outages cannot re-enable a disabled provider",
+      );
+    }
+    script = [reply(302, {})];
+    assert.equal(
+      await nativeAuth.refreshAppleSignInAvailability(),
+      true,
+      "a later successful probe restores the choice",
+    );
+  }
+  script = [() => ({ status: 0, json: async () => null }) as Response];
+  assert.equal(
+    await nativeAuth.refreshAppleSignInAvailability(),
+    true,
+    "native opaque redirect is supported",
+  );
+  const iosAuth = load<Auth>("../auth", {
+    ...authMocks,
+    "react-native": { Platform: { OS: "ios" } },
+  });
+  const before = calls.length;
+  assert.equal(await iosAuth.refreshAppleSignInAvailability(), true);
+  assert.equal(calls.length, before, "native Apple needs no server availability probe");
+});
+
+test("Android Apple preflight refuses disabled or unhealthy servers before opening a browser", async () => {
+  for (const status of [400, 404, 503]) {
+    freshPhone();
+    const nativeAuth = load<Auth>("../auth", authMocks);
+    script = [reply(status, {})];
+    const failure = await rejection(nativeAuth.signInWithApple());
+    assert.ok(failure instanceof nativeAuth.SignInFailedError);
+    assert.equal(failure.code, status === 503 ? "server 503" : "server apple_unavailable");
+    assert.equal(calls.length, 1);
+    assert.equal(secure.has(SESSION_KEY), false);
+    // The browser module is deliberately absent from authMocks: importing it
+    // would fail this case instead of returning the expected typed refusal.
+  }
+});
+
+test("TLS failures in email and Apple use bounded diagnostic tags and localized recovery guidance", async () => {
+  const cyclicCause = new Error("javax.net.ssl.SSLHandshakeException: handshake failed");
+  cyclicCause.cause = cyclicCause;
+  const failures: Array<[unknown, string]> = [
+    [
+      new TypeError(
+        "network fetch failed: javax.net.ssl.SSLHandshakeException: java.security.cert.CertPathValidatorException: Trust anchor for certification path not found",
+      ),
+      "trust_anchor",
+    ],
+    [
+      new Error(
+        "javax.net.ssl.SSLPeerUnverifiedException: Hostname private.example.com not verified",
+      ),
+      "hostname",
+    ],
+    [new Error("NSURLErrorDomain Code=-1202 certificate is invalid"), "handshake"],
+    [
+      new Error("fetch failed", {
+        cause: new Error(
+          "java.security.cert.CertificateExpiredException: private@example.com expired",
+        ),
+      }),
+      "expired",
+    ],
+    [
+      new Error("java.security.cert.CertPathValidatorException: certificate path rejected"),
+      "cert_path",
+    ],
+    [{ name: "CertificateNotYetValidException", message: "future certificate" }, "not_yet_valid"],
+    [new Error(`SSLHandshakeException: ${"x".repeat(3000)} trust anchor`), "handshake"],
+    [cyclicCause, "handshake"],
+  ];
+  for (const [error, reason] of failures) {
+    freshPhone();
+    const fail = () => {
+      throw error;
+    };
+    script = [fail, fail];
+    const failure = await rejection(auth.emailSignIn("a@example.com", "password"));
+    assert.ok(failure instanceof auth.SignInFailedError);
+    assert.equal(failure.code, `network tls ${reason}`);
+    assert.doesNotMatch(
+      `${failure.message} ${failure.code}`,
+      /javax|java\.security|NSURLErrorDomain|private|example\.com/,
+    );
+    for (const locale of ["en", "fa", "ps"] as const) {
+      i18n.setLocale(locale);
+      assert.equal(rules.accountFailureText(failure), i18n.t("auth.error.secureConnection"));
+    }
+    i18n.setLocale("en");
+    script = [fail];
+    const appleFailure = await rejection(auth.signInWithApple());
+    assert.ok(appleFailure instanceof auth.SignInFailedError);
+    assert.equal(appleFailure.code, `network tls ${reason}`);
+    assert.equal(secure.has(SESSION_KEY), false);
+  }
+});
+
 function refusal(err: unknown, reason: string, status: number) {
   assert.ok(err instanceof auth.EmailAuthError, `expected EmailAuthError ${reason}, got ${err}`);
   assert.equal(err.reason, reason);
@@ -4414,6 +4539,29 @@ componentTest("screen: the flow runs through the screen's gate and outcome", asy
   tree = renderScreen();
   const notice = nodes(flowIn(tree)?.props.notice);
   assert.ok(notice.some((n) => textOf(n) === "onboardingMode.signInFailed (server 503)"));
+  console.warn = () => {};
+  try {
+    for (const detail of ["tls", "tls trust_anchor", "tls expired", "tls hostname"]) {
+      flowIn(tree)?.props.onFailure(new auth.SignInFailedError("network", "TLS failed", detail));
+      tree = renderScreen();
+      assert.ok(
+        nodes(flowIn(tree)?.props.notice).some((n) => textOf(n) === "auth.error.secureConnection"),
+      );
+    }
+  } finally {
+    console.warn = warn;
+  }
+  tree = renderScreen();
+  assert.ok(
+    nodes(flowIn(tree)?.props.notice).some((n) => textOf(n) === "auth.error.secureConnection"),
+  );
+  flowIn(tree)?.props.onFailure(
+    new auth.SignInFailedError("server", "disabled", "apple_unavailable"),
+  );
+  tree = renderScreen();
+  assert.ok(
+    nodes(flowIn(tree)?.props.notice).some((n) => textOf(n) === "auth.error.appleUnavailable"),
+  );
   // A retired install offers its reset there too.
   flowIn(tree)?.props.onFailure(new auth.InstallRetiredError());
   tree = renderScreen();
