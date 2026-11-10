@@ -35,6 +35,7 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
   let findResult: BackupChoice | null | undefined | Promise<BackupChoice | null | undefined>;
   let findError: Error | null = null;
   let fileError: Error | null = null;
+  let fileRestoreGate: Promise<boolean> | null = null;
   let fileSaveError: Error | null = null;
   let fileSaveResult: SavedFile | null | Promise<SavedFile | null> = null;
   let fileSaves = 0;
@@ -155,7 +156,7 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
         restorePersonalBackup: async (...args: unknown[]) => {
           fileRestores.push(args);
           if (fileError) throw fileError;
-          return false;
+          return fileRestoreGate ?? false;
         },
       },
       "../lib/personal-cloud-backup": {
@@ -274,6 +275,9 @@ function fixture({ signedIn = true, platform = "android", directRestore = false 
     fileError: (error: Error | null) => {
       fileError = error;
     },
+    fileRestoreGate: (gate: Promise<boolean> | null) => {
+      fileRestoreGate = gate;
+    },
     fileSaveError: (error: Error | null) => {
       fileSaveError = error;
     },
@@ -373,6 +377,14 @@ async function main() {
   assert.equal(restore.find("backups.syncNow"), undefined);
   assert.equal(restore.find("backups.connect"), undefined);
   assert.equal(restore.find("backups.saveFile"), undefined);
+  const restoreActions = nodes(restore.hooks.tree);
+  const restoreFromFile = restore.find("backups.restoreFile")!;
+  assert.equal(restoreFromFile.type, "Button");
+  assert.equal(restoreFromFile.props.variant, "primary");
+  assert.equal(restoreFromFile.props.fullWidth, true);
+  assert.equal(restoreFromFile.props.icon, "folder-open-outline");
+  assert.ok(restoreActions.indexOf(restoreFromFile) < restoreActions.indexOf(restore.find("backups.googleDrive")!));
+  assert.equal(restoreActions.filter((node) => node.props.label === "backups.restoreFile").length, 1);
   const remote = { name: "personal-copy.zip", createdAt: 1234 };
   restore.findValue(remote);
   restore.press("backups.googleDrive");
@@ -412,7 +424,14 @@ async function main() {
   assert.ok(restore.text().includes("backups.icloudUnavailable"));
   restore.setOffline(true);
   assert.equal(restore.find("backups.googleDrive")!.props.disabled, true);
+  assert.equal(restore.find("backups.restoreFile")!.props.disabled, false);
+  const restoreGate = deferred<boolean>();
+  restore.fileRestoreGate(restoreGate.promise);
   restore.press("backups.restoreFile");
+  assert.equal(restore.find("backups.restoreFile")!.props.loading, true);
+  assert.equal(restore.find("backups.restoreFile")!.props.disabled, true);
+  assert.ok(!nodes(restore.hooks.tree).some((node) => node.type === "Spinner"));
+  restoreGate.resolve(false);
   await restore.flush();
   assert.deepEqual(restore.fileRestores, [[]]);
   restore.fileError(new PersonalBackupError("invalid"));
@@ -425,6 +444,7 @@ async function main() {
   const localSave = fixture();
   localSave.setOffline(true);
   await localSave.flush();
+  assert.equal(localSave.find("backups.restoreFile")!.type, "NavRow");
   assert.equal(localSave.find("backups.saveFile")!.props.disabled, false);
   const saveGate = deferred<SavedFile>();
   localSave.fileSaveValue(saveGate.promise);

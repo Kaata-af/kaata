@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../../components/Button";
 import { CountryPickerSheet } from "../../components/CountryPickerSheet";
 import { FormField } from "../../components/FormField";
 import {
@@ -151,18 +152,6 @@ export default function OnboardingProfileScreen() {
         );
       }
     })();
-  }, []);
-
-  // Focus the name input via ref + delayed setTimeout instead of `autoFocus`.
-  // Per CLAUDE.md: autoFocus on TextInputs inside Stack screens has been
-  // observed to fail to open the soft keyboard on Android because focus
-  // is requested before the screen-presentation animation finishes. The
-  // 280ms delay outlasts every Stack transition we use today.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (!openingRestore.current) nameRef.current?.focus();
-    }, 280);
-    return () => clearTimeout(t);
   }, []);
 
   async function finalize(): Promise<void> {
@@ -327,12 +316,18 @@ export default function OnboardingProfileScreen() {
             ) : null}
           </OnboardingIntro>
 
-          <OnboardingAction
-            label={t("backups.restorePersonal")}
-            variant="ghost"
-            disabled={busy}
-            onPress={onPersonalRestore}
-          />
+          <View style={styles.restoreAction}>
+            <Button
+              label={t("backups.restorePersonal")}
+              icon="folder-open-outline"
+              variant="secondary"
+              size="hero"
+              fullWidth
+              wrapLabel
+              disabled={busy}
+              onPress={onPersonalRestore}
+            />
+          </View>
 
           <FormField
             ref={nameRef}
@@ -464,6 +459,7 @@ export default function OnboardingProfileScreen() {
 
 const styles = StyleSheet.create({
   form: { flex: 1 },
+  restoreAction: { marginBottom: 24 },
   identityHint: {
     fontSize: 13,
     fontFamily: fonts.sansRegular,

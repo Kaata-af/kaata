@@ -412,6 +412,26 @@ export default function BackupsScreen() {
                   : "backups.personalHintAndroid",
             )}
           </Text>
+          {restoreOnly ? (
+            <>
+              <View style={styles.block}>
+                <Button
+                  label={t("backups.restoreFile")}
+                  icon="folder-open-outline"
+                  variant="primary"
+                  size="hero"
+                  fullWidth
+                  loading={busy === "restoreFile"}
+                  showLabelWhileLoading
+                  wrapLabel
+                  onPress={() => void restoreFile()}
+                  disabled={locked}
+                />
+                <Text style={[styles.hint, textDir(rtl)]}>{t("backups.restoreFileHint")}</Text>
+              </View>
+              {currentNotice?.destination === undefined ? statusMessage : null}
+            </>
+          ) : null}
           {offline ? (
             <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
               {t("backups.providerOffline")}
@@ -562,28 +582,27 @@ export default function BackupsScreen() {
                 isRTL={rtl}
               />
               {currentNotice?.destination === "phone" ? statusMessage : null}
+              <NavRow
+                icon="folder-open-outline"
+                label={t("backups.restoreFile")}
+                hint={t("backups.restoreFileHint")}
+                onPress={() => void restoreFile()}
+                disabled={locked}
+                isRTL={rtl}
+                isLast
+              />
             </>
           ) : null}
-          <NavRow
-            icon="folder-open-outline"
-            label={t("backups.restoreFile")}
-            hint={t("backups.restoreFileHint")}
-            onPress={() => void restoreFile()}
-            disabled={locked}
-            isRTL={rtl}
-            isLast
-          />
           <Text style={[styles.hint, styles.inset, textDir(rtl)]}>
             {t("backups.restoreRestriction")}
           </Text>
           {!restoreOnly ? (
             <Text style={[styles.hint, styles.inset, textDir(rtl)]}>{t("backups.ownedScope")}</Text>
           ) : null}
-          {(restoreOnly && (busy === "find" || busy === "restoreCloud")) ||
-          busy === "restoreFile" ? (
+          {(restoreOnly ? busy === "find" || busy === "restoreCloud" : busy === "restoreFile") ? (
             <ActivityIndicator color={colors.textSubtle} style={styles.inset} />
           ) : null}
-          {currentNotice?.destination === undefined ? statusMessage : null}
+          {!restoreOnly && currentNotice?.destination === undefined ? statusMessage : null}
           {!restoreOnly ? (
             <>
               <SectionGap />

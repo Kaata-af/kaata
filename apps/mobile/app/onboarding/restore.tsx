@@ -32,6 +32,7 @@ import { useIsFocused, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import {
   OnboardingAction,
@@ -418,6 +419,19 @@ export default function OnboardingRestoreScreen() {
     );
   }
 
+  const personalRestoreAction = !cancelledDeletion && !(phase.kind === "error" && phase.expired) ? (
+    <Button
+      label={t("backups.restorePersonal")}
+      icon="folder-open-outline"
+      variant="secondary"
+      size="hero"
+      fullWidth
+      wrapLabel
+      disabled={navigating}
+      onPress={() => void onPersonalRestore()}
+    />
+  ) : null;
+
   if (phase.kind === "error") {
     return (
       <SafeAreaView style={onboardingStyles.screen}>
@@ -445,6 +459,7 @@ export default function OnboardingRestoreScreen() {
                 }}
               />
             ) : null}
+            {personalRestoreAction}
             <OnboardingAction
               variant="outline"
               label={t("onboardingRestore.startFresh")}
@@ -452,14 +467,6 @@ export default function OnboardingRestoreScreen() {
               // A failed restore must be offered again on the next launch.
               onPress={() => void onStartFresh({ persistSkip: false })}
             />
-            {!cancelledDeletion && !phase.expired ? (
-              <OnboardingAction
-                variant="ghost"
-                label={t("backups.restorePersonal")}
-                disabled={navigating}
-                onPress={() => void onPersonalRestore()}
-              />
-            ) : null}
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -487,6 +494,7 @@ export default function OnboardingRestoreScreen() {
             onPress={onRestore}
             disabled={navigating}
           />
+          {personalRestoreAction}
           <OnboardingAction
             variant="outline"
             label={t("onboardingRestore.fresh.title")}
@@ -495,14 +503,6 @@ export default function OnboardingRestoreScreen() {
               if (!restoringRef.current && !navigatingRef.current) setConfirmFresh(true);
             }}
           />
-          {!cancelledDeletion ? (
-            <OnboardingAction
-              variant="ghost"
-              label={t("backups.restorePersonal")}
-              disabled={navigating}
-              onPress={() => void onPersonalRestore()}
-            />
-          ) : null}
         </View>
         <Text style={[styles.freshHint, textDir(isRTL)]}>{t("onboardingRestore.fresh.body")}</Text>
       </ScrollView>
