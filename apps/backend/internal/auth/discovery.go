@@ -73,6 +73,43 @@ func discoveryQuery(raw string) (query, prefix, phone string, err error) {
 	return query, prefix, "", nil
 }
 
+const discoveryDisplayName = `COALESCE(NULLIF(a.display_name,''),a.name,'')`
+const discoveryNameText = `people_search_text(` + discoveryDisplayName + `)`
+const discoveryNameVector = `to_tsvector('simple',` + discoveryNameText + `)`
+const discoveryNameSound = `people_name_sound_keys(` + discoveryDisplayName + `)`
+
+// Fuzzy matching is only for names across scripts. A mixed-script name may
+// contain a Latin surname beside a Dari or Pashto given name, or vice versa.
+func discoveryOtherNameScript(raw, query, phone string) string {
+	if phone != "" || strings.HasPrefix(strings.TrimSpace(raw), "@") {
+		return ""
+	}
+	var latin, arabic bool
+	for _, r := range query {
+		if !unicode.IsLetter(r) {
+			continue
+		}
+		switch {
+		case unicode.Is(unicode.Latin, r):
+			latin = true
+		case unicode.Is(unicode.Arabic, r):
+			arabic = true
+		default:
+			return ""
+		}
+	}
+	switch {
+	case latin && arabic:
+		return "[A-Za-zء-يٱ-ۓ]"
+	case latin:
+		return "[ء-يٱ-ۓ]"
+	case arabic:
+		return "[A-Za-z]"
+	default:
+		return ""
+	}
+}
+
 func (s *Service) SearchPeople(ctx context.Context, accountID, raw string, vaultIDs ...string) (PeopleSearchPage, error) {
 	vaultID := ""
 	if len(vaultIDs) > 0 {
@@ -108,21 +145,37 @@ func (s *Service) SearchPeopleWithFriends(ctx context.Context, accountID, raw, v
 		}
 	}
 	like := escapeDiscoveryLike(query) + "%"
-	rows, err := s.pool.Query(ctx, `SELECT a.id::text, COALESCE(NULLIF(a.display_name,''),a.name,''),COALESCE(a.username,''),COALESCE(a.picture_url,''),
+	otherScript := discoveryOtherNameScript(raw, query, phone)
+	const directName = `(people_search_text(COALESCE(a.username,'')) LIKE $3 OR
+ ` + discoveryNameVector + ` @@ to_tsquery('simple',NULLIF($5,'')))`
+	const nameMatch = `(` + directName + ` OR ($8<>'' AND
+ ` + discoveryNameSound + ` @> (SELECT keys FROM sounds) AND normalize(` + discoveryDisplayName + `, NFKD) ~ $8))`
+	// Split public results from private friends so the public branch can use
+	// the partial discovery indexes and the private branch starts with friends.
+	rows, err := s.pool.Query(ctx, `WITH sounds AS (
+ SELECT CASE WHEN $8<>'' THEN people_name_sound_keys($2,true) END AS keys
+ ), matches AS (
+ SELECT a.* FROM accounts a WHERE a.discovery_enabled AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL
+ AND (($4<>'' AND a.phone_e164=$4) OR ($4='' AND `+nameMatch+`))
+ UNION ALL
+ SELECT a.* FROM account_friendships friend JOIN accounts a ON a.id=CASE
+ WHEN friend.account_low_id=$1::uuid THEN friend.account_high_id ELSE friend.account_low_id END
+ WHERE $7 AND $4='' AND friend.status='accepted'
+ AND (friend.account_low_id=$1::uuid OR friend.account_high_id=$1::uuid)
+ AND NOT a.discovery_enabled AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL AND `+nameMatch+`
+ )
+ SELECT a.id::text, `+discoveryDisplayName+`,COALESCE(a.username,''),COALESCE(a.picture_url,''),
  COALESCE((SELECT CASE WHEN g.a_vault_id=NULLIF($6,'')::uuid THEN g.a_relationship_id ELSE g.b_relationship_id END::text
  FROM tab_groups g LEFT JOIN people_requests r ON r.group_id=g.id
  WHERE (g.a_vault_id=NULLIF($6,'')::uuid AND (g.b_account_id=a.id OR (g.b_account_id IS NULL AND r.recipient_account_id=a.id)))
  OR (g.b_vault_id=NULLIF($6,'')::uuid AND g.a_account_id=a.id)
  ORDER BY (g.closed_at IS NULL) DESC,g.created_at DESC,g.id DESC LIMIT 1),''), f.id IS NOT NULL
- FROM accounts a LEFT JOIN account_friendships f ON f.account_low_id=LEAST(a.id,$1::uuid) AND f.account_high_id=GREATEST(a.id,$1::uuid) AND f.status='accepted'
- WHERE (a.discovery_enabled OR ($7 AND $4='' AND f.id IS NOT NULL)) AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL AND a.id<>$1::uuid
+ FROM matches a LEFT JOIN account_friendships f ON f.account_low_id=LEAST(a.id,$1::uuid) AND f.account_high_id=GREATEST(a.id,$1::uuid) AND f.status='accepted'
+ WHERE a.id<>$1::uuid
  AND EXISTS(SELECT 1 FROM accounts viewer WHERE viewer.id=$1::uuid AND viewer.disabled_at IS NULL AND viewer.pending_delete_at IS NULL)
- AND (($4<>'' AND a.discovery_enabled AND phone_e164=$4) OR ($4='' AND
-   (people_search_text(COALESCE(username,'')) LIKE $3 OR
-   to_tsvector('simple',people_search_text(COALESCE(NULLIF(display_name,''),name,''))) @@ to_tsquery('simple',NULLIF($5,'')))))
- ORDER BY CASE WHEN people_search_text(username)=$2 THEN 0
- WHEN people_search_text(COALESCE(NULLIF(display_name,''),name,''))=$2 THEN 1 ELSE 2 END,
- people_search_text(COALESCE(NULLIF(display_name,''),name,'')),a.id LIMIT 21`, accountID, query, like, phone, prefix, vaultID, includeFriends)
+ ORDER BY CASE WHEN people_search_text(a.username)=$2 THEN 0
+ WHEN `+discoveryNameText+`=$2 THEN 1 WHEN `+directName+` THEN 2 ELSE 3 END,
+ `+discoveryNameText+`,a.id LIMIT 21`, accountID, query, like, phone, prefix, vaultID, includeFriends, otherScript)
 	if err != nil {
 		return page, err
 	}
@@ -171,15 +224,20 @@ func (s *Service) SearchPeoplePreview(ctx context.Context, raw string) (PeopleSe
 			break
 		}
 	}
-	rows, err := s.pool.Query(ctx, `SELECT a.id::text,COALESCE(NULLIF(a.display_name,''),a.name,''),
+	otherScript := discoveryOtherNameScript(raw, query, phone)
+	const directName = `(people_search_text(COALESCE(a.username,'')) LIKE $2 OR (
+ ` + discoveryNameVector + ` @@ to_tsquery('simple',$3) AND ($4 OR ` + discoveryNameText + `=$1)))`
+	rows, err := s.pool.Query(ctx, `WITH sounds AS (
+ SELECT CASE WHEN $6<>'' THEN people_name_sound_keys($1,true) END AS keys
+ )
+ SELECT a.id::text,`+discoveryDisplayName+`,
  COALESCE(a.username,''),COALESCE(a.picture_url,'')
  FROM accounts a WHERE a.discovery_enabled AND a.disabled_at IS NULL AND a.pending_delete_at IS NULL
- AND (people_search_text(COALESCE(a.username,'')) LIKE $2 OR (
-   to_tsvector('simple',people_search_text(COALESCE(NULLIF(a.display_name,''),a.name,''))) @@ to_tsquery('simple',$3)
-   AND ($4 OR people_search_text(COALESCE(NULLIF(a.display_name,''),a.name,''))=$1)))
+ AND (`+directName+` OR ($6<>'' AND `+discoveryNameSound+` @> (SELECT keys FROM sounds)
+ AND normalize(`+discoveryDisplayName+`, NFKD) ~ $6))
  ORDER BY CASE WHEN people_search_text(a.username)=$1 THEN 0
- WHEN people_search_text(COALESCE(NULLIF(a.display_name,''),a.name,''))=$1 THEN 1 ELSE 2 END,
- people_search_text(COALESCE(NULLIF(a.display_name,''),a.name,'')),a.id LIMIT $5`, query, like, prefix, namePrefix, peoplePreviewLimit+1)
+ WHEN `+discoveryNameText+`=$1 THEN 1 WHEN `+directName+` THEN 2 ELSE 3 END,
+ `+discoveryNameText+`,a.id LIMIT $5`, query, like, prefix, namePrefix, peoplePreviewLimit+1, otherScript)
 	if err != nil {
 		return page, err
 	}

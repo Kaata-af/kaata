@@ -107,6 +107,163 @@ func TestPeopleDiscoveryPrivacyAndMatching(t *testing.T) {
 	}
 }
 
+func TestPeopleDiscoveryCrossScriptNames(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	svc := NewService(pool, "", emailTestSecret)
+	seed := func(name, handle, phone, state string) string {
+		t.Helper()
+		id := seedGoogleAccount(t, pool, uuid.NewString()+"@example.test", uuid.NewString())
+		if _, err := pool.Exec(t.Context(), `UPDATE accounts SET display_name=$2,username=$3,phone_e164=$4,
+ discovery_enabled=($5<>'private'),picture_url='https://example.test/photo',
+ disabled_at=CASE WHEN $5='disabled' THEN NOW() END,
+ pending_delete_at=CASE WHEN $5='deleting' THEN NOW() END WHERE id=$1::uuid`, id, name, handle, phone, state); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	self := seed("باسط", "self_sound", "", "public")
+	latin := seed("Basit", "basit_public", "+93700000101", "public")
+	dari := seed("باسط", "dari_public", "+93700000102", "public")
+	spelling := seed("Baset", "baset_public", "", "public")
+	compound := seed("باسط احمد", "compound_public", "", "public")
+	literalCompound := seed("Basit Ahmad", "literal_compound", "", "public")
+	mixedScript := seed("باسط Safi", "mixed_script", "", "public")
+	partial := seed("باسط کریمی", "partial_public", "", "public")
+	handleOnly := seed("Zed Person", "basit_handle", "", "public")
+	private := seed("باسط", "private_sound", "", "private")
+	disabled := seed("باسط", "disabled_sound", "", "disabled")
+	deleting := seed("باسط", "deleting_sound", "", "deleting")
+	if _, err := pool.Exec(t.Context(), `INSERT INTO account_friendships(account_low_id,account_high_id,requested_by,status,accepted_at)
+ VALUES(LEAST($1::uuid,$2::uuid),GREATEST($1::uuid,$2::uuid),$1::uuid,'accepted',NOW())`, self, private); err != nil {
+		t.Fatal(err)
+	}
+	index := func(page PeopleSearchPage, id string) int {
+		for i, person := range page.People {
+			if person.AccountID == id {
+				return i
+			}
+		}
+		return -1
+	}
+	for _, preview := range []bool{false, true} {
+		t.Run(fmt.Sprintf("preview=%t", preview), func(t *testing.T) {
+			search := func(query string) PeopleSearchPage {
+				t.Helper()
+				var page PeopleSearchPage
+				var err error
+				if preview {
+					page, err = svc.SearchPeoplePreview(t.Context(), query)
+				} else {
+					page, err = svc.SearchPeople(t.Context(), self, query)
+				}
+				if err != nil {
+					t.Fatalf("%q: %v", query, err)
+				}
+				for _, id := range []string{private, disabled, deleting} {
+					if index(page, id) >= 0 {
+						t.Fatalf("%q exposed unavailable identity %s: %+v", query, id, page)
+					}
+				}
+				if !preview && index(page, self) >= 0 {
+					t.Fatalf("%q returned the signed-in viewer", query)
+				}
+				if preview {
+					for _, person := range page.People {
+						if person.IsFriend || person.ExistingRelationshipID != "" {
+							t.Fatalf("preview exposed viewer-scoped hints: %+v", person)
+						}
+					}
+				}
+				return page
+			}
+			for _, tc := range []struct {
+				query  string
+				want   []string
+				absent []string
+			}{
+				{"Basit", []string{latin, dari, compound, literalCompound}, []string{spelling}},
+				{"Baset", []string{spelling, dari, compound}, []string{latin, literalCompound}},
+				{"باسط", []string{dari, latin, spelling, compound, literalCompound}, nil},
+			} {
+				page := search(tc.query)
+				for _, id := range tc.want {
+					if index(page, id) < 0 {
+						t.Fatalf("%q missed a matching spelling/script %s: %+v", tc.query, id, page)
+					}
+				}
+				for _, id := range tc.absent {
+					if index(page, id) >= 0 {
+						t.Fatalf("%q fuzzily matched same-script spelling: %+v", tc.query, page)
+					}
+				}
+				if len(page.People) == 0 || !strings.EqualFold(page.People[0].Name, tc.query) {
+					t.Fatalf("%q did not rank literal name first: %+v", tc.query, page)
+				}
+			}
+			page := search("Basit")
+			if index(page, literalCompound) >= index(page, dari) {
+				t.Fatalf("literal name prefix ranked behind cross-script fallback: %+v", page)
+			}
+			for _, query := range []string{"Basit Ahmad", "Ahmad Basit", "Baset Ahmad", "احمد باسط"} {
+				page := search(query)
+				want := 2
+				if query == "Baset Ahmad" {
+					want = 1
+				}
+				if len(page.People) != want || index(page, compound) < 0 || (index(page, literalCompound) >= 0) != (want == 2) || index(page, partial) >= 0 {
+					t.Fatalf("%q did not require all words independently of order: %+v", query, page)
+				}
+			}
+			if page := search("Basit Safi"); len(page.People) != 1 || page.People[0].AccountID != mixedScript {
+				t.Fatalf("mixed-script display name lost a matching compound query: %+v", page)
+			}
+			if page := search("Baset"); index(page, handleOnly) >= 0 {
+				t.Fatalf("phonetic matching leaked from names into usernames: %+v", page)
+			}
+			for _, query := range []string{"@basit", "ba", "baa", "Basit Ah"} {
+				page := search(query)
+				if index(page, dari) >= 0 || index(page, compound) >= 0 || (query != "ba" && index(page, spelling) >= 0) {
+					t.Fatalf("%q used fuzzy matching for a handle or underspecified name: %+v", query, page)
+				}
+			}
+			for _, query := range []string{"+93700000102", "+9370000010"} {
+				page := search(query)
+				if preview || query == "+9370000010" {
+					if len(page.People) != 0 {
+						t.Fatalf("%q exposed a preview/partial phone match: %+v", query, page)
+					}
+				} else if len(page.People) != 1 || page.People[0].AccountID != dari {
+					t.Fatalf("exact phone lookup changed: %+v", page)
+				}
+			}
+		})
+	}
+	page, err := svc.SearchPeopleWithFriends(t.Context(), self, "Basit", "", true)
+	if err != nil || index(page, private) < 0 || !page.People[index(page, private)].IsFriend {
+		t.Fatalf("explicit friend scope lost a private cross-script friend: %+v %v", page, err)
+	}
+}
+
+func TestPeopleDiscoveryCrossScriptLimits(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	svc := NewService(pool, "", emailTestSecret)
+	self := seedGoogleAccount(t, pool, "self@example.test", uuid.NewString())
+	for i := 0; i < 23; i++ {
+		id := seedGoogleAccount(t, pool, uuid.NewString()+"@example.test", uuid.NewString())
+		if _, err := pool.Exec(t.Context(), `UPDATE accounts SET display_name=$2,discovery_enabled=TRUE WHERE id=$1::uuid`, id, fmt.Sprintf("باسط شماره %02d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := svc.SearchPeople(t.Context(), self, "Baset")
+	if err != nil || len(page.People) != 20 || !page.HasMore {
+		t.Fatalf("unbounded cross-script search: %+v %v", page, err)
+	}
+	preview, err := svc.SearchPeoplePreview(t.Context(), "Baset")
+	if err != nil || len(preview.People) != peoplePreviewLimit || !preview.HasMore {
+		t.Fatalf("unbounded cross-script preview: %+v %v", preview, err)
+	}
+}
+
 func TestDiscoveryIsEnabledByDefaultAndRequiresSession(t *testing.T) {
 	pool := testutil.ConnectTestDB(t)
 	svc, claims := seedWebProfileSession(t, pool)
