@@ -64,7 +64,7 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES"
       ],
-      "versionCode": 95
+      "versionCode": 96
     },
     "web": {
       "favicon": "./assets/favicon.png"
