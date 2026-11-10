@@ -31,10 +31,17 @@ func TestWebActivityUpdatesExistingBrowserWithoutCreatingInstallOrMobileUsage(t 
 		WHERE install_id=$1`, install).Scan(&first, &installed, &checkins); err != nil {
 		t.Fatal(err)
 	}
+	reportedDays := map[string]struct{}{}
 	for range 2 {
 		if err := svc.RecordWebActivity(t.Context(), claims, "ps"); err != nil {
 			t.Fatal(err)
 		}
+		var day string
+		if err := pool.QueryRow(t.Context(), `SELECT (last_seen_at AT TIME ZONE 'Asia/Kabul')::date::text
+			FROM installs WHERE install_id=$1`, install).Scan(&day); err != nil {
+			t.Fatal(err)
+		}
+		reportedDays[day] = struct{}{}
 	}
 	var platform, version, locale string
 	var recent bool
@@ -55,6 +62,16 @@ func TestWebActivityUpdatesExistingBrowserWithoutCreatingInstallOrMobileUsage(t 
 		t.Fatalf("presence changed install birth or mobile usage: checkins=%d/%d usage=%d/%d/%d activity=%d/%d installs=%d",
 			gotCheckins, checkins, entries, customers, shares, hours, days, installs)
 	}
+	var activityRows, matchingRows int
+	if err := pool.QueryRow(t.Context(), `SELECT COUNT(*), COUNT(*) FILTER (
+		WHERE d.install_id=$1::uuid AND d.account_id=$2::uuid AND d.last_seen_at=i.last_seen_at
+		  AND d.active_day=(d.last_seen_at AT TIME ZONE 'Asia/Kabul')::date)
+		FROM web_workspace_days d JOIN installs i USING (install_id)`, install, claims.AccountID).Scan(&activityRows, &matchingRows); err != nil {
+		t.Fatal(err)
+	}
+	if activityRows != len(reportedDays) || matchingRows != 1 {
+		t.Fatalf("repeated browser heartbeats wrote %d rows, matching=%d", activityRows, matchingRows)
+	}
 }
 
 func TestWebActivityNeverRelabelsKnownMobilePlatform(t *testing.T) {
@@ -71,8 +88,30 @@ func TestWebActivityNeverRelabelsKnownMobilePlatform(t *testing.T) {
 	}
 	var unchanged bool
 	if err := pool.QueryRow(t.Context(), `SELECT platform='ios' AND app_version='2.3.0'
-		AND app_locale='fa' AND last_seen_at<NOW()-INTERVAL '1 day' FROM installs WHERE install_id=$1`, install).Scan(&unchanged); err != nil || !unchanged {
+		AND app_locale='fa' AND last_seen_at<NOW()-INTERVAL '1 day'
+		AND NOT EXISTS (SELECT 1 FROM web_workspace_days)
+		FROM installs WHERE install_id=$1`, install).Scan(&unchanged); err != nil || !unchanged {
 		t.Fatalf("mobile install changed: unchanged=%v err=%v", unchanged, err)
+	}
+}
+
+func TestWebActivityRollsBackWhenHistoryWriteFails(t *testing.T) {
+	pool := testutil.ConnectTestDB(t)
+	svc := newEmailService(t, pool)
+	install := uuid.NewString()
+	result := signUp(t, svc, pool, "rollback-presence@shop.af", install)
+	ctx := t.Context()
+	if _, err := pool.Exec(ctx, `UPDATE installs SET last_seen_at=NOW()-INTERVAL '2 days', app_locale='fa';
+		ALTER TABLE web_workspace_days ADD CONSTRAINT reject_heartbeat CHECK (false);`); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecordWebActivity(ctx, sessionOf(t, result), "en"); err == nil {
+		t.Fatal("a failed history write was treated as a successful heartbeat")
+	}
+	var unchanged bool
+	if err := pool.QueryRow(ctx, `SELECT app_locale='fa' AND last_seen_at<NOW()-INTERVAL '1 day'
+		AND NOT EXISTS (SELECT 1 FROM web_workspace_days) FROM installs WHERE install_id=$1`, install).Scan(&unchanged); err != nil || !unchanged {
+		t.Fatalf("failed heartbeat committed presence: unchanged=%v err=%v", unchanged, err)
 	}
 }
 
@@ -123,6 +162,9 @@ func TestWebActivityRejectsRevokedReboundRetiredAndPendingSessions(t *testing.T)
 			if err := pool.QueryRow(t.Context(), `SELECT COUNT(*) FROM installs WHERE platform='web'
 				OR last_seen_at>NOW()-INTERVAL '1 day' AND install_id=$1`, install).Scan(&updated); err != nil || updated != 0 {
 				t.Fatalf("ended session wrote presence: count=%d err=%v", updated, err)
+			}
+			if err := pool.QueryRow(t.Context(), `SELECT COUNT(*) FROM web_workspace_days`).Scan(&updated); err != nil || updated != 0 {
+				t.Fatalf("ended session wrote history: count=%d err=%v", updated, err)
 			}
 		})
 	}

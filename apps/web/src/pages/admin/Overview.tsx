@@ -7,6 +7,9 @@ import { WeeklyGrowthCard } from "./WeeklyGrowthCard";
 import { ActivityInsights, RecentInstalls, type ActivityView } from "./ActivityInsights";
 import { DeviceEstimateCard } from "./DeviceEstimateCard";
 import { UserGoalCard } from "./UserGoalCard";
+import { WebUsageSection } from "./WebUsageCard";
+
+export { WebAccounts } from "./WebUsageCard";
 
 export function Overview() {
   const [days, setDays] = useState(30);
@@ -47,6 +50,9 @@ export function Overview() {
       ) : (
         <KpiStrip stats={stats.data} />
       )}
+      <div className="mt-4 min-w-0 sm:mt-5">
+        <WebUsageSection stats={stats.data} />
+      </div>
       {stats.data ? (
         <div className="mt-4 min-w-0 sm:mt-5">
           <DeviceEstimateCard
@@ -148,35 +154,6 @@ function KpiStrip({ stats: s }: { stats: Stats }) {
       <p className="mt-3 text-xs leading-relaxed text-brand-sub">
         Activity counts distinct app installs that checked in, including people who only opened the
         app. Each install counts once per period. Operator and test devices are left out.
-      </p>
-      <WebAccounts stats={s} />
-    </div>
-  );
-}
-
-export function WebAccounts({
-  stats,
-}: {
-  stats: Pick<Stats, "web_accounts_total" | "web_active_7d">;
-}) {
-  return (
-    <div className="mt-4 rounded-xl border border-brand-border bg-white px-4 py-3">
-      <dl className="grid grid-cols-2 gap-4">
-        <div>
-          <dt className="text-xs text-brand-sub">Web accounts</dt>
-          <dd className="mt-1 text-lg font-semibold tabular-nums text-brand-ink">
-            {stats.web_accounts_total === undefined ? "—" : fmtInt(stats.web_accounts_total)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-brand-sub">Active on web · 7 days</dt>
-          <dd className="mt-1 text-lg font-semibold tabular-nums text-brand-ink">
-            {stats.web_active_7d === undefined ? "—" : fmtInt(stats.web_active_7d)}
-          </dd>
-        </div>
-      </dl>
-      <p className="mt-2 text-xs leading-5 text-brand-muted">
-        Signed-in accounts, counted once across browsers. Web activity does not add app installs.
       </p>
     </div>
   );

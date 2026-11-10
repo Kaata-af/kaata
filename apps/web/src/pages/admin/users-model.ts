@@ -22,6 +22,8 @@ export type UserListRow = {
   installed_at: string;
   installed_day: string;
   last_seen: string;
+  last_web_active_at?: string;
+  last_mobile_seen_at?: string;
   entries: number;
   customers: number;
   shares: number | null;
@@ -58,7 +60,16 @@ export function installTime(installedAt?: string, firstSeen?: string): string {
 export type UserFilters = {
   signIn: "all" | "signed-in" | "signed-out";
   onboarding: "all" | "complete" | "incomplete";
-  activity: "all" | "online" | "today" | "7d" | "30d" | "inactive" | "never";
+  activity:
+    | "all"
+    | "online"
+    | "web-recent"
+    | "phone-recent"
+    | "today"
+    | "7d"
+    | "30d"
+    | "inactive"
+    | "never";
   platform: string;
   language: string;
   source: string;
@@ -108,6 +119,11 @@ export const PRESETS = [
     description: "Seen in the last 7 days, based on device check-ins.",
   },
   {
+    id: "web-recent",
+    label: "Recently on web",
+    description: "Signed-in accounts with a visible web check-in in the last 5 minutes.",
+  },
+  {
     id: "onboarding",
     label: "Not onboarded",
     description:
@@ -118,6 +134,7 @@ export type UserPreset = (typeof PRESETS)[number]["id"];
 
 export function presetFilters(preset: UserPreset): UserFilters {
   if (preset === "active") return { ...DEFAULT_FILTERS, activity: "7d" };
+  if (preset === "web-recent") return { ...DEFAULT_FILTERS, activity: "web-recent" };
   if (preset === "onboarding")
     return { ...DEFAULT_FILTERS, onboarding: "incomplete", includeUnidentified: true };
   return { ...DEFAULT_FILTERS };
@@ -164,6 +181,8 @@ export function userRows(data: UsersResult | undefined): UserListRow[] {
         installed_at: installedAt,
         installed_day: reportingDay(installedAt),
         last_seen: u.last_seen,
+        last_web_active_at: u.last_web_active_at,
+        last_mobile_seen_at: u.last_mobile_seen_at,
         entries: u.kaatas.reduce((sum, k) => sum + k.tally_count, 0),
         customers: u.kaatas.reduce((sum, k) => sum + k.customer_count, 0),
         shares: null,
@@ -177,6 +196,7 @@ export function userRows(data: UsersResult | undefined): UserListRow[] {
     ...(data.anonymous_installs ?? []).map((d): UserListRow => {
       const installedAt = installTime(d.installed_at, d.first_seen);
       const excluded = d.excluded === true;
+      const platform = (d.platform || "").toLowerCase();
       return {
         id: `i:${d.install_id}`,
         kind: "install",
@@ -186,13 +206,17 @@ export function userRows(data: UsersResult | undefined): UserListRow[] {
         email: "",
         locale: d.locale,
         source: d.source,
-        platform: (d.platform || "").toLowerCase(),
+        platform,
         platforms: accountPlatforms(undefined, d.platform),
         version: d.app_version,
         onboarded: d.has_onboarded,
         installed_at: installedAt,
         installed_day: reportingDay(installedAt),
         last_seen: d.last_seen,
+        last_mobile_seen_at:
+          d.check_in_count > 0 && (platform === "android" || platform === "ios")
+            ? d.last_seen
+            : undefined,
         entries: d.usage_entries,
         customers: d.usage_customers,
         shares: d.usage_shares,
@@ -224,12 +248,19 @@ export function reportedDevices(rows: UserListRow[]): number {
   );
 }
 
+export function isRecentChannelActivity(at: string | undefined, now: number): boolean {
+  const timestamp = Date.parse(at ?? "");
+  return timestamp <= now && timestamp >= now - 5 * 60_000;
+}
+
 export function matchesActivity(
   row: UserListRow,
   activity: UserFilters["activity"],
   now: number,
 ): boolean {
   if (activity === "all") return true;
+  if (activity === "web-recent") return isRecentChannelActivity(row.last_web_active_at, now);
+  if (activity === "phone-recent") return isRecentChannelActivity(row.last_mobile_seen_at, now);
   const timestamp = Date.parse(row.last_seen);
   const known = Number.isFinite(timestamp) && timestamp <= now;
   if (activity === "never") return !known;
@@ -380,7 +411,17 @@ export function parsePreferences(value: unknown): UserPreferences {
   const enums = {
     signIn: ["all", "signed-in", "signed-out"],
     onboarding: ["all", "complete", "incomplete"],
-    activity: ["all", "online", "today", "7d", "30d", "inactive", "never"],
+    activity: [
+      "all",
+      "online",
+      "web-recent",
+      "phone-recent",
+      "today",
+      "7d",
+      "30d",
+      "inactive",
+      "never",
+    ],
     entries: ["all", "with", "without"],
     contact: ["all", "available", "missing"],
   };

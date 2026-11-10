@@ -49,7 +49,9 @@ type UserRow struct {
 	LastLoginAt string `json:"last_login_at"`
 	// LastSeen = most recent check-in across the account's installs (just opening
 	// the app updates it — no task needed). Empty if the account has no install.
-	LastSeen string `json:"last_seen"`
+	LastSeen         string `json:"last_seen"`
+	LastWebActiveAt  string `json:"last_web_active_at"`
+	LastMobileSeenAt string `json:"last_mobile_seen_at"`
 	// LedgerName / LedgerPhone come from the self user in the latest snapshot of
 	// a vault this account owns — the name/phone the shopkeeper entered in-app.
 	// Empty when the account has no backed-up vault (e.g. never synced).
@@ -200,29 +202,42 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 	// 1. Accounts = the app's signed-in users (operator excluded).
 	byID := map[string]*UserRow{}
 	order := []string{}
-	rows, err := tx.Query(ctx, userReportInstalls+`
+	rows, err := tx.Query(ctx, userReportInstalls+`, `+reportExclusionCTEs+`, `+eligibleWebInstallsCTE+`
 		, account_last_seen AS (
-			SELECT resolved_account_id, MAX(last_seen_at) AS last_seen
+			SELECT resolved_account_id, MAX(last_seen_at) AS last_seen,
+			       MAX(last_seen_at) FILTER (WHERE reported_platform IN ('android', 'ios')
+			         AND check_in_count > 0 AND install_id NOT IN (SELECT install_id FROM report_excluded_installs)) AS last_mobile_seen
 			FROM report_installs
 			WHERE resolved_account_id IS NOT NULL
 			GROUP BY resolved_account_id
+		), account_last_web AS (
+			SELECT i.resolved_account_id, MAX(activity.last_seen_at) AS last_web_active
+			FROM report_web_installs i
+			JOIN LATERAL (
+				SELECT w.last_seen_at FROM web_workspace_days w
+				WHERE w.install_id = i.install_id AND w.account_id = i.resolved_account_id
+				  AND w.last_seen_at <= $2::timestamptz
+				ORDER BY w.active_day DESC LIMIT 1
+			) activity ON TRUE
+			GROUP BY i.resolved_account_id
 		)
 		SELECT a.id::text, COALESCE(NULLIF(a.display_name, ''), a.name, ''), a.email, COALESCE(a.locale, ''),
-		       a.created_at, a.last_login_at, als.last_seen,
+		       a.created_at, a.last_login_at, als.last_seen, web.last_web_active, als.last_mobile_seen,
 		       NULLIF(a.display_name, '') IS NOT NULL, NULLIF(a.phone_e164, '') IS NOT NULL
 		FROM accounts a
 		LEFT JOIN account_last_seen als ON als.resolved_account_id = a.id
+		LEFT JOIN account_last_web web ON web.resolved_account_id = a.id
 		WHERE a.id::text <> ALL($1::text[])
 		ORDER BY last_seen DESC NULLS LAST, a.last_login_at DESC
-	`, s.operatorAccountIDs)
+	`, s.operatorAccountIDs, s.now())
 	if err != nil {
 		return out, err
 	}
 	for rows.Next() {
 		var u UserRow
 		var created, lastLogin time.Time
-		var lastSeen *time.Time
-		if err := rows.Scan(&u.AccountID, &u.Name, &u.Email, &u.Locale, &created, &lastLogin, &lastSeen,
+		var lastSeen, lastWebActive, lastMobileSeen *time.Time
+		if err := rows.Scan(&u.AccountID, &u.Name, &u.Email, &u.Locale, &created, &lastLogin, &lastSeen, &lastWebActive, &lastMobileSeen,
 			&u.hasAccountName, &u.hasAccountPhone); err != nil {
 			rows.Close()
 			return out, err
@@ -231,6 +246,12 @@ func (s *Service) GetUsers(ctx context.Context) (UsersResult, error) {
 		u.LastLoginAt = lastLogin.UTC().Format(time.RFC3339)
 		if lastSeen != nil {
 			u.LastSeen = lastSeen.UTC().Format(time.RFC3339)
+		}
+		if lastWebActive != nil {
+			u.LastWebActiveAt = lastWebActive.UTC().Format(time.RFC3339Nano)
+		}
+		if lastMobileSeen != nil {
+			u.LastMobileSeenAt = lastMobileSeen.UTC().Format(time.RFC3339Nano)
 		}
 		u.Kaatas = []UserKaata{}
 		u.Platforms = []string{}

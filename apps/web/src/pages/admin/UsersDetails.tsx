@@ -22,6 +22,22 @@ export function AccountDetail(props: { u: UserRow }) {
         <DetailItem label="Account created" value={fmtDateTime(u.created_at)} />
         <DetailItem label="Last sign-in" value={fmtDateTime(u.last_login_at)} />
         <DetailItem label="Last reported activity" value={fmtDateTime(u.last_activity_at)} />
+        {u.last_web_active_at !== undefined ? (
+          <DetailItem
+            label="Last web check-in"
+            value={
+              u.last_web_active_at ? fmtDateTime(u.last_web_active_at) : "No check-in recorded"
+            }
+          />
+        ) : null}
+        {u.last_mobile_seen_at !== undefined ? (
+          <DetailItem
+            label="Last phone check-in"
+            value={
+              u.last_mobile_seen_at ? fmtDateTime(u.last_mobile_seen_at) : "No check-in recorded"
+            }
+          />
+        ) : null}
         <DetailItem label="Platforms" value={platformsLabel(u.platforms, u.platform)} />
         <DetailItem
           label="Latest platform"

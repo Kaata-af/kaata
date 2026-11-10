@@ -6,7 +6,7 @@ import { RecentInstalls } from "./ActivityInsights";
 import { AccountDetail } from "./UsersDetails";
 import { WebAccounts } from "./Overview";
 
-test("account detail shows the full platform set while version belongs to the latest installation", () => {
+test("account detail separates web and phone check-ins while version belongs to the latest installation", () => {
   const html = renderToStaticMarkup(
     <AccountDetail
       u={
@@ -17,6 +17,8 @@ test("account detail shows the full platform set while version belongs to the la
           app_version: "web",
           install_count: 2,
           web_session_count: 3,
+          last_web_active_at: "2026-11-10T01:05:00Z",
+          last_mobile_seen_at: "2026-11-10T01:00:00Z",
           kaatas: [],
         } as unknown as UserRow
       }
@@ -27,6 +29,8 @@ test("account detail shows the full platform set while version belongs to the la
   assert.doesNotMatch(html, /vweb/);
   assert.match(html, /Linked app installations<\/dt><dd[^>]*>2/);
   assert.match(html, /Browser sessions<\/dt><dd[^>]*>3/);
+  assert.match(html, /Last web check-in<\/dt><dd[^>]*>Nov 10, 2026, 05:35/);
+  assert.match(html, /Last phone check-in<\/dt><dd[^>]*>Nov 10, 2026, 05:30/);
 });
 
 test("a web platform in an older latest-installs response is identified correctly", () => {

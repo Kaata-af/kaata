@@ -16,6 +16,7 @@ import {
   activePreset,
   filterUsers,
   isIdentified,
+  isRecentChannelActivity,
   matchesActivity,
   parseAppVersion,
   parsePreferences,
@@ -83,6 +84,8 @@ const SELECTS: {
     options: [
       ["all", "Any time"],
       ["online", "Within 10 minutes"],
+      ["web-recent", "Web in last 5 minutes"],
+      ["phone-recent", "Phone in last 5 minutes"],
       ["today", "Today · Kabul"],
       ["7d", "Within 7 days"],
       ["30d", "Within 30 days"],
@@ -194,6 +197,10 @@ export function Users() {
   // Fresh query results can contain check-ins after the last local clock tick.
   const now = Math.max(clockTick, users.dataUpdatedAt);
   const selectedPreset = activePreset(filters);
+  const webActivityUnavailable =
+    filters.activity === "web-recent" &&
+    !!users.data?.users.length &&
+    users.data.users.every((user) => user.last_web_active_at === undefined);
   const allRows = useMemo(() => userRows(users.data), [users.data]);
   const result = useMemo(
     () => filterUsers(allRows, filters, search, now),
@@ -436,6 +443,11 @@ export function Users() {
               {selectedPreset && selectedPreset !== "all" ? (
                 <p className="text-xs leading-5 text-brand-muted">
                   {PRESETS.find((preset) => preset.id === selectedPreset)?.description}
+                </p>
+              ) : null}
+              {webActivityUnavailable ? (
+                <p className="text-xs leading-5 text-brand-muted" role="status">
+                  Visible web check-in details are unavailable from this server.
                 </p>
               ) : null}
               {showFilters ? (
@@ -795,7 +807,8 @@ export function Users() {
           <p className="mt-4 text-xs leading-5 text-brand-muted">
             Accounts can include several installations. Account entries come from synced kaatas;
             signed-out entries come from reported usage. “No entries reported” does not prove an
-            empty local ledger. Last seen is a device check-in, not a ledger edit.
+            empty local ledger. Web and phone times show separate check-ins. A green dot beside
+            either means a check-in within the last 5 minutes.
           </p>
         </>
       )}
@@ -925,6 +938,38 @@ function InstalledStamp(props: { at: string }) {
   );
 }
 
+function ChannelSeen({ label, at, now }: { label: "Web" | "Phone"; at?: string; now: number }) {
+  const known = at && Date.parse(at) <= now ? at : "";
+  const recent = isRecentChannelActivity(known, now);
+  return (
+    <span
+      className="flex min-w-0 flex-wrap items-center gap-x-1.5"
+      title={known ? `${label} · ${fmtDateTime(known)}` : `${label} check-in not recorded`}
+    >
+      {recent ? (
+        <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+      ) : null}
+      <span>
+        {label} · {known ? lastSeenInfo(known).label : "—"}
+      </span>
+    </span>
+  );
+}
+
+function LastSeenChannels({ row, now }: { row: UserListRow; now: number }) {
+  if (
+    row.kind !== "account" ||
+    (row.last_web_active_at === undefined && row.last_mobile_seen_at === undefined)
+  )
+    return null;
+  return (
+    <div className="mt-1 text-[11px] font-normal leading-5 text-brand-sub">
+      <ChannelSeen label="Web" at={row.last_web_active_at} now={now} />
+      <ChannelSeen label="Phone" at={row.last_mobile_seen_at} now={now} />
+    </div>
+  );
+}
+
 function UserResults(props: UserResultsProps) {
   return (
     <>
@@ -1007,6 +1052,7 @@ function UserCards(props: UserResultsProps) {
                       {fmtDateTime(row.last_seen)}
                     </span>
                   ) : null}
+                  <LastSeenChannels row={row} now={props.now} />
                 </dd>
               </div>
               <div className="min-w-0">
@@ -1199,6 +1245,7 @@ function UsersTable(props: UserResultsProps) {
                         {fmtDateTime(row.last_seen)}
                       </p>
                     ) : null}
+                    <LastSeenChannels row={row} now={props.now} />
                   </td>
                   <td className="px-4 py-4 text-right">
                     <p className="text-sm font-semibold tabular-nums text-brand-ink">

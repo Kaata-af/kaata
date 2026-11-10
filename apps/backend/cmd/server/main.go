@@ -509,6 +509,7 @@ func main() {
 		pr.Get("/v1/admin/day-comparison", adminH.DayComparison)
 		pr.Get("/v1/admin/growth", adminH.Growth)
 		pr.Get("/v1/admin/users", adminH.Users)
+		pr.Get("/v1/admin/web-usage", adminH.WebUsage)
 		pr.Get("/v1/admin/users/{account_id}/pro", webProH.AdminStatus)
 		pr.With(httpx.RateLimitPerIP(30, time.Minute)).Post("/v1/admin/users/{account_id}/pro", webProH.AdminRecordPayment)
 		pr.With(httpx.RateLimitPerIP(30, time.Minute)).Post("/v1/admin/users/{account_id}/pro/grants", webProH.AdminGrant)

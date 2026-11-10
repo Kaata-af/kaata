@@ -11,6 +11,7 @@ import (
 
 // WebActivity refreshes an existing browser session's presence. It does not
 // create an installation, report ledger usage, or claim mobile attribution.
+// Record presence separately from native app activity.
 // Active browsers renew the same credential on mobile's rolling-session policy.
 func (h *Handler) WebActivity(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
@@ -76,8 +77,17 @@ func (s *Service) RecordWebActivity(ctx context.Context, claims *SessionClaims, 
 		if err := syncWebInstallProfile(ctx, tx, claims.InstallID, profiles[claims.AccountID]); err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx, `UPDATE installs SET platform='web', app_version='web', last_seen_at=NOW(),
-			app_locale=COALESCE(NULLIF($2,''),app_locale) WHERE install_id=$1::uuid`, claims.InstallID, locale)
+		_, err = tx.Exec(ctx, `
+			WITH seen AS (
+			  UPDATE installs SET platform='web', app_version='web', last_seen_at=statement_timestamp(),
+			    app_locale=COALESCE(NULLIF($2,''),app_locale) WHERE install_id=$1::uuid
+			  RETURNING install_id, account_id, last_seen_at
+			)
+			INSERT INTO web_workspace_days (install_id, account_id, active_day, last_seen_at)
+			SELECT install_id, account_id, (last_seen_at AT TIME ZONE 'Asia/Kabul')::date, last_seen_at FROM seen
+			ON CONFLICT (install_id, account_id, active_day) DO UPDATE
+			SET last_seen_at=GREATEST(web_workspace_days.last_seen_at, EXCLUDED.last_seen_at)
+		`, claims.InstallID, locale)
 		if err != nil {
 			return err
 		}

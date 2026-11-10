@@ -343,6 +343,62 @@ test("today follows Kabul midnight while recency uses elapsed time and rejects f
   assert.equal(matchesActivity(invalid, "never", NOW), true);
 });
 
+test("recent web and phone activity uses separate check-ins instead of linked or latest platforms", () => {
+  const recent = new Date(NOW - 2 * 60_000).toISOString();
+  const boundary = new Date(NOW - 5 * 60_000).toISOString();
+  const stale = new Date(NOW - 5 * 60_000 - 1).toISOString();
+  const future = new Date(NOW + 1).toISOString();
+  const rows = userRows(
+    data(
+      [
+        install("native", { last_seen: recent }),
+        install("native-auth-stub", { last_seen: recent, check_in_count: 0 }),
+        install("unknown-platform", { last_seen: recent, platform: "unknown" }),
+      ],
+      [
+        account({
+          account_id: "both",
+          platform: "ios",
+          platforms: ["ios", "web"],
+          last_seen: recent,
+          last_web_active_at: boundary,
+          last_mobile_seen_at: recent,
+        }),
+        account({ account_id: "web-only", platform: "web", last_web_active_at: recent }),
+        account({
+          account_id: "phone-only",
+          platform: "android",
+          platforms: ["android", "web"],
+          last_web_active_at: stale,
+          last_mobile_seen_at: recent,
+        }),
+        account({ account_id: "legacy", platform: "web", last_seen: recent }),
+        account({ account_id: "invalid", last_web_active_at: future, last_mobile_seen_at: "bad" }),
+        account({ account_id: "test", last_web_active_at: recent, excluded: true }),
+      ],
+    ),
+  );
+  assert.deepEqual(
+    filterUsers(rows, presetFilters("web-recent"), "", NOW).visible.map((row) => row.id),
+    ["a:both", "a:web-only"],
+  );
+  assert.deepEqual(
+    filterUsers(rows, { ...DEFAULT_FILTERS, activity: "phone-recent" }, "", NOW).visible.map(
+      (row) => row.id,
+    ),
+    ["a:both", "a:phone-only", "i:native"],
+  );
+  assert.equal(activePreset(presetFilters("web-recent")), "web-recent");
+  assert.equal(
+    parsePreferences({ filters: { activity: "web-recent" } }).filters.activity,
+    "web-recent",
+  );
+  assert.equal(
+    parsePreferences({ filters: { activity: "phone-recent" } }).filters.activity,
+    "phone-recent",
+  );
+});
+
 test("active and onboarding presets have explicit useful definitions", () => {
   const rows = userRows(
     data(

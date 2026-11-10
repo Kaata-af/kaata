@@ -201,6 +201,9 @@ export type UserRow = {
   // installs a back-filled later check-in time.
   first_seen?: string;
   last_activity_at: string;
+  // Omitted by older servers. A blank value means no confirmed check-in.
+  last_web_active_at?: string;
+  last_mobile_seen_at?: string;
   has_onboarded: boolean;
   source: string;
   install_count: number;
