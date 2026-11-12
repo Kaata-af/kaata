@@ -120,6 +120,7 @@ async function backupSetupConsent() {
   let refresh: (() => void) | undefined;
   const Setup = compileUI("../../components/PersonalBackupSetup", {
     "react/jsx-runtime": jsxRuntime,
+    "@expo/vector-icons": { Ionicons: "Icon" },
     react: hooks.react,
     "expo-router": {
       useFocusEffect: (effect: () => void | (() => void)) => hooks.react.useEffect(effect, [effect]),

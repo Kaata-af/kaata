@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform, Pressable, StyleSheet, Text, View } from "react-native";
@@ -190,10 +191,11 @@ export function PersonalBackupSetup({
   return (
     <View style={[styles.card, placement === "onboarding" ? styles.onboardingCard : styles.homeCard]}>
       <View style={[styles.heading, rowDir(rtl)]}>
-        <Text style={[styles.title, textDir(rtl)]}>{t("backups.setup.title")}</Text>
+        <Text style={[styles.title, styles.headingTitle, textDir(rtl)]}>{t("backups.setup.title")}</Text>
         {onDismiss ? (
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel={t("common.close")}
             accessibilityState={{ disabled: unavailable }}
             disabled={unavailable}
             onPress={() => {
@@ -202,7 +204,7 @@ export function PersonalBackupSetup({
             }}
             style={styles.dismiss}
           >
-            <Text style={[styles.dismissLabel, textDir(rtl)]}>{t("common.notNow")}</Text>
+            <Ionicons name="close" size={20} color={colors.textSubtle} />
           </Pressable>
         ) : null}
       </View>
@@ -243,16 +245,17 @@ const styles = StyleSheet.create({
   onboardingCard: { marginTop: space.md },
   homeCard: { marginHorizontal: 16, marginBottom: 12 },
   heading: { alignItems: "center", gap: space.sm },
+  headingTitle: { flex: 1, minWidth: 0 },
   title: { ...typography.labelBold, color: colors.textEmphasis, flexShrink: 1 },
   body: { ...typography.bodySm, color: colors.textSubtle },
   hint: { ...typography.caption, color: colors.textMuted },
   error: { ...typography.caption, color: colors.danger },
   actions: { gap: space.sm, marginTop: space.sm },
   dismiss: {
-    minWidth: TOUCH_MIN,
+    width: TOUCH_MIN,
     minHeight: TOUCH_MIN,
-    marginStart: "auto",
+    flexShrink: 0,
+    alignItems: "center",
     justifyContent: "center",
   },
-  dismissLabel: { ...typography.caption, color: colors.textSubtle },
 });
