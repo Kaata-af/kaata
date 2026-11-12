@@ -131,6 +131,10 @@ func mapServiceError(err error) (int, string, string) {
 		return http.StatusBadRequest, "self_invite", err.Error()
 	case errors.Is(err, ErrInvalidOwnershipAuthorization):
 		return http.StatusBadRequest, "invalid_ownership_authorization", err.Error()
+	case errors.Is(err, ErrInvalidAdminAuthorization):
+		return http.StatusBadRequest, "invalid_admin_authorization", err.Error()
+	case errors.Is(err, ErrAdminInviteUpgradeRequired):
+		return http.StatusUpgradeRequired, "admin_invite_upgrade_required", err.Error()
 	case errors.Is(err, ErrOwnershipSigningUnavailable):
 		return http.StatusServiceUnavailable, "ownership_signing_unavailable", err.Error()
 	case errors.Is(err, ErrNotFound):
@@ -533,9 +537,10 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 }
 
 type acceptInviteRequest struct {
-	Token             string `json:"token"`
-	InstallID         string `json:"install_id"`
-	MemberReadmission bool   `json:"member_readmission"`
+	Token              string `json:"token"`
+	InstallID          string `json:"install_id"`
+	MemberReadmission  bool   `json:"member_readmission"`
+	AdminInviteVersion int    `json:"admin_invite_version"`
 }
 
 // AcceptInvite — POST /v1/vaults/invites/accept
@@ -564,7 +569,7 @@ func (h *Handler) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := h.svc.AcceptInvite(r.Context(), AcceptInviteInput{
-		Token: req.Token, AccountID: claims.AccountID, InstallID: req.InstallID, MemberReadmission: req.MemberReadmission,
+		Token: req.Token, AccountID: claims.AccountID, InstallID: req.InstallID, MemberReadmission: req.MemberReadmission, AdminInviteVersion: req.AdminInviteVersion,
 	})
 	if err != nil {
 		// NB: no Retry-After header on ErrInviteRateLimited. The soft-cap

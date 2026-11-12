@@ -231,6 +231,7 @@ export type VaultMemberAddedEvent = EventEnvelope & {
     role: VaultRole;
     display_name?: string | null;
     witness?: MembershipWitness;
+    admin_invite?: import("./trust/admin-invite").AdminInviteProof;
     // Set on chain-genesis backfill admissions (M2 §5) so replicas can
     // distinguish "owner attested pre-chain membership" from organic adds.
     backfill_synthetic?: true;

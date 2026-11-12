@@ -1,5 +1,6 @@
 // Execute the member-invite screen against synthetic sessions and requests.
 import assert from "node:assert/strict";
+import type { VaultRole } from "../events";
 import { compileUI, deferred, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
 
 const john = { account_id: "account-john", name: "John Smith", username: "john" };
@@ -22,6 +23,7 @@ function fixture(options: { profileAccountId?: string } = {}) {
     online = true,
     focused = true,
     registered = true;
+  let actorRole: VaultRole = "owner";
   let guardWait: Promise<unknown> | null = null;
   let sharePreference: Promise<string> | null = null;
   let identityListener: () => void = () => {};
@@ -151,7 +153,10 @@ function fixture(options: { profileAccountId?: string } = {}) {
         resolveShareLang: (v: string) => v,
       },
       "../../lib/tokens": { icon: {}, radius: {} },
-      "../../lib/use-vault-role": { useVaultPermission: () => permitted },
+      "../../lib/use-vault-role": {
+        useVaultPermission: () => permitted,
+        useVaultRole: () => actorRole,
+      },
       "../../lib/ledger-events": {
         useLedgerRefresh: (_vault: unknown, fn: () => void) => {
           refresh = fn;
@@ -260,6 +265,10 @@ function fixture(options: { profileAccountId?: string } = {}) {
       permitted = value;
       render();
     },
+    setActorRole: (value: VaultRole) => {
+      actorRole = value;
+      render();
+    },
     setAccount: (value: string) => {
       account = value;
       binding++;
@@ -294,6 +303,59 @@ function fixture(options: { profileAccountId?: string } = {}) {
 }
 
 async function main() {
+  {
+    const f = fixture();
+    await f.settle();
+    const roles = f.all().filter((node) => typeof node.props.onSelect === "function" && node.props.value);
+    assert.deepEqual(roles.map((node) => node.props.value), ["manager", "editor", "clerk", "viewer"]);
+    assert.ok(!f.all().some((node) => node.props.children === "invite.managerNote"));
+    roles[0].props.onSelect("manager");
+    f.render();
+    assert.ok(f.all().some((node) => node.props.children === "invite.link.managerDisclosure"));
+    assert.equal(f.button("invite.people.send").props.disabled, true);
+    assert.ok(f.all().some((node) => node.props.children === "invite.adminChoosePerson"));
+    await f.button("invite.people.send").props.onPress();
+    await f.settle();
+    assert.equal(f.links.length, 0, "Admin invitations are bound to a chosen Kaata account");
+  }
+  {
+    const f = fixture();
+    await f.settle();
+    await f.select();
+    f.all().find((node) => node.props.value === "manager")!.props.onSelect("manager");
+    f.render();
+    const dialog = f.confirm();
+    assert.match(dialog.props.description, /invite.role.manager/);
+    const sending = dialog.props.onConfirm();
+    await f.settle();
+    assert.equal(f.writes[0].input.role, "manager");
+    f.writes[0].reply.resolve({ expires_at: Date.now() + 86400_000 });
+    await sending;
+    await f.settle();
+    assert.ok(f.all().some((node) => typeof node.props.children === "string" &&
+      node.props.children.includes('"role":"invite.role.manager"')));
+  }
+  {
+    const f = fixture();
+    await f.settle();
+    const admin = f.all().find((node) => node.props.value === "manager")!;
+    admin.props.onSelect("manager");
+    f.render();
+    await f.select();
+    const gate = deferred<void>();
+    f.pauseGuard(gate.promise);
+    const sending = f.confirm().props.onConfirm();
+    f.setActorRole("manager");
+    gate.resolve();
+    await sending;
+    await f.settle();
+    assert.equal(f.writes.length + f.links.length, 0, "losing ownership stops an unsent Admin invitation");
+    assert.ok(!f.all().some((node) => node.props.value === "manager"));
+    admin.props.onSelect("manager");
+    f.render();
+    assert.equal(f.all().find((node) => node.props.value === "editor")!.props.selected, true,
+      "a retained Admin selector cannot grant Admin after ownership changes");
+  }
   {
     const f = fixture({ profileAccountId: john.account_id });
     await f.settle();

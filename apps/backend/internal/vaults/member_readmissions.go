@@ -92,7 +92,7 @@ func (s *Service) MemberReadmissionStatus(ctx context.Context, accountID, instal
 	if _, ok := accountInviteSelector("v_" + inviteID); !ok {
 		return AcceptInviteResult{}, ErrInviteNotFound
 	}
-	return s.AcceptInvite(ctx, AcceptInviteInput{Token: "v_" + inviteID, AccountID: accountID, InstallID: installID, MemberReadmission: true, ReadmissionStatusOnly: true})
+	return s.AcceptInvite(ctx, AcceptInviteInput{Token: "v_" + inviteID, AccountID: accountID, InstallID: installID, MemberReadmission: true, ReadmissionStatusOnly: true, AdminInviteVersion: 1})
 }
 
 func (h *Handler) MemberReadmissionStatus(w http.ResponseWriter, r *http.Request) {

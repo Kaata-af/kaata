@@ -63,10 +63,13 @@ import { ltrIsolate, rowDir, textDir, useIsRTL } from "../../lib/direction";
 import { fonts, sansLineHeight } from "../../lib/fonts";
 import { getShareLangPref, resolveShareLang, t, tIn, type LocaleCode } from "../../lib/i18n";
 import { icon, radius } from "../../lib/tokens";
-import { useVaultPermission } from "../../lib/use-vault-role";
+import { useVaultPermission, useVaultRole } from "../../lib/use-vault-role";
 import { useLedgerRefresh } from "../../lib/ledger-events";
 import { usePeopleSearch, type DiscoveredPerson } from "../../lib/people-search";
-import { createVaultMemberRequest } from "../../lib/vault-member-requests";
+import {
+  createVaultMemberRequest,
+  type VaultMemberInviteRole,
+} from "../../lib/vault-member-requests";
 import { getPersonProfile } from "../../lib/friends-api";
 import { ApiError, createVaultInvite, listVaults } from "../../lib/vault-api";
 import type { VaultRole } from "../../lib/events";
@@ -75,10 +78,11 @@ type InviteResult = {
   invite_url: string;
   invite_email: string;
   expires_at: number;
+  role: VaultMemberInviteRole;
 };
 type RecipientChoice = {
   person: DiscoveredPerson;
-  role: "editor" | "clerk" | "viewer";
+  role: VaultMemberInviteRole;
   vaultId: string;
   accountId: string;
   identity: string;
@@ -141,7 +145,7 @@ export default function VaultInviteScreen() {
   // checks via requireJwt(), so we mirror that contract in the UI gate.
   // `null` = unknown until the effect resolves.
   const [hasJwt, setHasJwt] = useState<boolean | null>(null);
-  const [role, setRole] = useState<"editor" | "clerk" | "viewer">("editor");
+  const [role, setRole] = useState<VaultMemberInviteRole>("editor");
   const [busy, setBusy] = useState(false);
   const [storedResult, setResult] = useState<InviteResult | null>(null);
   const [storedQuery, setQuery] = useState("");
@@ -182,6 +186,10 @@ export default function VaultInviteScreen() {
   const submittingRef = useRef(false);
 
   const canInvite = useVaultPermission(vaultId, accountId, "vault.invite_member");
+  const actorRole = useVaultRole(vaultId, accountId);
+  const canInviteAdmin = canInvite && actorRole === "owner";
+  const canInviteAdminRef = useRef(canInviteAdmin);
+  canInviteAdminRef.current = canInviteAdmin;
   const canInviteRef = useRef(canInvite);
   canInviteRef.current = canInvite;
   const currentScope = !!vaultId && getActiveVaultIdSyncMaybe() === vaultId;
@@ -302,6 +310,13 @@ export default function VaultInviteScreen() {
     }
   }, [canInvite]);
 
+  useEffect(() => {
+    if (!canInviteAdmin) {
+      setRole((current) => current === "manager" ? "editor" : current);
+      setConfirmation((current) => current?.role === "manager" ? null : current);
+    }
+  }, [canInviteAdmin]);
+
   // Pre-flight vault-on-server check: once we have a vault + JWT + connectivity,
   // confirm the kaata is registered server-side so we can disable Create + warn
   // BEFORE the owner picks a role and taps (instead of a post-submit 404 toast).
@@ -359,7 +374,8 @@ export default function VaultInviteScreen() {
         await applyForCurrentSession(session, async () => {
           if (!current()) return;
           setRecipient(profile.person);
-          setRole(profile.activity?.kaata_invitation_role ?? "editor");
+          const invitedRole = profile.activity?.kaata_invitation_role ?? "editor";
+          setRole(invitedRole === "manager" && !canInviteAdminRef.current ? "editor" : invitedRole);
           setProfileLoading(false);
         });
       })
@@ -400,9 +416,21 @@ export default function VaultInviteScreen() {
     setSendError(null);
   }
 
+  function selectRole(value: VaultMemberInviteRole) {
+    if (
+      submittingRef.current ||
+      !currentView() ||
+      (value === "manager" && !canInviteAdminRef.current)
+    ) return;
+    setRole(value);
+    setConfirmation(null);
+    setSendError(null);
+  }
+
   function confirmRecipient() {
     if (!recipient || !accountId || !canSendRef.current || submittingRef.current || !currentView())
       return;
+    if (role === "manager" && !canInviteAdminRef.current) return;
     setConfirmation({
       person: recipient,
       role,
@@ -422,6 +450,7 @@ export default function VaultInviteScreen() {
       !session ||
       submittingRef.current ||
       !canSendRef.current ||
+      (choice.role === "manager" && !canInviteAdminRef.current) ||
       !scopeCurrent(choice)
     )
       return;
@@ -431,7 +460,11 @@ export default function VaultInviteScreen() {
     setSendError(null);
     try {
       await applyForCurrentSession(session, async () => {});
-      if (!scopeCurrent(choice) || !canSendRef.current) return;
+      if (
+        !scopeCurrent(choice) ||
+        !canSendRef.current ||
+        (choice.role === "manager" && !canInviteAdminRef.current)
+      ) return;
       const response = await createVaultMemberRequest(
         choice.vaultId,
         {
@@ -464,15 +497,17 @@ export default function VaultInviteScreen() {
       const key =
         code === "already_member"
           ? "invite.people.alreadyMember"
-          : code === "recipient_unavailable"
-            ? "invite.people.unavailable"
-            : code === "member_readmission_required" || code === "owner_only"
-              ? "invite.people.readmission"
-              : code === "invite_role_conflict"
-                ? "invite.people.roleConflict"
-                : code === "rate_limited" || code === "too_many_invites" || status === 429
-                  ? "invite.tooMany"
-                  : "invite.people.failed";
+          : choice.role === "manager" && code === "owner_only"
+            ? "invite.adminOwnerOnly"
+            : code === "recipient_unavailable"
+              ? "invite.people.unavailable"
+              : code === "member_readmission_required" || code === "owner_only"
+                ? "invite.people.readmission"
+                : code === "invite_role_conflict"
+                  ? "invite.people.roleConflict"
+                  : code === "rate_limited" || code === "too_many_invites" || status === 429
+                    ? "invite.tooMany"
+                    : "invite.people.failed";
       setSendError(t(key));
     } finally {
       submittingRef.current = false;
@@ -482,7 +517,8 @@ export default function VaultInviteScreen() {
 
   async function onSubmit() {
     const session = screenSession.current;
-    if (!session || !accountId || !canSendRef.current || busy || submittingRef.current || recipient)
+    if (!session || !accountId || !canSendRef.current || busy || submittingRef.current || recipient ||
+        role === "manager")
       return;
     const target = { vaultId, accountId, identity, generation: scopeGeneration.current };
     submittingRef.current = true;
@@ -495,7 +531,7 @@ export default function VaultInviteScreen() {
       const r = await createVaultInvite(vaultId, { email: "", role }, session);
       await applyForCurrentSession(session, async () => {
         if (!scopeCurrent(target)) return;
-        setResult(r);
+        setResult({ ...r, role });
         toast.push(t("invite.created"), "success");
       });
     } catch (e) {
@@ -768,18 +804,26 @@ export default function VaultInviteScreen() {
 
               <SectionGap />
               <SectionHeader label={t("invite.section.role")} isRTL={isRTL} />
-              {/* Full-width rows, one role per line (roles v2 took this from
-                  two to three, and side-by-side pills squeezed each label
-                  into a third of the screen with its hint clipped). Same
-                  radio idiom as the vault switcher: filled check = chosen. */}
+              {/* Full-width roles keep translated labels and hints readable. */}
               <View accessibilityRole="radiogroup">
+                {canInviteAdmin ? (
+                  <RoleOption
+                    value="manager"
+                    label={t("invite.role.manager")}
+                    hint={t("invite.role.manager.hint")}
+                    selected={role === "manager"}
+                    isRTL={isRTL}
+                    onSelect={selectRole}
+                    disabled={busy}
+                  />
+                ) : null}
                 <RoleOption
                   value="editor"
                   label={t("invite.role.editor")}
                   hint={t("invite.role.editor.hint")}
                   selected={role === "editor"}
                   isRTL={isRTL}
-                  onSelect={setRole}
+                  onSelect={selectRole}
                   disabled={busy}
                 />
                 <RoleOption
@@ -788,7 +832,7 @@ export default function VaultInviteScreen() {
                   hint={t("invite.role.clerk.hint")}
                   selected={role === "clerk"}
                   isRTL={isRTL}
-                  onSelect={setRole}
+                  onSelect={selectRole}
                   disabled={busy}
                 />
                 <RoleOption
@@ -797,7 +841,7 @@ export default function VaultInviteScreen() {
                   hint={t("invite.role.viewer.hint")}
                   selected={role === "viewer"}
                   isRTL={isRTL}
-                  onSelect={setRole}
+                  onSelect={selectRole}
                   disabled={busy}
                   isLast
                 />
@@ -808,15 +852,14 @@ export default function VaultInviteScreen() {
                     customer balance + phone number). The owner should know
                     what the link grants before sharing it. */}
                 <Text style={[styles.fieldHint, styles.roleDisclosure, textDir(isRTL)]}>
-                  {role === "viewer"
-                    ? t("invite.link.viewerDisclosure")
-                    : role === "clerk"
-                      ? t("invite.link.clerkDisclosure")
-                      : t("invite.link.editorDisclosure")}
+                  {role === "manager"
+                    ? t("invite.link.managerDisclosure")
+                    : role === "viewer"
+                      ? t("invite.link.viewerDisclosure")
+                      : role === "clerk"
+                        ? t("invite.link.clerkDisclosure")
+                        : t("invite.link.editorDisclosure")}
                 </Text>
-                {/* Invites never mint a manager (the server caps them below it);
-                    say where that role is granted instead of leaving it hidden. */}
-                <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("invite.managerNote")}</Text>
 
                 {sendError ? (
                   <Text accessibilityRole="alert" style={[styles.sendError, textDir(isRTL)]}>
@@ -826,13 +869,15 @@ export default function VaultInviteScreen() {
 
                 <View style={{ height: 24 }} />
                 <Button
-                  label={t(recipient ? "invite.people.send" : "invite.link.create")}
+                  label={t(recipient || role === "manager" ? "invite.people.send" : "invite.link.create")}
                   onPress={recipient ? confirmRecipient : onSubmit}
                   loading={busy}
-                  disabled={!canSend || busy}
+                  disabled={!canSend || busy || (role === "manager" && !recipient)}
                 />
                 {!recipient ? (
-                  <Text style={[styles.fieldHint, textDir(isRTL)]}>{t("invite.link.intro")}</Text>
+                  <Text style={[styles.fieldHint, textDir(isRTL)]}>
+                    {t(role === "manager" ? "invite.adminChoosePerson" : "invite.link.intro")}
+                  </Text>
                 ) : null}
               </View>
             </>
@@ -851,13 +896,7 @@ export default function VaultInviteScreen() {
                   </Text>
                   <Text style={[styles.identitySub, textDir(isRTL)]} numberOfLines={2}>
                     {t("invite.link.readySub", {
-                      role: t(
-                        role === "viewer"
-                          ? "invite.role.viewer"
-                          : role === "clerk"
-                            ? "invite.role.clerk"
-                            : "invite.role.editor",
-                      ),
+                      role: roleLabel(result.role),
                       when: formatExpires(result.expires_at),
                     })}
                   </Text>
@@ -948,14 +987,14 @@ export default function VaultInviteScreen() {
 }
 
 function RoleOption(props: {
-  value: "editor" | "clerk" | "viewer";
+  value: VaultMemberInviteRole;
   label: string;
   hint: string;
   selected: boolean;
   isRTL: boolean;
   isLast?: boolean;
   disabled?: boolean;
-  onSelect: (r: "editor" | "clerk" | "viewer") => void;
+  onSelect: (r: VaultMemberInviteRole) => void;
 }) {
   return (
     <Pressable
@@ -994,11 +1033,13 @@ function RoleOption(props: {
 
 function roleLabel(role: VaultRole): string {
   return t(
-    role === "viewer"
-      ? "invite.role.viewer"
-      : role === "clerk"
-        ? "invite.role.clerk"
-        : "invite.role.editor",
+    role === "manager"
+      ? "invite.role.manager"
+      : role === "viewer"
+        ? "invite.role.viewer"
+        : role === "clerk"
+          ? "invite.role.clerk"
+          : "invite.role.editor",
   );
 }
 
@@ -1079,10 +1120,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // Role picker — one full-width row per role (was a 3-up pill row; the
-  // roles v2 third option left each pill a third of the screen wide with
-  // its hint clipped). Row metrics + divider match the settings NavRow so
-  // the picker reads as part of the same list grammar. -------------------
+  // Full-width role rows share the settings list's spacing and dividers.
   roleOption: {
     flexDirection: "row",
     alignItems: "center",

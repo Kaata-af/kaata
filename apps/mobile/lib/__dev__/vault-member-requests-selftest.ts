@@ -50,7 +50,7 @@ function apiFixture() {
     vault: string | null = vaultA,
     binding = 1;
   let supported: unknown = true,
-    capabilityStatus = 200;
+    capabilityStatus = 200, adminSupported: unknown = true;
   let beforeBase: ((count: number) => Promise<void> | void) | undefined;
   let beforeCredit: (() => Promise<void> | void) | undefined;
   let bases = 0,
@@ -109,7 +109,7 @@ function apiFixture() {
       fetch: async (url: string, init: RequestInit) => {
         requests.push({ url, init });
         if (url.endsWith("/v1/sync/capabilities"))
-          return response({ vault_account_invites: supported }, capabilityStatus);
+          return response({ vault_account_invites: supported, vault_admin_invites: adminSupported }, capabilityStatus);
         assert.ok(replies.length, `Unscripted request ${init.method} ${url}`);
         return replies.shift()!();
       },
@@ -127,6 +127,15 @@ function apiFixture() {
         assert.equal(saved.accountId, accountA);
         creditUploads++;
         await beforeCredit?.();
+      },
+    },
+    "./admin-invite-authorization": {
+      createAdminInviteAuthorization: async (id: string, recipient: string, saved: SessionSnapshot, guard: () => void) => {
+        assert.equal(id, vaultA);
+        assert.equal(recipient, accountB);
+        assert.equal(saved.accountId, accountA);
+        guard();
+        return { grant: "owner-signed-admin-grant" };
       },
     },
   }) as typeof import("../vault-member-requests");
@@ -155,6 +164,7 @@ function apiFixture() {
       supported = value;
       capabilityStatus = status;
     },
+    adminCapability: (value: unknown) => { adminSupported = value; },
     onBase: (fn: typeof beforeBase) => {
       beforeBase = fn;
     },
@@ -165,7 +175,7 @@ function apiFixture() {
 }
 
 test("new account endpoint sends only recipient and allowed role with the captured session", async () => {
-  for (const role of ["editor", "clerk", "viewer"] as const) {
+  for (const role of ["manager", "editor", "clerk", "viewer"] as const) {
     const f = apiFixture();
     f.replies.push(() => response(created));
     const result = await f.api.createVaultMemberRequest(
@@ -184,12 +194,21 @@ test("new account endpoint sends only recipient and allowed role with the captur
       target_account_id: accountB,
       role,
       readmit_removed: true,
+      ...(role === "manager" ? { admin_authorization: { grant: "owner-signed-admin-grant" } } : {}),
     });
     assert.equal((post.init.headers as Record<string, string>).Authorization, "Bearer fixture-1");
   }
 });
 
 test("old servers, invalid roles and self-invites cannot create wildcard links", async () => {
+  const noAdmin = apiFixture();
+  noAdmin.adminCapability(false);
+  await assert.rejects(
+    noAdmin.api.createVaultMemberRequest(vaultA, { recipientAccountId: accountB, role: "manager" }),
+    (error: any) => error.code === "vault_admin_invites_unsupported",
+  );
+  assert.equal(noAdmin.requests.length, 1, "older APIs cannot receive unproved Admin invitations");
+  assert.equal(noAdmin.creditUploads, 0);
   for (const capability of [false, undefined, "true"]) {
     const f = apiFixture();
     f.capability(capability);
@@ -209,7 +228,7 @@ test("old servers, invalid roles and self-invites cannot create wildcard links",
   assert.equal(old.requests.length, 1);
   for (const body of [
     { recipientAccountId: accountA, role: "editor" },
-    { recipientAccountId: accountB, role: "manager" },
+    { recipientAccountId: accountB, role: "owner" },
     { recipientAccountId: "bad", role: "viewer" },
   ]) {
     const f = apiFixture();
@@ -277,7 +296,7 @@ test("preview and decline use protected selectors and never return raw email", a
   f.replies.push(() =>
     response({
       vault_name: "Shop",
-      role: "viewer",
+      role: "manager",
       inviter_name: "Owner",
       inviter_email: "private@example.test",
       expires_at: expires,
@@ -286,7 +305,7 @@ test("preview and decline use protected selectors and never return raw email", a
   const info = await f.api.fetchVaultMemberRequestInfo(`v_${inviteId}`, f.session());
   assert.deepEqual(info, {
     vault_name: "Shop",
-    role: "viewer",
+    role: "manager",
     inviter_name: "Owner",
     inviter_email_redacted: null,
     expires_at: Date.parse(expires),

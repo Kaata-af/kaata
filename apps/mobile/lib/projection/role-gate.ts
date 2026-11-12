@@ -53,6 +53,7 @@ import {
   hasOwnershipTransferPayload,
   verifyOwnershipTransferEvent,
 } from "../trust/ownership-transfer";
+import { hasAdminInvitePayload, verifyAdminInviteEvent } from "../trust/admin-invite";
 
 // ---------- required-role table ----------
 //
@@ -881,6 +882,33 @@ export async function checkRoleForEvent(tx: SQLiteTx, event: LedgerEvent): Promi
         required_role: "owner",
       };
     return { ok: true };
+  }
+  if (hasAdminInvitePayload(event)) {
+    const proof = verifyAdminInviteEvent(event, await serverWitnessKeys(tx), runtimeChainCrypto);
+    if (!proof)
+      return { ok: false, reason: "bad_signature", current_role: null, required_role: "owner" };
+    const reused = await tx.getFirstAsync(
+      `SELECT 1 FROM event_log WHERE vault_id = ? AND event_id != ?
+        AND event_type = 'vault_member_added' AND applied_at IS NOT NULL AND quarantine_reason IS NULL
+        AND json_extract(payload_json, '$.admin_invite.authorization.grant.grant_id') = ? LIMIT 1`,
+      event.vault_id, event.event_id, proof.authorization.grant.grant_id,
+    );
+    if (reused || await latestMembershipKindBefore(
+      tx, event.vault_id, proof.receipt.to_account_id, event.hlc,
+    ))
+      return { ok: false, reason: "bad_signature", current_role: null, required_role: "owner" };
+    const author = await lookupSignerCredential(
+      tx, event.vault_id, event.device_id, event.hlc, proof.authorization.signer_device_pubkey,
+    );
+    const from = proof.authorization.grant.from_chain_account_id ??
+      proof.authorization.grant.from_account_id;
+    if (!author || author === "device_removed" || author.account_id !== from)
+      return { ok: false, reason: "unknown_actor", current_role: null, required_role: "owner" };
+    const role = await resolveRoleAt(tx, event.vault_id, from, event.hlc, event.event_id);
+    return role === "owner" ? { ok: true } : {
+      ok: false, reason: role ? "insufficient_role" : "unknown_actor",
+      current_role: role, required_role: "owner",
+    };
   }
   if (
     event.origin === "local" &&

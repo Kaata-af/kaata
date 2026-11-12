@@ -111,6 +111,32 @@ revoked member is not an idempotent success. Owner-authorized re-admission and
 recovery of a lost genesis require valid signed authority; editing server access
 rows or counters cannot supply the phone-held private-key signatures.
 
+### Direct Admin invitations
+
+Admin (`manager`) is selectable in the invitation form by the owner. It uses an
+account-bound invitation; reusable or email-only links remain limited to Editor,
+Clerk and Viewer. An ordinary server membership witness still cannot grant Admin.
+
+Before sending, the owner's bound device signs a `kaata-admin-invite-v1` grant
+containing the vault, owner identity, exact recipient account, role, unique grant
+ID and a bounded validity period. The server checks the current owner/device and
+retains the owner's membership revision with the invitation. Ownership changes
+invalidate pending consent rather than silently reviving it after a later promotion.
+
+Acceptance requires a capable client. In the same transaction as the accepted
+membership, the server saves one immutable `vault_member_added` event containing
+the owner authorization and a server-signed acceptance receipt. The receipt binds
+the grant hash, recipient, event ID, acceptance time and vault epoch. Both chain
+implementations verify the owner's signature and active device binding, the exact
+recipient, validity at acceptance, and single use of the grant. Existing or removed
+members follow the established owner-signed role-change/readmission paths.
+The owner-signed grant ID and issue time fix the admission event's identity and
+HLC order; a different server receipt cannot move that grant past a later demotion.
+
+Recovery downloads that original event; it never renews Admin authority through a
+fresh member witness. The app waits for the verified admission event and the
+device's published admission before reporting that setup is complete.
+
 ## 5. Backfill: giving existing vaults a chain
 
 Existing vaults have members with no chain (server-invite members, pre-M2 pairs).

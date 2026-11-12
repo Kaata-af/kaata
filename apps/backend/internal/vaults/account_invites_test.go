@@ -203,7 +203,7 @@ func TestAccountInviteEligibilityAndRoleBoundaries(t *testing.T) {
 	if err := create(f.owner, f.editor, "viewer"); !errors.Is(err, ErrInviteAlreadyMember) {
 		t.Fatalf("existing member: %v", err)
 	}
-	for _, role := range []string{"owner", "manager", "admin", ""} {
+	for _, role := range []string{"owner", "admin", ""} {
 		if err := create(f.owner, f.joiner, role); !errors.Is(err, ErrInvalidRole) {
 			t.Fatalf("grant %q: %v", role, err)
 		}

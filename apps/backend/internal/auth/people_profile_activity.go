@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/admininvite"
 	"github.com/matee/kaata-backend/internal/memberreadmission"
 	"github.com/matee/kaata-backend/internal/rolepolicy"
 )
@@ -58,7 +59,7 @@ SELECT COALESCE((SELECT state FROM chosen_group),''),
   JOIN vault_members authority ON authority.vault_id=vm.vault_id AND authority.account_id=$1::uuid
   WHERE vm.vault_id=v.vault_id AND vm.invited_by=$1::uuid AND vm.invite_account_id=$2::uuid
    AND vm.invite_request_id IS NOT NULL AND vm.accepted_at IS NULL AND vm.revoked_at IS NULL
-   AND vm.invite_expires_at>NOW() AND vm.role IN ('editor','clerk','viewer')
+   AND vm.invite_expires_at>NOW() AND vm.role IN ('manager','editor','clerk','viewer') AND `+admininvite.PendingSQL+`
    AND authority.accepted_at IS NOT NULL AND authority.revoked_at IS NULL AND authority.role IN ('owner','manager')
    AND (authority.custom_role_id IS NULL OR EXISTS(SELECT 1 FROM vault_custom_roles cr
     WHERE cr.id=authority.custom_role_id AND '`+rolepolicy.VaultMembers+`'=ANY(cr.permissions)))

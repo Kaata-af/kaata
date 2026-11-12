@@ -194,6 +194,7 @@ const roleGate = compile<typeof import("../projection/role-gate")>(
     if (name === "../hlc") return require("../hlc");
     if (name === "../trust/chain") return {};
     if (name === "../trust/ownership-transfer") return require("../trust/ownership-transfer");
+    if (name === "../trust/admin-invite") return require("../trust/admin-invite");
     if (name === "../trust/crypto-runtime") return {};
     if (name === "../trust/dev-witness-key") return require("../trust/dev-witness-key");
     throw Error(`unexpected role-gate import ${name}`);

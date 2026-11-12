@@ -184,6 +184,7 @@ export async function fixture() {
     if (name === "../effective-account")
       return { resolveAccountIdCandidates: async (id: string) => [id] };
     if (name === "../trust/chain" || name === "../trust/crypto-runtime") return {};
+    if (name === "../trust/admin-invite") return require("../trust/admin-invite");
     return require(name === "../hlc" ? "../hlc" : "../trust/ownership-transfer");
   });
   const roleNotifications = {

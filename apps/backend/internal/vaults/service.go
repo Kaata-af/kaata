@@ -16,7 +16,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/matee/kaata-backend/internal/admininvite"
 	"github.com/matee/kaata-backend/internal/connectionnotice"
+	"github.com/matee/kaata-backend/internal/ownership"
 	"github.com/matee/kaata-backend/internal/rolepolicy"
 )
 
@@ -313,7 +315,8 @@ type VaultListing struct {
 	// JoinedByInvite lets an already-accepted guest finish witnessed admission
 	// after a lost response or missing local journal. It never grants access or
 	// substitutes for the signed membership chain; elevated/QR seats omit it.
-	JoinedByInvite bool `json:"joined_by_invite,omitempty"`
+	JoinedByInvite     bool   `json:"joined_by_invite,omitempty"`
+	AdminInviteEventID string `json:"admin_invite_event_id,omitempty"`
 }
 
 // VaultMember is one active member row on a VaultListing.
@@ -342,10 +345,11 @@ func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, e
 		       v.archived_at,
 		       v.vault_epoch,
 		       v.vault_trust_anchor_pubkey,
-		       vm.role IN ('editor','clerk','viewer')
+		       (vm.role IN ('editor','clerk','viewer') OR (vm.role='manager' AND vm.admin_invite_event_id IS NOT NULL))
 		       AND vm.invited_by IS NOT NULL AND vm.invited_by <> vm.account_id
 		       AND (vm.invite_token_hash IS NOT NULL OR
-		            (vm.invite_request_id IS NOT NULL AND vm.invite_account_id = vm.account_id))
+		            (vm.invite_request_id IS NOT NULL AND vm.invite_account_id = vm.account_id)),
+		       COALESCE(vm.admin_invite_event_id::text,'')
 		  FROM vaults v
 		  JOIN vault_members vm ON vm.vault_id = v.vault_id
 		 WHERE vm.account_id = $1::uuid
@@ -369,7 +373,7 @@ func (s *Service) List(ctx context.Context, accountID string) ([]VaultListing, e
 		if err := rows.Scan(
 			&vl.VaultID, &vl.Name, &vl.Currency, &vl.LegacyCurrency, &vl.DefaultEntryCurrency, &vl.Role,
 			&vl.MembersCount, &createdAt, &archivedAt, &vl.VaultEpoch,
-			&trustAnchorRaw, &vl.JoinedByInvite,
+			&trustAnchorRaw, &vl.JoinedByInvite, &vl.AdminInviteEventID,
 		); err != nil {
 			return nil, fmt.Errorf("scan vault row: %w", err)
 		}
@@ -1363,10 +1367,8 @@ type CreateInviteResult struct {
 }
 
 func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (CreateInviteResult, error) {
-	// Invites can only mint roles BELOW manager (roles v2): a witnessed
-	// admission must never grant member-management authority — manager is
-	// owner-granted via role change AFTER joining, owner via transfer only.
-	// Phase B: clerk is now grantable (the fleet understands it).
+	// Admin invitations are exact-account-bound and owner-signed. Public or
+	// email links intentionally retain the lower-role grant set.
 	if in.Role != "editor" && in.Role != "viewer" && in.Role != "clerk" {
 		return CreateInviteResult{}, ErrInvalidRole
 	}
@@ -1393,8 +1395,6 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 		return CreateInviteResult{}, err
 	}
 
-	// Roles v2 Phase B: managers may invite too — the grantable set above is
-	// already capped below manager, so no further per-caller restriction.
 	if _, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID, rolepolicy.VaultMembers); err != nil {
 		return CreateInviteResult{}, err
 	}
@@ -1486,10 +1486,11 @@ func (s *Service) CreateInvite(ctx context.Context, in CreateInviteInput) (Creat
 }
 
 type AcceptInviteInput struct {
-	Token             string
-	AccountID         string
-	InstallID         string
-	MemberReadmission bool
+	Token              string
+	AccountID          string
+	InstallID          string
+	MemberReadmission  bool
+	AdminInviteVersion int
 	// ReadmissionStatusOnly is set only by the protected GET status API. It
 	// cannot initialize consent or accept an ordinary invitation.
 	ReadmissionStatusOnly bool
@@ -1508,6 +1509,7 @@ type AcceptInviteResult struct {
 	ReadmissionDevicePubkey  string `json:"readmission_device_pubkey,omitempty"`
 	ReadmissionMemberEventID string `json:"readmission_member_event_id,omitempty"`
 	ReadmissionDeviceEventID string `json:"readmission_device_event_id,omitempty"`
+	AdminInviteEventID       string `json:"admin_invite_event_id,omitempty"`
 }
 
 func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (AcceptInviteResult, error) {
@@ -1587,14 +1589,16 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		acceptedBy      *string
 		invitedBy       string
 		readmissionFrom *int64
+		adminRaw        []byte
+		adminEventID    *string
 	)
 	err = tx.QueryRow(ctx, `
 		SELECT id, vault_id::text, role, COALESCE(invite_email, ''),
 		       invite_expires_at, invite_attempts, accepted_at, revoked_at,
-		       account_id::text, COALESCE(invited_by::text,''),readmission_from_id
+		       account_id::text, COALESCE(invited_by::text,''),readmission_from_id,admin_authorization,admin_invite_event_id::text
 		  FROM vault_members WHERE `+lookup+` FOR UPDATE
 	`, lookupArgs...).Scan(&memberID, &vaultID, &role, &inviteEmail,
-		&expiresAt, &attempts, &acceptedAt, &revokedAt, &acceptedBy, &invitedBy, &readmissionFrom)
+		&expiresAt, &attempts, &acceptedAt, &revokedAt, &acceptedBy, &invitedBy, &readmissionFrom, &adminRaw, &adminEventID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return AcceptInviteResult{}, ErrInviteNotFound
@@ -1639,13 +1643,45 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		`, vaultID).Scan(&vaultName, &currency, &legacyCurrency, &defaultEntryCurrency); err != nil {
 			return AcceptInviteResult{}, fmt.Errorf("lookup vault name: %w", err)
 		}
-		return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role, Currency: currency, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}, nil
+		out := AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role, Currency: currency, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}
+		if adminEventID != nil {
+			out.AdminInviteEventID = *adminEventID
+		}
+		return out, nil
 	}
 	if acceptedAt != nil || revokedAt != nil || time.Now().After(expiresAt) {
 		return AcceptInviteResult{}, ErrInviteNotFound
 	}
+	if role == "manager" && in.AdminInviteVersion != 1 {
+		return AcceptInviteResult{}, ErrAdminInviteUpgradeRequired
+	}
+	if role == "manager" && !direct {
+		return AcceptInviteResult{}, ErrInviteNotFound
+	}
+	var adminAuth *admininvite.Authorization
+	if role == "manager" {
+		var authorization admininvite.Authorization
+		if json.Unmarshal(adminRaw, &authorization) != nil || admininvite.Verify(authorization) != nil || authorization.Grant.RecipientAccountID != in.AccountID || authorization.Grant.FromAccountID != invitedBy || authorization.Grant.VaultID != vaultID {
+			return AcceptInviteResult{}, ErrInviteNotFound
+		}
+		var pending bool
+		if err := tx.QueryRow(ctx, `SELECT `+pendingAdminInviteSQL+` FROM vault_members vm WHERE vm.id=$1`, memberID).Scan(&pending); err != nil {
+			return AcceptInviteResult{}, err
+		}
+		if !pending {
+			return AcceptInviteResult{}, ErrInviteNotFound
+		}
+		bound, err := ownershipSignerBound(ctx, tx, ownership.Authorization{Grant: ownership.Grant{VaultID: vaultID, FromAccountID: invitedBy, FromChainAccountID: authorization.Grant.FromChainAccountID}, SignerDevicePubkey: authorization.SignerDevicePubkey})
+		if err != nil {
+			return AcceptInviteResult{}, err
+		}
+		if !bound {
+			return AcceptInviteResult{}, ErrInviteNotFound
+		}
+		adminAuth = &authorization
+	}
 	if direct {
-		if lockedInviter == "" || invitedBy != lockedInviter || (role != "editor" && role != "clerk" && role != "viewer") {
+		if lockedInviter == "" || invitedBy != lockedInviter || (role != "manager" && role != "editor" && role != "clerk" && role != "viewer") {
 			return AcceptInviteResult{}, ErrInviteNotFound
 		}
 		available, err := accountInviteVaultAvailable(ctx, tx, vaultID)
@@ -1655,11 +1691,15 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		if !available {
 			return AcceptInviteResult{}, ErrInviteNotFound
 		}
-		if _, err := requireOwnerOrManager(ctx, tx, vaultID, invitedBy, rolepolicy.VaultMembers); err != nil {
+		inviterRole, err := requireOwnerOrManager(ctx, tx, vaultID, invitedBy, rolepolicy.VaultMembers)
+		if err != nil {
 			if errors.Is(err, ErrNotMember) || errors.Is(err, ErrNotOwner) {
 				return AcceptInviteResult{}, ErrInviteNotFound
 			}
 			return AcceptInviteResult{}, err
+		}
+		if role == "manager" && inviterRole != "owner" {
+			return AcceptInviteResult{}, ErrInviteNotFound
 		}
 		if readmissionFrom != nil {
 			return consentMemberReadmission(ctx, tx, in, memberID, vaultID, invitedBy)
@@ -1804,6 +1844,13 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	if err := connectionnotice.VaultInviteAccepted(ctx, tx, memberID); err != nil {
 		return AcceptInviteResult{}, fmt.Errorf("notify accepted invitation: %w", err)
 	}
+	if adminAuth != nil {
+		eventID, err := s.persistAdminAdmission(ctx, tx, memberID, vaultID, in.AccountID, *adminAuth)
+		if err != nil {
+			return AcceptInviteResult{}, err
+		}
+		adminEventID = &eventID
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return AcceptInviteResult{}, fmt.Errorf("commit accept: %w", err)
@@ -1811,7 +1858,16 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	// Purge any cached "not a member" denial so the invitee's first push
 	// doesn't 403 for up to 60s after accepting.
 	s.invalidateMembership(vaultID, in.AccountID)
-	return AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role, Currency: currency, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}, nil
+	if adminEventID != nil {
+		if n, ok := s.invalidator.(interface{ NotifyLive(string) }); ok {
+			n.NotifyLive(vaultID)
+		}
+	}
+	out := AcceptInviteResult{VaultID: vaultID, VaultName: vaultName, Role: role, Currency: currency, LegacyCurrency: legacyCurrency, DefaultEntryCurrency: defaultEntryCurrency}
+	if adminEventID != nil {
+		out.AdminInviteEventID = *adminEventID
+	}
+	return out, nil
 }
 
 // Link/email invitations never return their secret token. Account invitations

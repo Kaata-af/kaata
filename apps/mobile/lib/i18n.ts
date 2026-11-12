@@ -2259,8 +2259,8 @@ const en = {
     "Viewers can see the ledger, including all balances and phone numbers, and leave tally notes.",
   "invite.link.editorDisclosure":
     "Editors can add, edit and delete tallies in this Kaata. In shared accounts they can also accept or reject the other side's tallies (final) and unlink the account.",
-  "invite.managerNote":
-    "Owners can appoint admins to manage staff and credit limits. Invite the person first, then open Members, tap their name and choose Make admin.",
+  "invite.link.managerDisclosure":
+    "Admins can manage the ledger, staff and credit limits. Only the owner can appoint admins, transfer ownership or archive this Kaata.",
   "invite.link.clerkDisclosure":
     "Clerks can add new tallies but can never change or delete history.",
   "invite.link.ready": "Link ready",
@@ -2300,6 +2300,8 @@ const en = {
   "invite.email.alreadyMember": "This email is already a member",
   "invite.gmailDotHint":
     "The invitee must accept with an account that uses this same email. Gmail addresses are matched without dots.",
+  "invite.role.manager": "Admin",
+  "invite.role.manager.hint": "Manage the ledger, members and credit limits",
   "invite.role.editor": "Editor",
   "invite.role.editor.hint": "Add, edit, and delete entries",
   "invite.role.viewer": "Viewer",
@@ -2310,6 +2312,8 @@ const en = {
   "invite.created": "Invitation created",
   "invite.failed": "Failed to create invitation",
   "invite.ownerOnly": "Only the Kaata owner or a manager can invite members.",
+  "invite.adminOwnerOnly": "Only the Kaata owner can invite an admin.",
+  "invite.adminChoosePerson": "Choose a Kaata user above to invite them as an admin.",
   "invite.result.sent": "Invitation sent",
   "invite.result.sub": "{email} · expires {when}",
   "invite.copy": "Copy link",
@@ -4924,8 +4928,8 @@ const fa: Partial<Record<Key, string>> = {
     "بیننده‌ها می‌توانند دفتر کاتا، از جمله همهٔ مانده‌ها و شماره‌های تلفن را ببینند و یادداشت بگذارند.",
   "invite.link.editorDisclosure":
     "ویرایشگرها می‌توانند در این کاتا ثبت اضافه، ویرایش و حذف کنند. در حساب‌های مشترک، ثبت‌های طرف مقابل را تأیید یا رد (نهایی) و حساب مشترک را قطع هم می‌توانند.",
-  "invite.managerNote":
-    "مالک می‌تواند برای مدیریت کارکنان و حد قرض مدیر تعیین کند. اول شخص را دعوت کنید، بعد در «اعضا» روی نامش بزنید و «مدیر کردن» را انتخاب کنید.",
+  "invite.link.managerDisclosure":
+    "مدیر می‌تواند دفتر، اعضا و حد قرض را مدیریت کند. فقط مالک می‌تواند مدیر تعیین کند، مالکیت را انتقال دهد یا این کاتا را بایگانی کند.",
   "invite.link.clerkDisclosure":
     "ثبت‌کننده‌ها می‌توانند ثبت تازه اضافه کنند اما هرگز نمی‌توانند سابقه را تغییر دهند یا حذف کنند.",
   "invite.link.ready": "لینک آماده شد",
@@ -4967,6 +4971,8 @@ const fa: Partial<Record<Key, string>> = {
   "invite.email.alreadyMember": "این ایمیل قبلاً عضو است",
   "invite.gmailDotHint":
     "دعوت‌شده باید با حسابی بپذیرد که همین ایمیل را دارد. آدرس‌های جیمیل بدون نقطه مطابقت می‌شوند.",
+  "invite.role.manager": "مدیر",
+  "invite.role.manager.hint": "مدیریت دفتر، اعضا و حد قرض",
   "invite.role.editor": "ویرایشگر",
   "invite.role.editor.hint": "افزودن، ویرایش و حذف ثبت‌ها",
   "invite.role.clerk": "ثبت‌کننده",
@@ -4977,6 +4983,8 @@ const fa: Partial<Record<Key, string>> = {
   "invite.created": "دعوت ایجاد شد",
   "invite.failed": "ایجاد دعوت ناکام شد",
   "invite.ownerOnly": "فقط مالک یا مدیر کاتا می‌تواند عضو دعوت کند.",
+  "invite.adminOwnerOnly": "فقط مالک کاتا می‌تواند مدیر دعوت کند.",
+  "invite.adminChoosePerson": "برای دعوت مدیر، یک کاربر کاتا را در بالا انتخاب کنید.",
   "invite.result.sent": "دعوت ارسال شد",
   "invite.result.sub": "{email} · انقضا {when}",
   "invite.copy": "کپی لینک",
@@ -7349,8 +7357,8 @@ const ps: Record<Key, string> = {
     "کتونکي د دې کاټې دفتر، ټول پاتې حسابونه او د ټیلیفون شمېرې لیدلای شي او یادښت پرېښودلای شي.",
   "invite.link.editorDisclosure":
     "سمونګر په دې کاټه کې راکړې ورکړې زیاتولای، سمولای او ړنګولای شي. په ګډو حسابونو کې د بل لوري راکړې ورکړې هم منلای یا ردولای شي؛ دا پرېکړه وروستۍ ده. د حساب اړیکه هم پرېکولای شي.",
-  "invite.managerNote":
-    "خاوندان د کارکوونکو او د پور د حدونو د سمبالولو لپاره سمبالوونکي ټاکلای شي. لومړی کس راوبلئ، بیا «غړي» پرانیزئ، د هغه نوم ووهئ او «سمبالوونکی یې کړئ» وټاکئ.",
+  "invite.link.managerDisclosure":
+    "مدیران دفتر، غړي او د پور حدونه سمبالولای شي. یوازې خاوند مدیران ټاکلای شي، مالکیت لېږدولای شي یا دا کاټه آرشیف کولای شي.",
   "invite.link.clerkDisclosure":
     "کارکوونکي نوې راکړې ورکړې زیاتولای شي، خو پخوانۍ مخینه هېڅکله نه شي بدلولای یا ړنګولای.",
   "invite.link.ready": "لینک چمتو دی",
@@ -7392,6 +7400,8 @@ const ps: Record<Key, string> = {
   "invite.email.alreadyMember": "دا برېښنالیک له مخکې غړی دی",
   "invite.gmailDotHint":
     "بلل شوی کس باید په هغه حساب بلنه ومني چې همدا برېښنالیک کاروي. د Gmail پتې له ټکو پرته سره پرتله کېږي.",
+  "invite.role.manager": "مدیر",
+  "invite.role.manager.hint": "دفتر، غړي او د پور حدونه سمبال کړئ",
   "invite.role.editor": "سمونګر",
   "invite.role.editor.hint": "راکړې ورکړې زیاتې، سمې او ړنګې کړئ",
   "invite.role.viewer": "کتونکی",
@@ -7402,6 +7412,8 @@ const ps: Record<Key, string> = {
   "invite.created": "بلنه جوړه شوه",
   "invite.failed": "بلنه جوړه نه شوه",
   "invite.ownerOnly": "یوازې د کاټې خاوند یا مدیر غړو ته بلنه ورکولای شي.",
+  "invite.adminOwnerOnly": "یوازې د کاټې خاوند مدیر ته بلنه ورکولای شي.",
+  "invite.adminChoosePerson": "د مدیر د بلنې لپاره پورته د کاټې یو کاروونکی وټاکئ.",
   "invite.result.sent": "بلنه ولېږل شوه",
   "invite.result.sub": "{email} · په {when} پای ته رسېږي",
   "invite.copy": "لینک کاپي کړئ",

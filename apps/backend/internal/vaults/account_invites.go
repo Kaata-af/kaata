@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/admininvite"
 	"github.com/matee/kaata-backend/internal/connectionnotice"
 	"github.com/matee/kaata-backend/internal/memberreadmission"
 	"github.com/matee/kaata-backend/internal/rolepolicy"
@@ -29,6 +30,7 @@ const maxAccountInviteInbox = 50
 type CreateAccountInviteInput struct {
 	VaultID, InviterAccID, TargetAccountID, Role string
 	ReadmitRemoved                               bool
+	AdminAuthorization                           *admininvite.Authorization
 }
 
 type AccountInviteResult struct {
@@ -114,7 +116,7 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 	if in.InviterAccID == in.TargetAccountID {
 		return AccountInviteResult{}, ErrInviteSelf
 	}
-	if in.Role != "editor" && in.Role != "clerk" && in.Role != "viewer" {
+	if in.Role != "manager" && in.Role != "editor" && in.Role != "clerk" && in.Role != "viewer" {
 		return AccountInviteResult{}, ErrInvalidRole
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -132,6 +134,19 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 	inviterRole, err := requireOwnerOrManager(ctx, tx, in.VaultID, in.InviterAccID, rolepolicy.VaultMembers)
 	if err != nil {
 		return AccountInviteResult{}, err
+	}
+	var adminJSON []byte
+	var adminOwner, adminChange, adminUpdated any
+	if in.Role == "manager" {
+		if inviterRole != "owner" {
+			return AccountInviteResult{}, ErrNotOwner
+		}
+		adminJSON, adminOwner, adminChange, adminUpdated, err = validateAdminInvite(ctx, tx, in.AdminAuthorization, in.VaultID, in.InviterAccID, in.TargetAccountID)
+		if err != nil {
+			return AccountInviteResult{}, err
+		}
+	} else if in.AdminAuthorization != nil {
+		return AccountInviteResult{}, ErrInvalidAdminAuthorization
 	}
 	available, err := accountInviteVaultAvailable(ctx, tx, in.VaultID)
 	if err != nil {
@@ -168,7 +183,7 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 	// replace it with a readmission, which requires separate consent.
 	if _, err := tx.Exec(ctx, `UPDATE vault_members vm SET revoked_at=NOW(),revoked_reason='invite_no_longer_valid',updated_at=NOW()
  WHERE vm.vault_id=$1::uuid AND vm.invite_account_id=$2::uuid AND vm.accepted_at IS NULL AND vm.revoked_at IS NULL
-	AND (vm.invite_expires_at<=NOW() OR (vm.readmission_from_id IS NULL AND $3::bigint IS NOT NULL)
+	AND (vm.invite_expires_at<=NOW() OR NOT (`+pendingAdminInviteSQL+`) OR (vm.readmission_from_id IS NULL AND $3::bigint IS NOT NULL)
  OR (vm.readmission_from_id IS NOT NULL AND NOT (`+memberreadmission.PendingSQL+`)) OR NOT EXISTS(SELECT 1 FROM vault_members authority JOIN accounts a ON a.id=authority.account_id
  WHERE authority.vault_id=vm.vault_id AND authority.account_id=vm.invited_by AND authority.accepted_at IS NOT NULL
  AND authority.revoked_at IS NULL AND authority.role IN ('owner','manager') AND `+inviteManagerCapabilitySQL+`
@@ -238,8 +253,11 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 		return AccountInviteResult{}, ErrTooManyPendingInvites
 	}
 	id, expiry = uuid.NewString(), time.Now().UTC().Truncate(time.Microsecond).Add(inviteTTL)
-	if _, err := tx.Exec(ctx, `INSERT INTO vault_members(vault_id,role,invited_by,invite_account_id,invite_request_id,invite_expires_at,readmission_from_id,readmission_owner_member_id,readmission_owner_change_ms)
-	VALUES($1::uuid,$2,$3::uuid,$4::uuid,$5::uuid,$6,$7,$8,$9)`, in.VaultID, in.Role, in.InviterAccID, in.TargetAccountID, id, expiry, readmissionFrom, readmissionOwner, readmissionOwnerChange); err != nil {
+	if in.Role == "manager" {
+		expiry = time.UnixMilli(in.AdminAuthorization.Grant.ExpiresAtMS)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO vault_members(vault_id,role,invited_by,invite_account_id,invite_request_id,invite_expires_at,readmission_from_id,readmission_owner_member_id,readmission_owner_change_ms,admin_authorization,admin_invite_owner_member_id,admin_invite_owner_change_ms,admin_invite_owner_updated_at)
+	VALUES($1::uuid,$2,$3::uuid,$4::uuid,$5::uuid,$6,$7,$8,$9,$10,$11,$12,$13)`, in.VaultID, in.Role, in.InviterAccID, in.TargetAccountID, id, expiry, readmissionFrom, readmissionOwner, readmissionOwnerChange, adminJSON, adminOwner, adminChange, adminUpdated); err != nil {
 		return AccountInviteResult{}, err
 	}
 	if _, err := writeAudit(ctx, tx, in.VaultID, &in.InviterAccID, "invite_issued", &in.TargetAccountID,
@@ -268,7 +286,8 @@ const inviteManagerCapabilitySQL = `(authority.custom_role_id IS NULL OR EXISTS(
  SELECT 1 FROM vault_custom_roles cr WHERE cr.id=authority.custom_role_id AND '` + rolepolicy.VaultMembers + `'=ANY(cr.permissions)))`
 
 const liveAccountInviteStateSQL = `vm.invite_request_id IS NOT NULL
- AND vm.accepted_at IS NULL AND vm.revoked_at IS NULL AND vm.invite_expires_at>NOW()
+	AND vm.accepted_at IS NULL AND vm.revoked_at IS NULL AND vm.invite_expires_at>NOW()
+	AND ` + pendingAdminInviteSQL + `
  AND v.archived_at IS NULL AND v.purged_at IS NULL
  AND inviter.disabled_at IS NULL AND inviter.pending_delete_at IS NULL
  AND recipient.disabled_at IS NULL AND recipient.pending_delete_at IS NULL

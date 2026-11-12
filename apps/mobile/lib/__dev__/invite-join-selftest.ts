@@ -8,6 +8,7 @@ import * as chain from "../trust/chain";
 import * as defaultDevWitness from "../trust/dev-witness-key";
 import * as verificationCache from "../trust/successful-verification-cache";
 import * as ownershipTransfer from "../trust/ownership-transfer";
+import * as adminInvite from "../trust/admin-invite";
 import { compileUI, deferred, settleUI, uiHooks, jsx, nodes } from "./ui-fixture";
 
 const eventSig = compileUI("../event-sig", {
@@ -20,6 +21,7 @@ const runtime = compileUI("../trust/crypto-runtime", {
   "./successful-verification-cache": verificationCache,
   "./chain": chain,
   "./ownership-transfer": ownershipTransfer,
+  "./admin-invite": adminInvite,
   "kaata-bt-classic": { verifyEd25519BatchAsync: async () => null },
 });
 const ownerSeed = new Uint8Array(32).fill(4),
@@ -1194,10 +1196,11 @@ async function readmissionCases() {
 }
 
 async function screenCases() {
-  for (const mode of ["pending", "late-success", "late-error"]) {
+  for (const mode of ["pending", "late-success", "late-error", "admin-pending"]) {
     const hooks = uiHooks();
     let token = "A",
-      published = false;
+      published = mode === "admin-pending";
+    let adminApplied = false, seeds = 0;
     const posts: string[] = [],
       toasts: string[] = [],
       navigations: string[] = [];
@@ -1207,7 +1210,12 @@ async function screenCases() {
     const router = { replace: (path: string) => navigations.push(path) };
     const toast = { push: (label: string) => toasts.push(label) };
     const session = { accountId: "peer", jwt: "jwt", bindingVersion: 0 };
-    const result = (id: string) => ({ vault_id: id, vault_name: `Kaata ${id}`, role: "viewer" });
+    const result = (id: string) => ({
+      vault_id: id,
+      vault_name: `Kaata ${id}`,
+      role: mode === "admin-pending" ? "manager" : "viewer",
+      ...(mode === "admin-pending" ? { admin_invite_event_id: `admission-${id}` } : {}),
+    });
     let poll: (() => void) | undefined;
     const colors = new Proxy({}, { get: () => "black" });
     const screen = compileUI(
@@ -1266,7 +1274,7 @@ async function screenCases() {
           },
         },
         "../../lib/recovery": {
-          seedJoinedVaultMinimal: async () => {},
+          seedJoinedVaultMinimal: async () => { seeds++; },
           recoverJoinedVault: async () => true,
         },
         "../../lib/tabs/sync": { syncAllTabs: async () => {} },
@@ -1275,6 +1283,7 @@ async function screenCases() {
           retryPendingVaultMaterialize: async () => {},
           resumePendingVaultInvite: async () => null,
           lookupPendingInvite: async () => null,
+          isOwnershipTransferApplied: async () => adminApplied,
           fetchInviteInfo: async (id: string) => ({
             vault_name: `Kaata ${id}`,
             role: "viewer",
@@ -1282,7 +1291,7 @@ async function screenCases() {
           }),
           acceptVaultInvite: async (id: string) => {
             posts.push(id);
-            return id === "A" && mode !== "pending" ? gate.promise : result(id);
+            return id === "A" && mode.startsWith("late-") ? gate.promise : result(id);
           },
           clearPendingVaultInvite: async () => {},
           clearVaultMaterializePending: async () => {},
@@ -1317,7 +1326,7 @@ async function screenCases() {
       return button.props.onPress();
     };
     const a = press();
-    if (mode === "pending") {
+    if (mode === "pending" || mode === "admin-pending") {
       await a;
       await flush();
     }
@@ -1338,7 +1347,14 @@ async function screenCases() {
     assert.equal(toasts.length, 0, "unfinished proof never shows joined success");
     assert.ok(nodes(hooks.tree).some((n) => n.props.children === "inviteAccept.pending.title"));
     assert.equal(warnings.length, mode === "late-error" ? 1 : 0, "only unexpected failures warn");
+    if (mode === "admin-pending") {
+      assert.ok(seeds >= 2, "an existing device admission cannot skip the Admin proof download");
+      poll!();
+      await flush();
+      assert.equal(toasts.length, 0, "a published device alone cannot confirm Admin admission");
+    }
     published = true;
+    adminApplied = true;
     assert.ok(poll);
     poll();
     await flush();

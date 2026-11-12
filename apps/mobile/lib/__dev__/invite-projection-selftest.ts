@@ -159,6 +159,7 @@ function fixture(interrupted = true, account = OWNER, devWitnessKey?: string) {
     },
     "../trust/dev-witness-key": devWitness,
     "../trust/ownership-transfer": require("../trust/ownership-transfer"),
+    "../trust/admin-invite": require("../trust/admin-invite"),
   });
   const members = compileUI("../projection/vault_members", {
     "../hlc": hlc,

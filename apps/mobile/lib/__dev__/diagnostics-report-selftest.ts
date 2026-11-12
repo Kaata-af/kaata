@@ -172,6 +172,7 @@ const runtimeCrypto = compileUI("../trust/crypto-runtime", {
   "./successful-verification-cache": verificationCache,
   "./chain": chain,
   "./ownership-transfer": ownershipTransfer,
+  "./admin-invite": require("../trust/admin-invite"),
   "kaata-bt-classic": { verifyEd25519BatchAsync: async () => null },
 });
 const ownerSeed = new Uint8Array(32).fill(7);

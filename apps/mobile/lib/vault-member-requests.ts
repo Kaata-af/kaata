@@ -11,8 +11,8 @@ import { TabApiError, TabAuthUnavailableError } from "./tabs/errors";
 import { ApiError, type InviteInfo } from "./vault-api";
 
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
-const ROLES = new Set(["editor", "clerk", "viewer"]);
-export type VaultMemberInviteRole = Extract<VaultRole, "editor" | "clerk" | "viewer">;
+const ROLES = new Set(["manager", "editor", "clerk", "viewer"]);
+export type VaultMemberInviteRole = Exclude<VaultRole, "owner">;
 export type VaultMemberRequestResult = {
   invite_id: string;
   invite_token: string;
@@ -68,7 +68,7 @@ export async function createVaultMemberRequest(
   if (session.accountId === body.recipientAccountId)
     throw new ApiError(400, "self_invite", "You already belong to this Kaata");
   await applyForCurrentSession(session, async () => guard());
-  const capabilities = await request<{ vault_account_invites?: boolean }>(
+  const capabilities = await request<{ vault_account_invites?: boolean; vault_admin_invites?: boolean }>(
     "GET",
     "/v1/sync/capabilities",
     undefined,
@@ -81,9 +81,17 @@ export async function createVaultMemberRequest(
       "vault_account_invites_unsupported",
       "Member invitations are unavailable",
     );
+  if (body.role === "manager" && capabilities.vault_admin_invites !== true)
+    throw new ApiError(503, "vault_admin_invites_unsupported", "Admin invitations are unavailable");
   await applyForCurrentSession(session, async () => guard());
   const { uploadPendingCreditPolicies } = await import("./credit-limits");
   await uploadPendingCreditPolicies(vaultId, session);
+  await applyForCurrentSession(session, async () => guard());
+  const adminAuthorization = body.role === "manager"
+    ? await (await import("./admin-invite-authorization")).createAdminInviteAuthorization(
+        vaultId, body.recipientAccountId, session, guard,
+      )
+    : null;
   await applyForCurrentSession(session, async () => guard());
   const raw = await request<{
     invite_id: string;
@@ -94,7 +102,10 @@ export async function createVaultMemberRequest(
   }>(
     "POST",
     `/v1/vaults/${encodeURIComponent(vaultId)}/account-invites`,
-    { target_account_id: body.recipientAccountId, role: body.role, readmit_removed: true },
+    {
+      target_account_id: body.recipientAccountId, role: body.role, readmit_removed: true,
+      ...(adminAuthorization ? { admin_authorization: adminAuthorization } : {}),
+    },
     session,
     guard,
   );

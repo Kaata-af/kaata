@@ -7,7 +7,7 @@ import { TabApiError } from "./tabs/errors";
 export type FriendState = { state: "none" | "incoming" | "outgoing" | "friends"; id?: string };
 export type PersonProfileActivity = {
   shared_tally?: "pending" | "active" | "declined";
-  kaata_invitation_role?: "editor" | "clerk" | "viewer";
+  kaata_invitation_role?: "manager" | "editor" | "clerk" | "viewer";
   kaata_member_role?: "owner" | "manager" | "editor" | "clerk" | "viewer";
   existing_relationship_id?: string;
 };
@@ -76,7 +76,7 @@ function parseActivity(value: unknown): PersonProfileActivity | undefined {
     ...(tally === "active" || tally === "pending" || tally === "declined"
       ? { shared_tally: tally }
       : {}),
-    ...(role === "editor" || role === "clerk" || role === "viewer"
+    ...(role === "manager" || role === "editor" || role === "clerk" || role === "viewer"
       ? { kaata_invitation_role: role }
       : {}),
     ...(["owner", "manager", "editor", "clerk", "viewer"].includes(String(memberRole))

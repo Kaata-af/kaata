@@ -15,6 +15,7 @@
 // admissions before T.
 
 import { hasOwnershipTransferPayload, verifyOwnershipTransferEvent } from "./ownership-transfer";
+import { hasAdminInvitePayload, verifyAdminInviteEvent } from "./admin-invite";
 
 export type HlcTuple = { pms: number; l: number; did: string };
 
@@ -212,6 +213,7 @@ export function foldMembership(args: FoldArgs): MembershipState {
     state.conflicts.push({ event_id: e.event_id, event_type: e.event_type, reason });
   };
   const appliedTransfers = new Map<string, string>();
+  const appliedAdminGrants = new Map<string, string>();
 
   const signerIsActiveOwnerDevice = (signerPubkey: string): boolean => {
     const dev = state.devices.get(signerPubkey);
@@ -339,6 +341,38 @@ export function foldMembership(args: FoldArgs): MembershipState {
       continue;
     }
 
+    if (hasAdminInvitePayload(e)) {
+      const proof = verifyAdminInviteEvent(e, serverWitnessPubkeysB64, crypto);
+      if (!proof) {
+        refuse(e, "witness_invalid");
+        continue;
+      }
+      const grant = proof.authorization.grant;
+      const consumed = appliedAdminGrants.get(grant.grant_id);
+      if (consumed === e.event_id) continue;
+      if (consumed !== undefined) {
+        refuse(e, "witness_invalid");
+        continue;
+      }
+      const from = grant.from_chain_account_id ?? grant.from_account_id;
+      const device = state.devices.get(proof.authorization.signer_device_pubkey);
+      const source = state.members.get(from);
+      if (!state.hasGenesis || !device || device.removed || device.account_id !== from ||
+          !source || source.removed || source.role !== "owner") {
+        refuse(e, "signer_not_owner_device");
+        continue;
+      }
+      // This proof admits a NEW account only. Promotions, re-admissions and
+      // co-owner changes continue to require a fresh owner-signed event.
+      if (state.members.has(proof.receipt.to_account_id)) {
+        refuse(e, "removed_entry_replay");
+        continue;
+      }
+      upsertMember(state, proof.receipt.to_account_id, "manager");
+      appliedAdminGrants.set(grant.grant_id, e.event_id);
+      continue;
+    }
+
     switch (e.event_type) {
       case "vault_member_added": {
         const accountId = typeof p.account_id === "string" ? p.account_id : null;
@@ -399,11 +433,8 @@ export function foldMembership(args: FoldArgs): MembershipState {
         // Online path: server-witnessed admission proving owner intent via
         // a brokered invite.
         //
-        // SECURITY: a witness is an INVITE attestation, never an authority
-        // grant (§1). It can only admit BELOW manager — owner/manager
-        // promotion requires an owner-signed role_changed or the anchor.
-        // Without this cap, a leaked/misbehaving witness key would mint a
-        // member-managing seat and take the vault over.
+        // A server witness alone can never mint an owner or Admin. Admin
+        // invitations require the separate owner-authorized acceptance above.
         if (CHAIN_ROLE_RANK[role] >= CHAIN_ROLE_RANK.manager) {
           refuse(e, "witness_role_too_high");
           continue;

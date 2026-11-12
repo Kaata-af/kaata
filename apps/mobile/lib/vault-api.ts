@@ -146,6 +146,7 @@ export type VaultListing = {
   members_count: number;
   /** This account already accepted an online invitation and can resume setup. */
   joined_by_invite?: boolean;
+  admin_invite_event_id?: string;
   created_at_ms: number;
   archived_at_ms?: number;
   vault_epoch: number;
@@ -429,6 +430,8 @@ export async function createVaultInvite(
   body: { email: string; role: VaultRole },
   expectedSession?: SessionSnapshot,
 ): Promise<CreateInviteResult> {
+  if (body.role === "manager" || body.role === "owner")
+    throw new ApiError(400, "invalid_role", "Choose a person to send an Admin invitation");
   const session = expectedSession ?? (await captureCurrentSession());
   const guard = () => {
     if (getActiveVaultIdSyncMaybe() !== vaultId) throw new SessionChangedError();
@@ -656,6 +659,7 @@ export type AcceptInviteResult = {
   role: VaultRole;
   ownership_transferred?: boolean;
   ownership_event_id?: string;
+  admin_invite_event_id?: string;
   member_readmission?: boolean;
   readmission_pending?: boolean;
   readmission_member_event_id?: string;
@@ -672,8 +676,8 @@ export async function isOwnershipTransferApplied(
   result: AcceptInviteResult,
   session: SessionSnapshot,
 ): Promise<boolean> {
-  if (!result.ownership_transferred) return true;
-  const eventId = result.ownership_event_id;
+  if (!result.ownership_transferred && !result.admin_invite_event_id) return true;
+  const eventId = result.ownership_transferred ? result.ownership_event_id : result.admin_invite_event_id;
   if (!eventId) return false;
   return applyForCurrentSession(session, async () => {
     const { applyEventMutex } = await import("./projection");
@@ -687,6 +691,14 @@ export async function isOwnershipTransferApplied(
         eventId,
       );
       if (!row) return false;
+      let payload: Record<string, any>;
+      try { payload = JSON.parse(row.payload_json); } catch { return false; }
+      const kind = result.ownership_transferred ? "ownership_transfer" : "admin_invite";
+      const expectedRole = result.ownership_transferred ? "owner" : "manager";
+      const receipt = payload[kind]?.receipt;
+      if (payload.account_id !== session.accountId || payload.role !== expectedRole ||
+          receipt?.to_account_id !== session.accountId || receipt?.event_id !== eventId)
+        return false;
       const { getLocalMembershipState } = await import("./trust/proof");
       const state = await getLocalMembershipState(result.vault_id);
       if (!state?.hasGenesis || state.conflicts.some((c) => c.event_id === eventId)) return false;
@@ -789,6 +801,7 @@ export async function acceptVaultInvite(
       : {
           token,
           install_id: getInstallIdSync(),
+          admin_invite_version: 1,
           ...(kind === "member_readmission" ? { member_readmission: true } : {}),
         },
     session,
@@ -804,6 +817,10 @@ export async function acceptVaultInvite(
   ) {
     throw new Error("invalid invite acceptance response");
   }
+  if (raw.admin_invite_event_id !== undefined &&
+      (typeof raw.admin_invite_event_id !== "string" ||
+        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(raw.admin_invite_event_id)))
+    throw new Error("invalid Admin admission response");
   if (
     kind === "ownership_transfer" &&
     (raw.ownership_transferred !== true || !raw.ownership_event_id)
@@ -814,7 +831,7 @@ export async function acceptVaultInvite(
       raw.member_readmission !== true ||
       !(
         raw.readmission_pending === true
-          ? ["editor", "clerk", "viewer"]
+          ? ["manager", "editor", "clerk", "viewer"]
           : ["owner", "manager", "editor", "clerk", "viewer"]
       ).includes(raw.role) ||
       (raw.readmission_pending !== undefined && typeof raw.readmission_pending !== "boolean") ||

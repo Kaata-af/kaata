@@ -22,6 +22,7 @@ import {
   ownershipTransferGrantBytes,
   parseOwnershipTransferGrant,
 } from "./ownership-transfer";
+import { adminInviteGrantBytes, hasAdminInvitePayload, parseAdminInviteGrant } from "./admin-invite";
 import {
   createSuccessfulVerificationCache,
   type SignatureCheck,
@@ -93,6 +94,16 @@ export async function prewarmMembershipSignatures(
             signature: authorization.sig_b64,
             publicKey: authorization.signer_device_pubkey,
           };
+        }
+        continue;
+      }
+      if (hasAdminInvitePayload(event)) {
+        const authorization = object(object(payload?.admin_invite)?.authorization);
+        const grant = parseAdminInviteGrant(authorization?.grant);
+        if (grant && typeof authorization?.sig_b64 === "string" &&
+            typeof authorization.signer_device_pubkey === "string") {
+          yield { message: adminInviteGrantBytes(grant, canonicalize),
+            signature: authorization.sig_b64, publicKey: authorization.signer_device_pubkey };
         }
         continue;
       }

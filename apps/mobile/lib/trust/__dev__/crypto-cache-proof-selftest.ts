@@ -27,6 +27,7 @@ const runtime = compileUI("../trust/crypto-runtime", {
   "./successful-verification-cache": verificationCache,
   "./chain": chain,
   "./ownership-transfer": ownershipTransfer,
+  "./admin-invite": require("../admin-invite"),
   "kaata-bt-classic": { verifyEd25519BatchAsync: (items: any[]) => nativeBatch(items) },
 });
 let nativeBatch: (items: any[]) => Promise<boolean[] | null> = async () => null;

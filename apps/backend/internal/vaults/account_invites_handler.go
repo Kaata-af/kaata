@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/matee/kaata-backend/internal/admininvite"
 	"github.com/matee/kaata-backend/internal/httpx"
 )
 
@@ -22,9 +23,10 @@ func (h *Handler) CreateAccountInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 	var req struct {
-		TargetAccountID string `json:"target_account_id"`
-		Role            string `json:"role"`
-		ReadmitRemoved  bool   `json:"readmit_removed"`
+		TargetAccountID    string                     `json:"target_account_id"`
+		Role               string                     `json:"role"`
+		ReadmitRemoved     bool                       `json:"readmit_removed"`
+		AdminAuthorization *admininvite.Authorization `json:"admin_authorization"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -37,7 +39,7 @@ func (h *Handler) CreateAccountInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.svc.CreateAccountInvite(r.Context(), CreateAccountInviteInput{
-		VaultID: vaultID, InviterAccID: claims.AccountID, TargetAccountID: req.TargetAccountID, Role: req.Role, ReadmitRemoved: req.ReadmitRemoved,
+		VaultID: vaultID, InviterAccID: claims.AccountID, TargetAccountID: req.TargetAccountID, Role: req.Role, ReadmitRemoved: req.ReadmitRemoved, AdminAuthorization: req.AdminAuthorization,
 	})
 	if err != nil {
 		writeServiceError(w, err)

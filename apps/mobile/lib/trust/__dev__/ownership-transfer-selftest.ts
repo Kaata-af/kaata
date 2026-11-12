@@ -6,6 +6,7 @@ import ts from "typescript";
 import { sha512 } from "@noble/hashes/sha512";
 import * as ed from "@noble/ed25519";
 import { foldMembership, type ChainCrypto, type MembershipEventLike } from "../chain";
+import * as adminInvite from "../admin-invite";
 import {
   OWNERSHIP_GRANT_DOMAIN,
   OWNERSHIP_RECEIPT_DOMAIN,
@@ -379,6 +380,7 @@ const gate = load("../../projection/role-gate", {
   "../trust/crypto-runtime": { runtimeChainCrypto: crypto },
   "../trust/dev-witness-key": require("../dev-witness-key"),
   "../trust/ownership-transfer": require("../ownership-transfer"),
+  "../trust/admin-invite": require("../admin-invite"),
   "../mesh/device-key": { isOwnDevicePubkey: async (pub: string) => pub === owner.pub },
 });
 const appliers = load("../../projection/vault_members", {
@@ -557,9 +559,60 @@ async function runProjection() {
     .prepare("UPDATE vault_device_registry SET removed_at_ms=2500,removed_at_l=0,removed_at_did=?")
     .run(D);
   assert.equal((await apply(transfer)).ok, false, "removed authorizing device cannot transfer");
+
+  const adminGrant: adminInvite.AdminInviteGrant = {
+    domain: adminInvite.ADMIN_INVITE_GRANT_DOMAIN, grant_id: TRANSFER, vault_id: V,
+    from_account_id: A, recipient_account_id: B, role: "manager", issued_at_ms: 2000, expires_at_ms: 6000,
+  };
+  const adminProof: adminInvite.AdminInviteProof = {
+    authorization: {
+      grant: adminGrant, signer_device_pubkey: owner.pub,
+      sig_b64: b64(ed.sign(adminInvite.adminInviteGrantBytes(adminGrant, canonicalize), owner.secret)),
+    },
+    receipt: {
+      domain: adminInvite.ADMIN_INVITE_RECEIPT_DOMAIN, grant_id: TRANSFER, vault_id: V,
+      grant_sha256: adminInvite.adminInviteGrantHash(adminGrant, canonicalize),
+      to_account_id: B, accepted_at_ms: 3000, event_id: TRANSFER, vault_epoch: 2,
+    },
+  };
+  const adminAdmission = sign({
+    event_id: TRANSFER, event_type: "vault_member_added", vault_id: V, target_id: B,
+    relationship_id: null, hlc: { pms: 2000, l: 0, did: TRANSFER }, device_id: TRANSFER,
+    actor_account_id: null,
+    payload: { account_id: B, role: "manager", admin_invite: adminProof }, payload_schema: 1,
+  }, server);
+  resetProjection();
+  assert.equal((await apply(adminAdmission)).ok, false, "Admin admission waits for owner proof");
+  assert.equal((await apply(genesis)).ok, true);
+  assert.equal((await apply(adminAdmission)).ok, true, "Admin admission recovers with original proof");
+  assert.equal(mirrorRole(B), "manager");
+  assert.equal(mirrorRole(A), "owner");
+  assert.equal((fixture.prepare("SELECT vault_epoch FROM vaults WHERE id=?").get(V) as any).vault_epoch, 2);
+  const adminDemotion = event("vault_member_role_changed", { account_id: B, role: "viewer" }, B, 3500);
+  assert.equal((await apply(adminDemotion)).ok, true);
+  const duplicateAdmin = structuredClone(adminAdmission);
+  duplicateAdmin.event_id = C;
+  duplicateAdmin.hlc.pms = 4000;
+  (duplicateAdmin.payload as any).admin_invite.receipt.event_id = C;
+  (duplicateAdmin.payload as any).admin_invite.receipt.accepted_at_ms = 4000;
+  assert.equal((await apply(sign(duplicateAdmin, server))).ok, false, "server cannot reuse Admin intent");
+  assert.equal(mirrorRole(B), "viewer");
+  // The old attack delivers a later forged receipt before the genuine one.
+  // Owner-fixed identity/order makes that receipt invalid before projection.
+  resetProjection();
+  await apply(genesis);
+  assert.equal((await apply(sign(duplicateAdmin, server))).ok, false);
+  assert.equal((await apply(adminAdmission)).ok, true);
+  assert.equal((await apply(adminDemotion)).ok, true);
+  assert.equal(mirrorRole(B), "viewer");
+  resetProjection();
+  await apply(genesis);
+  await apply(event("vault_member_added", { account_id: B, role: "viewer" }, B, 1500));
+  assert.equal((await apply(adminAdmission)).ok, false, "Admin invitation is not a hidden promotion");
+  assert.equal(mirrorRole(B), "viewer");
   fixture.close();
   console.log(
-    "PASS: actual SQLite role gate and atomic projection, missing-proof retry, late delivery, alias identities, signed-out founder, removed key",
+    "PASS: actual SQLite role gate and atomic projection, ownership/Admin dual proof, missing-proof retry, late delivery, alias identities, signed-out founder, removed key",
   );
 }
 void runProjection().catch((error) => {

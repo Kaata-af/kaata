@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/admininvite"
 )
 
 var ErrNotReady = errors.New("member readmission is no longer ready")
@@ -77,14 +78,14 @@ func LoadReady(ctx context.Context, tx pgx.Tx, vaultID, inviteID, ownerID string
  JOIN device_keys dk ON dk.install_id=i.install_id AND dk.ed25519_pubkey=vm.readmission_device_pubkey
  WHERE vm.vault_id=$1::uuid AND vm.invite_request_id=$2::uuid AND vm.invited_by=$3::uuid
  AND vm.readmission_consented_at IS NOT NULL AND vm.accepted_at IS NULL AND vm.revoked_at IS NULL
- AND vm.invite_expires_at>NOW() AND vm.role IN ('editor','clerk','viewer')
+ AND vm.invite_expires_at>NOW() AND vm.role IN ('manager','editor','clerk','viewer')
  AND v.archived_at IS NULL AND v.purged_at IS NULL AND i.account_deleted_at IS NULL
  AND recipient.disabled_at IS NULL AND recipient.pending_delete_at IS NULL
  AND inviter.disabled_at IS NULL AND inviter.pending_delete_at IS NULL
  AND vault_owner.disabled_at IS NULL AND vault_owner.pending_delete_at IS NULL
  AND EXISTS(SELECT 1 FROM auth_credentials c WHERE c.install_id=i.install_id
   AND c.account_id=vm.invite_account_id AND c.revoked_at IS NULL)
- AND `+PendingSQL+` AND `+deviceAllowedSQL, vaultID, inviteID, ownerID).
+ AND `+PendingSQL+` AND `+admininvite.PendingSQL+` AND `+deviceAllowedSQL, vaultID, inviteID, ownerID).
 		Scan(&out.ID, &out.AccountID, &out.Role, &out.DeviceID, &out.DevicePubkey, &out.AfterMS)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Ready{}, ErrNotReady

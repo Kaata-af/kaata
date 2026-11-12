@@ -293,6 +293,9 @@ func (s *Service) verifyMembershipEvent(
 	if hasOwnershipTransfer(ev) {
 		return s.verifyOwnershipTransfer(ctx, tx, vaultID, anchor, ev, signerPub)
 	}
+	if hasAdminInvite(ev) {
+		return s.verifyAdminInvite(ctx, tx, vaultID, anchor, ev, signerPub)
+	}
 	currentAuthority, err := requiresCurrentMembershipAuthority(ctx, tx, vaultID, ev.EventID)
 	if err != nil {
 		return false, err

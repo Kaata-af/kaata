@@ -310,6 +310,7 @@ export default function InviteAcceptScreen() {
         invite.kind === "member_readmission"
           ? await acceptVaultInvite(token, session, invite.kind)
           : (acceptedRef.current?.result ?? (await acceptVaultInvite(token, session, invite.kind)));
+      const needsOwnerProof = !!(result.ownership_transferred || result.admin_invite_event_id);
       assertRoute();
       await applyForCurrentSession(session, async () => {
         assertRoute();
@@ -344,7 +345,7 @@ export default function InviteAcceptScreen() {
       }
       const publishedBeforeSetup = await isSelfAdmissionPublished(result.vault_id, session);
       assertRoute();
-      if (!publishedBeforeSetup || result.ownership_transferred) {
+      if (!publishedBeforeSetup || needsOwnerProof) {
         // FIRST: the offline-proof minimal seed straight from the accept
         // response (vault row + our membership mirror, no network). This is
         // what guarantees the kaata is visible and switchable from the first
@@ -387,10 +388,10 @@ export default function InviteAcceptScreen() {
       await applyForCurrentSession(session, async () => {
         assertRoute();
         await setActiveVaultId(result.vault_id);
-        await setAppMeta(PENDING_TOKEN_KEY, result.ownership_transferred ? token : "");
+        await setAppMeta(PENDING_TOKEN_KEY, needsOwnerProof ? token : "");
       });
 
-      if (result.ownership_transferred && !(await isOwnershipTransferApplied(result, session))) {
+      if (needsOwnerProof && !(await isOwnershipTransferApplied(result, session))) {
         assertRoute();
         acceptingRef.current = false;
         setStage("pending");
@@ -454,7 +455,7 @@ export default function InviteAcceptScreen() {
       assertRoute();
       await applyForCurrentSession(session, async () => {
         assertRoute();
-        if (result.ownership_transferred) await setAppMeta(PENDING_TOKEN_KEY, "");
+        if (needsOwnerProof) await setAppMeta(PENDING_TOKEN_KEY, "");
         setStage("done");
       });
       assertRoute();
@@ -564,7 +565,7 @@ export default function InviteAcceptScreen() {
           if (
             !cancelled &&
             ready &&
-            (!accepted.result.ownership_transferred ||
+            (!(accepted.result.ownership_transferred || accepted.result.admin_invite_event_id) ||
               (await isOwnershipTransferApplied(accepted.result, accepted.session)))
           ) {
             if (!cancelled) void onAccept();

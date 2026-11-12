@@ -121,6 +121,7 @@ function fixture() {
       return { resolveAccountIdCandidates: async (id: string) => [id] };
     if (name === "../hlc") return require("../hlc");
     if (name === "../trust/ownership-transfer") return require("../trust/ownership-transfer");
+    if (name === "../trust/admin-invite") return require("../trust/admin-invite");
     if (name === "../trust/dev-witness-key") return require("../trust/dev-witness-key");
     if (name === "../trust/chain" || name === "../trust/crypto-runtime") return {};
     throw Error(`Unexpected role import ${name}`);

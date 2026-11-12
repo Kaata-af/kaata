@@ -286,6 +286,12 @@ async function apiCases() {
   lost.store
     .prepare("INSERT INTO event_log VALUES(?,?,?,?,1,NULL,NULL)")
     .run(VAULT, EVENT, "vault_member_added", "{}");
+  assert.equal(await lost.api.isOwnershipTransferApplied(accepted, lost.session()), false,
+    "an unrelated applied event cannot satisfy the acceptance proof");
+  lost.store.prepare("UPDATE event_log SET payload_json=? WHERE event_id=?").run(JSON.stringify({
+      account_id: TARGET, role: "owner",
+      ownership_transfer: { receipt: { to_account_id: TARGET, event_id: EVENT } },
+    }), EVENT);
   assert.equal(await lost.api.isOwnershipTransferApplied(accepted, lost.session()), true);
   lost.store.close();
   const unconfirmed = fixture();

@@ -861,7 +861,9 @@ export async function seedMissingInviteVault(v: VaultListing, accountId: string)
     v.joined_by_invite !== true ||
     v.archived_at_ms != null ||
     !v.vault_trust_anchor_pubkey ||
-    (v.role !== "editor" && v.role !== "clerk" && v.role !== "viewer")
+    (v.role !== "editor" && v.role !== "clerk" && v.role !== "viewer" &&
+      !(v.role === "manager" && typeof v.admin_invite_event_id === "string" &&
+        /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(v.admin_invite_event_id)))
   )
     return false;
 

@@ -180,6 +180,10 @@ export async function applyVaultMemberAdded(
     event.appended_at,
     event.payload.display_name ?? null,
   );
+  if (event.payload.admin_invite) {
+    await tx.runAsync("UPDATE vaults SET vault_epoch = MAX(vault_epoch, ?) WHERE id = ?",
+      event.payload.admin_invite.receipt.vault_epoch, event.vault_id);
+  }
 
   // M2 (review P0): GENESIS anchor binding. The chain fold (lib/trust/
   // chain.ts) binds the owner's anchor device IMPLICITLY at genesis, but
