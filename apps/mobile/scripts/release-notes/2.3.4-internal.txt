@@ -1,0 +1,1 @@
+Friends now appear on Home with profile photos. Clearer profile actions for opening accounts and inviting members, including owner-approved Admin invitations. Improved connection notifications, search ordering, and backup prompt layout. Test requests and responses on both phones, notification taps with the app closed, friend search, and member permissions.
