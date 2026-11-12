@@ -797,9 +797,7 @@ export default function PersonAddOrFindScreen() {
                   ? addOnly
                     ? null
                     : renderEmpty()
-                  : visibleSections
-                      .filter((section) => section.key !== "device")
-                      .map(renderContactSection)}
+                  : visibleSections.map(renderContactSection)}
               <PeopleSearchSection
                 search={peopleSearch}
                 localPeople={people ?? []}
@@ -825,11 +823,6 @@ export default function PersonAddOrFindScreen() {
                   });
                 }}
               />
-              {people !== null
-                ? visibleSections
-                    .filter((section) => section.key === "device")
-                    .map(renderContactSection)
-                : null}
             </View>
           )}
         </ScrollView>

@@ -3894,8 +3894,8 @@ async function main() {
     (node) => node.type === "Text" && node.props.children === "Ahmad Phone",
   );
   assert.ok(
-    localIndex < remoteIndex && remoteIndex < deviceIndex,
-    "Add contact orders local, Kaata and phone-book matches",
+    localIndex < deviceIndex && deviceIndex < remoteIndex,
+    "Add contact puts saved and phone-book contacts before Kaata user matches",
   );
   remoteSection = find("PeopleSearchSection")!;
   assert.equal(remoteSection.props.search.visible, true);
