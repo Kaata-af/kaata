@@ -1,4 +1,4 @@
-// Real profile/list screens at the hook boundary. All identities and transport are synthetic.
+// Real profile/QR screens and the retired friends route. All identities and transport are synthetic.
 import assert from "node:assert/strict";
 import { decodePeopleQr, encodePeopleQr } from "../people-qr";
 import { compileUI, deferred, flattenStyle, jsx, nodes, settleUI, uiHooks } from "./ui-fixture";
@@ -36,7 +36,6 @@ function fixture(state: State = "none", list = false, qrMode?: "scan" | "show") 
   let getGate: Promise<any> | undefined;
   let mutationGate: Promise<any> | undefined;
   let dispatchGate: Promise<void> | undefined;
-  let listGate: Promise<any> | undefined;
   let accountMeGate: Promise<any> | undefined;
   let discoveryEnabled = false;
   let appState = "active";
@@ -120,6 +119,7 @@ function fixture(state: State = "none", list = false, qrMode?: "scan" | "show") 
     },
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "expo-router": {
+      Redirect: "Redirect",
       useIsFocused: () => focused,
       useNavigation: () => ({ isFocused: () => focused }),
       useLocalSearchParams: () => ({
@@ -199,11 +199,6 @@ function fixture(state: State = "none", list = false, qrMode?: "scan" | "show") 
       acceptFriendRequest: action("accept"),
       dismissFriendRequest: action("dismiss"),
       removeFriend: action("remove"),
-      listFriends: async (after: string | undefined, session: Session) => {
-        check(session);
-        calls.push({ action: "list", target: after, session });
-        return listGate ?? { friends: [person], next_cursor: friendshipId };
-      },
     },
     "../../lib/colors": { colors: {} },
     "../../lib/design-tokens": { SETTINGS_ROW_PADDING_X: 20 },
@@ -304,9 +299,6 @@ function fixture(state: State = "none", list = false, qrMode?: "scan" | "show") 
     },
     setDispatch(promise?: Promise<void>) {
       dispatchGate = promise;
-    },
-    setList(promise?: Promise<any>) {
-      listGate = promise;
     },
     setDiscovery(value: boolean, pending?: Promise<any>) {
       discoveryEnabled = value;
@@ -512,43 +504,27 @@ async function main() {
     assert.equal(f.calls[0]?.target, john);
     f.unmount();
   }
-  for (const offline of [false, true]) {
+  for (const account of [me, null]) {
     const f = fixture("none", true);
-    const pending = deferred<any>();
-    f.setList(pending.promise);
-    f.setOffline(offline);
+    f.identity(account);
     f.render();
-    const qr = f.find("NavRow", "peopleQr.title")!;
-    assert.ok(qr, "signed-in Friends exposes QR even while offline or loading the list");
-    assert.equal(qr.props.icon, "qr-code-outline");
-    qr.props.onPress();
-    qr.props.onPress();
-    assert.deepEqual(f.routes, ["/people/qr"], "My code uses the default route once per focus");
-    f.setFocus(false);
-    f.render();
-    qr.props.onPress();
-    assert.equal(f.routes.length, 1, "blurred Friends cannot open QR");
-    f.setFocus(true);
-    f.render();
-    const restoredQr = f.find("NavRow", "peopleQr.title")!;
-    f.identity(null);
-    f.identity(me);
-    restoredQr.props.onPress();
-    assert.equal(f.routes.length, 1, "same-account sign-in still rejects a retained QR action");
-    f.render();
-    f.find("NavRow", "peopleQr.title")!.props.onPress();
-    assert.equal(f.routes.length, 2);
-    f.identity(null);
-    f.render();
-    assert.equal(f.find("NavRow", "peopleQr.title"), undefined, "signed-out Friends hides QR");
-    pending.resolve({ friends: [] });
     await f.flush();
-    f.hooks.unmount();
-    assert.equal(f.hooks.lateWrites, 0);
+    assert.equal(
+      f.find("Redirect")?.props.href,
+      "/",
+      "Old Friends links lead to inline friends on Home",
+    );
+    assert.equal(f.calls.length, 0, "The retired list route starts no account requests");
+    assert.equal(
+      f.find("ScreenHeader"),
+      undefined,
+      "The retired route renders no separate friends page",
+    );
+    f.unmount();
   }
 
-  for (const list of [false, true]) {
-    const f = fixture("none", list);
+  {
+    const f = fixture();
     f.render();
     await f.flush();
     let frame = f.frame();
@@ -596,7 +572,7 @@ async function main() {
     assert.equal(f.routes.at(-1), "back");
     f.setCanGoBack(false);
     header.props.onBack();
-    assert.equal(f.routes.at(-1), "/", "a directly opened profile/list keeps the home fallback");
+    assert.equal(f.routes.at(-1), "/", "a directly opened profile keeps the home fallback");
     f.hooks.unmount();
   }
   {
@@ -849,59 +825,8 @@ async function main() {
     assert.equal(f.calls.length, restriction === "own" ? 1 : 0);
     f.hooks.unmount();
   }
-  {
-    const f = fixture("none", true);
-    f.render();
-    await f.flush();
-    const row = f.find("Pressable")!;
-    row.props.onPress();
-    assert.deepEqual(f.routes.at(-1), {
-      pathname: "/people/[accountId]",
-      params: { accountId: john },
-    });
-    const more = deferred<any>();
-    f.setList(more.promise);
-    const press = f.button("friends.more").props.onPress;
-    press();
-    press();
-    await settleUI();
-    assert.equal(f.calls.filter((c) => c.action === "list").length, 2);
-    more.resolve({ friends: [person, { ...person, account_id: jane, name: "Jane" }] });
-    await f.flush();
-    assert.equal(
-      nodes(f.hooks.tree).filter((node) => node.type === "Pressable").length,
-      2,
-      "pagination deduplicates existing friends",
-    );
-    f.identity(null);
-    row.props.onPress();
-    f.render();
-    assert.equal(f.routes.length, 1, "retained friend rows cannot navigate after sign-out");
-    assert.equal(f.find("Pressable"), undefined);
-    assert.ok(f.text("peopleProfile.signIn"));
-    f.hooks.unmount();
-  }
-  {
-    const f = fixture("none", true);
-    f.render();
-    await f.flush();
-    const more = deferred<any>();
-    f.setList(more.promise);
-    f.button("friends.more").props.onPress();
-    await settleUI();
-    f.identity(jane);
-    f.setList(Promise.resolve({ friends: [] }));
-    f.render();
-    assert.equal(f.find("Pressable"), undefined, "list hides previous-account rows immediately");
-    more.resolve({ friends: [person] });
-    await f.flush();
-    assert.ok(f.text("friends.empty"));
-    assert.equal(f.find("Pressable"), undefined);
-    f.hooks.unmount();
-    assert.equal(f.hooks.lateWrites, 0);
-  }
   console.log(
-    "people profiles: modal safe-area frames, back navigation, explicit friendship actions, uncertainty reconciliation, independent financial actions, list pagination and account/focus/route races passed",
+    "people profiles: modal safe-area frames, back navigation, explicit friendship actions, uncertainty reconciliation, independent financial actions, retired friends-route redirect and account/focus/route races passed",
   );
 }
 void main().catch((error) => {

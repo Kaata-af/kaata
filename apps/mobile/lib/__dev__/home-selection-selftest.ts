@@ -492,6 +492,7 @@ for (const [file, exported] of [
   ["HomeBalanceSummary", "HomeBalanceSummary"],
   ["HomeBalanceFilterSwipe", "HomeBalanceFilterSwipe"],
   ["HomePersonalBackupOffer", "HomePersonalBackupOffer"],
+  ["HomeFriendsSection", "HomeFriendsSection"],
   ["HomeFilterPopover", "HomeFilterPopover"],
   ["NotificationInbox", "NotificationBell"],
   ["PersonRow", "PersonRow"],
@@ -622,17 +623,15 @@ const input = () =>
   )!;
 const addButton = () =>
   homeNodes().find((node) => node.props.accessibilityLabel === "personAdd.new");
-const friendsButton = () =>
-  homeNodes().find(
-    (node) => node.type === "Pressable" && node.props.accessibilityLabel === "friends.title",
-  );
+const friend = { account_id: "friend-account", name: "My Friend" };
+const friendsSection = () => homeNodes().find((node) => node.type === "HomeFriendsSection");
 const expectFriendsUnavailable = () => {
-  const button = friendsButton()!;
-  assert.equal(button.props.disabled, true, "Friends waits while contact selection is active");
-  assert.equal(button.props.accessibilityState.disabled, true);
+  const section = friendsSection()!;
+  assert.equal(section.props.disabled, true, "Friends waits while contact selection is active");
   const count = navigations.length;
-  button.props.onPress();
-  assert.equal(navigations.length, count, "a disabled Friends callback cannot navigate");
+  section.props.onSelect(friend);
+  section.props.onScanQr();
+  assert.equal(navigations.length, count, "disabled friend and QR callbacks cannot navigate");
 };
 const toolbar = () => homeNodes().find((node) => node.type === "SelectionToolbar")!;
 const removalDialog = () =>
@@ -2690,11 +2689,11 @@ async function main() {
   for (const row of nodes(tree).filter((node) => node.type === "PersonRow"))
     assert.ok(!row.props.selecting, "Homepage rows have no selection checkboxes");
   const initialListReads = listRequests.length;
-  const friendsBeforeSelection = friendsButton()!.props.onPress;
+  const friendsBeforeSelection = friendsSection()!.props.onSelect;
   startFromContactMenu();
   expectFriendsUnavailable();
   const beforeRetainedFriends = navigations.length;
-  friendsBeforeSelection();
+  friendsBeforeSelection(friend);
   assert.equal(
     navigations.length,
     beforeRetainedFriends,
@@ -3108,53 +3107,114 @@ async function main() {
   assert.equal(listRequests.at(-1)!.currency, "USD");
   changeCurrency("AFN");
   await flush();
-  // Friends is account-level navigation: no financial role or active book is required.
+  // Friends live below contacts, before directory discovery, independently of financial roles.
   const originalVault = vault;
   const originalCaps = writeCaps;
-  const initialFriends = friendsButton()!;
-  assert.ok(initialFriends, "signed-in Home exposes the existing Friends destination");
-  assert.equal(initialFriends.props.accessibilityRole, "button");
-  assert.equal(initialFriends.props.accessibilityLabel, "friends.title");
-  const friendsStyle = flattenStyle(initialFriends.props.style({ pressed: false }));
-  assert.ok(friendsStyle.minWidth >= 44 && friendsStyle.minHeight >= 44);
-  assert.equal(initialFriends.props.children.type, "Icon");
-  assert.equal(initialFriends.props.children.props.name, "people-outline");
-  const headerActions = homeNodes();
+  const initialFriends = friendsSection()!;
+  assert.ok(initialFriends, "signed-in Home shows inline friends without another page");
+  assert.equal(initialFriends.props.disabled, false);
+  const inlineNodes = homeNodes();
+  const friendIndex = inlineNodes.indexOf(initialFriends);
   assert.ok(
-    headerActions.indexOf(initialFriends) <
-      headerActions.findIndex((node) => node.type === "NotificationBell"),
-    "Friends stays alongside the existing header actions",
+    inlineNodes
+      .filter((node) => node.type === "PersonRow")
+      .every((node) => inlineNodes.indexOf(node) < friendIndex),
+    "Existing contact rows come before friends",
+  );
+  assert.ok(
+    friendIndex < inlineNodes.findIndex((node) => node.type === "PeopleSearchSection"),
+    "Friends come before global Kaata directory results",
+  );
+  assert.equal(
+    inlineNodes.some(
+      (node) => node.type === "Pressable" && node.props.accessibilityLabel === "friends.title",
+    ),
+    false,
+    "The separate navbar Friends shortcut is removed",
   );
   const beforeStaleFriends = navigations.length;
   signedIn = false;
-  initialFriends.props.onPress();
+  initialFriends.props.onSelect(friend);
+  initialFriends.props.onScanQr();
   assert.equal(
     navigations.length,
     beforeStaleFriends,
-    "a retained signed-in button cannot navigate after sign-out before repaint",
+    "retained friend/QR callbacks cannot navigate after sign-out before repaint",
   );
   identityListeners.forEach((listener) => listener());
   render();
-  assert.equal(friendsButton(), undefined, "signed-out Home hides Friends immediately");
+  assert.equal(friendsSection(), undefined, "signed-out Home hides Friends immediately");
   await flush();
   signedIn = true;
   identityListeners.forEach((listener) => listener());
   await flush();
-  const currentFriends = friendsButton()!;
+  const currentFriends = friendsSection()!;
   const originalAccount = account;
   account = "shortcut-other-account";
-  currentFriends.props.onPress();
+  currentFriends.props.onSelect(friend);
+  currentFriends.props.onScanQr();
   assert.equal(
     navigations.length,
     beforeStaleFriends,
     "a retained callback cannot navigate for a different account",
   );
   account = originalAccount;
+  input().props.onChangeText("friend search");
+  render();
+  assert.equal(
+    friendsSection()!.props.query,
+    "friend search",
+    "Friends use the existing home search field",
+  );
+  const blurredFriends = friendsSection()!;
+  homeFocused = false;
+  homeFocusEpoch++;
+  render();
+  blurredFriends.props.onSelect(friend);
+  blurredFriends.props.onScanQr();
+  assert.equal(
+    navigations.length,
+    beforeStaleFriends,
+    "Friend/QR actions stop when Home loses focus",
+  );
+  homeFocused = true;
+  homeFocusEpoch++;
+  await flush();
+  const filtersFriends = friendsSection()!;
+  options();
+  filtersFriends.props.onSelect(friend);
+  filtersFriends.props.onScanQr();
+  assert.equal(
+    navigations.length,
+    beforeStaleFriends,
+    "An open filter sheet owns navigation interaction",
+  );
+  homeNodes()
+    .find((node) => node.type === "HomeFilterPopover")!
+    .props.onDismiss();
+  render();
+  const searchFriends = friendsSection()!;
+  searchFriends.props.onSelect(friend);
+  searchFriends.props.onSelect(friend);
+  assert.deepEqual(
+    navigations.slice(beforeStaleFriends),
+    [{ pathname: "/people/[accountId]", params: { accountId: friend.account_id } }],
+    "A friend row opens its profile once, without navigating to a friends list",
+  );
+  assert.equal(input().props.value, "friend search", "Opening a friend retains the search query");
+  homeFocused = false;
+  homeFocusEpoch++;
+  render();
+  homeFocused = true;
+  homeFocusEpoch++;
+  await flush();
+  input().props.onChangeText("");
+  render();
   vault = null;
   writeCaps = { resolved: true, canCreate: false, canAmend: false };
   await reload();
   await flush();
-  const noBookFriends = friendsButton()!;
+  const noBookFriends = friendsSection()!;
   assert.ok(noBookFriends, "Friends remains available without an active Kaata");
   assert.equal(
     noBookFriends.props.disabled,
@@ -3164,18 +3224,19 @@ async function main() {
   keyboardOpen = true;
   const beforeFriendsDismiss = keyboardDismissals;
   const beforeFriendsReview = reviewInteractionCancels;
-  noBookFriends.props.onPress();
-  noBookFriends.props.onPress();
+  const beforeQr = navigations.length;
+  noBookFriends.props.onScanQr();
+  noBookFriends.props.onScanQr();
   assert.deepEqual(
-    navigations.slice(beforeStaleFriends),
-    ["/people/friends"],
-    "one tap opens the existing list and repeated taps cannot stack duplicate pages",
+    navigations.slice(beforeQr),
+    ["/people/qr"],
+    "The inline Friends QR action remains accessible and repeated taps cannot stack pages",
   );
   assert.equal(keyboardOpen, false);
-  assert.ok(keyboardDismissals > beforeFriendsDismiss, "opening Friends dismisses the keyboard");
+  assert.ok(keyboardDismissals > beforeFriendsDismiss, "opening QR dismisses the keyboard");
   assert.ok(
     reviewInteractionCancels > beforeFriendsReview,
-    "opening Friends cancels an idle review prompt",
+    "opening QR cancels an idle review prompt",
   );
   vault = originalVault;
   writeCaps = originalCaps;
@@ -3183,6 +3244,7 @@ async function main() {
   await flush();
   await homeBackSearch();
   const oldRow = homeRows()[0];
+  const unmountedFriends = friendsSection()!;
   const lateRead = blockNextListRead();
   const lateRefresh = reload();
   await settleUI();
@@ -3194,6 +3256,8 @@ async function main() {
   const navigationsAfterCleanup = navigations.length;
   oldRow.props.onPress(oldRow.props.person);
   oldRow.props.onLongPress(oldRow.props.person);
+  unmountedFriends.props.onSelect(friend);
+  unmountedFriends.props.onScanQr();
   const layoutsAfterCleanup = scheduledKeyboardLayouts.length;
   unmountedShow(showEvent);
   unmountedHide(hideEvent);
@@ -3211,7 +3275,7 @@ async function main() {
     "Late row callbacks and reads cannot update unmounted Home",
   );
   console.log(
-    "PASS home selection: keyboard-first Back, idle search clearing, searched-contact/profile return and exit timer guards, signed-in Friends shortcut and stale/duplicate/selection guards, one mixed list and simultaneous totals, settled accounts disclosure/search/scoped selection, full-source currency classification, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query counts and unique direction-filter counts opposite Clear in LTR/RTL, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
+    "PASS home selection: keyboard-first Back, idle search clearing, searched-contact/profile return and exit timer guards, inline Friends ordering and search, account/blur/filter/selection/duplicate guards, no-book QR access, one mixed list and simultaneous totals, settled accounts disclosure/search/scoped selection, full-source currency classification, direction labels, stable customer keys, native overscroll without pull-refresh, scoped scroll restoration, instant financial totals without per-tap reads, coherent background snapshots, stale vault/account reads, settings-only mesh leases, fixed bottom search and compact filters, query counts and unique direction-filter counts opposite Clear in LTR/RTL, scoped select-all, search/group preservation, confirmation, duplicate/stale guards, cleanup",
   );
 }
 void main();

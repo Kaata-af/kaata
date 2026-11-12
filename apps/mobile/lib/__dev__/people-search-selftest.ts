@@ -772,6 +772,17 @@ async function main() {
     null,
     "an already visible contact is not repeated in global results",
   );
+  assert.equal(
+    section.PeopleSearchSection({
+      search,
+      localPeople: [],
+      visiblePeople: [],
+      excludeAccountIds: new Set([person.account_id]),
+      onSelect: () => {},
+    }),
+    null,
+    "a friend shown above is not repeated in directory results or shown as an empty search",
+  );
   const resultNodes = nodes(
     section.PeopleSearchSection({
       search: { ...search, people: [linkedPerson] },

@@ -1029,10 +1029,6 @@ function RootLayoutContent() {
                       name="people/[accountId]"
                       options={{ presentation: Platform.OS === "ios" ? "card" : "fullScreenModal" }}
                     />
-                    <Stack.Screen
-                      name="people/friends"
-                      options={{ presentation: Platform.OS === "ios" ? "card" : "fullScreenModal" }}
-                    />
                     <Stack.Screen name="people/qr" options={{ presentation: "fullScreenModal" }} />
                     <Stack.Screen name="profile" options={{ presentation: "modal" }} />
                     <Stack.Screen name="promote" options={{ presentation: "modal" }} />

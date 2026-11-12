@@ -1701,6 +1701,9 @@ const en = {
   "friends.title": "Friends",
   "friends.hint": "People you've both agreed to add on Kaata.",
   "friends.empty": "No friends yet",
+  "friends.loading": "Loading friends…",
+  "friends.searchEmpty": "No friends match your search.",
+  "friends.offline": "Connect to load your friends.",
   "friends.emptyHint":
     "Find someone using your usual search, open their profile, and send a friend request.",
   "friends.failed": "Couldn't load your friends. Try again.",
@@ -4414,6 +4417,9 @@ const fa: Partial<Record<Key, string>> = {
   "friends.title": "دوستان",
   "friends.hint": "افرادی که هر دو پذیرفته‌اید در کاتا دوست باشید.",
   "friends.empty": "هنوز دوستی ندارید",
+  "friends.loading": "در حال بارگیری دوستان…",
+  "friends.searchEmpty": "هیچ دوستی با این جستجو پیدا نشد.",
+  "friends.offline": "برای بارگیری دوستان‌تان به انترنت وصل شوید.",
   "friends.emptyHint":
     "از جستجوی همیشگی کسی را پیدا کنید، نمایه‌اش را باز کنید و درخواست دوستی بفرستید.",
   "friends.failed": "دوستان‌تان بارگیری نشدند. دوباره کوشش کنید.",
@@ -6130,6 +6136,9 @@ const ps: Record<Key, string> = {
   "friends.title": "ملګري",
   "friends.hint": "هغه کسان چې تاسو او هغوی په کاټا کې ملګرتیا منلې ده.",
   "friends.empty": "تر اوسه ملګري نه لرئ",
+  "friends.loading": "ملګري را روان دي…",
+  "friends.searchEmpty": "ستاسو له لټون سره سمون لرونکی ملګری ونه موندل شو.",
+  "friends.offline": "د ملګرو د راوړلو لپاره له انټرنېټ سره وصل شئ.",
   "friends.emptyHint":
     "په عادي لټون کې څوک ومومئ، پېژندپاڼه یې خلاصه کړئ او د ملګرتیا غوښتنه ورولېږئ.",
   "friends.failed": "ملګري مو را نه وړل شول. بیا هڅه وکړئ.",

@@ -42,6 +42,7 @@ import { CustomerRows, type CustomerRowsProps } from "../components/CustomerRows
 import { HomeBalanceSummary } from "../components/HomeBalanceSummary";
 import { HomeBalanceFilterSwipe } from "../components/HomeBalanceFilterSwipe";
 import { HomePersonalBackupOffer } from "../components/HomePersonalBackupOffer";
+import { HomeFriendsSection } from "../components/HomeFriendsSection";
 import { SettledAccountsSection } from "../components/SettledAccountsSection";
 import { PeopleSearchSection } from "../components/PeopleSearchSection";
 import { usePeopleSearch } from "../lib/people-search";
@@ -1778,7 +1779,54 @@ export default function HomeScreen() {
     ) : null;
 
   const filtersVisible = filtersExpanded && currentPeopleScope && currentVaultScope;
-  const friendsShortcutDisabled = selecting || selectionBusy || confirmRemoveIds !== null;
+  const friendsDisabled =
+    selecting ||
+    selectionBusy ||
+    confirmRemoveIds !== null ||
+    filtersExpanded ||
+    settingsVisible ||
+    vaultPickerVisible ||
+    !!sheetFor ||
+    !!confirmDeleteFor ||
+    batteryDialogOpen ||
+    oemDialogOpen ||
+    bleSettingsDialogOpen ||
+    notificationInboxVisible ||
+    signOutConfirm ||
+    signingOut ||
+    !!forceUpdate;
+  const friendsInteraction = useRef({ accountId: friendsAccountId, disabled: friendsDisabled });
+  friendsInteraction.current = { accountId: friendsAccountId, disabled: friendsDisabled };
+  const openFriendDestination = (accountId?: string) => {
+    if (
+      !mounted.current ||
+      !selectionOwnerActive.current ||
+      friendsOpening.current ||
+      !friendsAccountId ||
+      friendsAccountId !== getSessionAccountIdSync() ||
+      friendsInteraction.current.accountId !== friendsAccountId ||
+      friendsInteraction.current.disabled
+    )
+      return;
+    friendsOpening.current = true;
+    cancelStoreReview();
+    dismissKeyboard();
+    if (accountId) router.push({ pathname: "/people/[accountId]", params: { accountId } });
+    else router.push("/people/qr");
+  };
+  const directoryFriends = peopleSearch.visible
+    ? peopleSearch.people.filter((person) => person.is_friend)
+    : [];
+  const homeFriends = friendsAccountId ? (
+    <HomeFriendsSection
+      query={activeVaultId ? customerQuery : ""}
+      enabled={loaded && !forceUpdate}
+      disabled={friendsDisabled}
+      directoryMatches={activeVaultId ? directoryFriends : undefined}
+      onSelect={(person) => openFriendDestination(person.account_id)}
+      onScanQr={() => openFriendDestination()}
+    />
+  ) : null;
   const filterContent = (
     <>
       <CustomerListOptions
@@ -1946,36 +1994,6 @@ export default function HomeScreen() {
 
             <View style={{ flex: 1 }} pointerEvents="none" />
 
-            {friendsAccountId ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("friends.title")}
-                accessibilityState={{ disabled: friendsShortcutDisabled }}
-                disabled={friendsShortcutDisabled}
-                onPress={() => {
-                  if (
-                    !selectionOwnerActive.current ||
-                    friendsOpening.current ||
-                    friendsAccountId !== getSessionAccountIdSync() ||
-                    homeInteraction.current.selecting ||
-                    homeInteraction.current.confirming ||
-                    selectionBusyRef.current ||
-                    filtersExpandedRef.current
-                  )
-                    return;
-                  friendsOpening.current = true;
-                  cancelStoreReview();
-                  dismissKeyboard();
-                  router.push("/people/friends");
-                }}
-                style={({ pressed }) => [
-                  styles.friendsShortcut,
-                  (pressed || friendsShortcutDisabled) && { opacity: 0.5 },
-                ]}
-              >
-                <Ionicons name="people-outline" size={icon.row} color={colors.textEmphasis} />
-              </Pressable>
-            ) : null}
             <NotificationBell
               onOpen={cancelStoreReview}
               onVisibilityChange={setNotificationInboxVisible}
@@ -2059,26 +2077,27 @@ export default function HomeScreen() {
                 // first kaata" screen; the app never silently auto-creates a kaata.
                 // (Matee: "don't auto-create ... make a default screen for when there
                 // are no kaatas, like onboarding the user to make a kaata".)
-                <View style={styles.noKaataWrap}>
-                  {/* Was a THIRD "there is nothing here" vocabulary: an 18/14 headline
+                <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 24 }}>
+                  <View style={styles.noKaataWrap}>
+                    {/* Was a THIRD "there is nothing here" vocabulary: an 18/14 headline
               pair, a full step louder than the 15/13 every other empty moment in
               the app uses (home and person detail's fresh page). The
               shared atom now owns the glyph, the copy rhythm and the CTA slot.
               size="inline" (24px own air) rather than "page" (56): the wrapper's
               flex:1 centering already supplies the page air, and "page" would
               open a 56px hole between the icon and the title. */}
-                  <EmptyState
-                    size="inline"
-                    icon="albums-outline"
-                    title={t("home.noKaata.title")}
-                    subtitle={t("home.noKaata.subtitle")}
-                    action={
-                      <>
-                        <Button
-                          label={t("home.noKaata.create")}
-                          onPress={() => router.push("/vault/new")}
-                        />
-                        {/* PARKED (mesh): "Join an existing kaata" opened the offline QR scan
+                    <EmptyState
+                      size="inline"
+                      icon="albums-outline"
+                      title={t("home.noKaata.title")}
+                      subtitle={t("home.noKaata.subtitle")}
+                      action={
+                        <>
+                          <Button
+                            label={t("home.noKaata.create")}
+                            onPress={() => router.push("/vault/new")}
+                          />
+                          {/* PARKED (mesh): "Join an existing kaata" opened the offline QR scan
                     (vault/pair-scan), parked with the rest of mesh. Joining online
                     happens by opening an invite link (kaata://invite/<token>). Re-add
                     when mesh ships again.
@@ -2090,28 +2109,30 @@ export default function HomeScreen() {
                   <Text style={styles.noKaataLinkText}>{t("home.noKaata.join")}</Text>
                 </Pressable>
                 */}
-                        {/* The archived link rides in `action` WITH the button rather than
+                          {/* The archived link rides in `action` WITH the button rather than
                     after the atom, so the two stay one cluster — outside, the
                     atom's bottom padding would drop 24px between them. */}
-                        {archivedVaults.length > 0 ? (
-                          <Pressable
-                            onPress={() => router.push("/vault/archived")}
-                            accessibilityRole="button"
-                            style={({ pressed }) => [
-                              styles.noKaataLink,
-                              pressed && { opacity: 0.6 },
-                            ]}
-                          >
-                            <Text style={styles.noKaataLinkText}>
-                              {t("home.noKaata.archived", { count: archivedVaults.length })}
-                            </Text>
-                          </Pressable>
-                        ) : null}
-                      </>
-                    }
-                    isRTL={isRTL}
-                  />
-                </View>
+                          {archivedVaults.length > 0 ? (
+                            <Pressable
+                              onPress={() => router.push("/vault/archived")}
+                              accessibilityRole="button"
+                              style={({ pressed }) => [
+                                styles.noKaataLink,
+                                pressed && { opacity: 0.6 },
+                              ]}
+                            >
+                              <Text style={styles.noKaataLinkText}>
+                                {t("home.noKaata.archived", { count: archivedVaults.length })}
+                              </Text>
+                            </Pressable>
+                          ) : null}
+                        </>
+                      }
+                      isRTL={isRTL}
+                    />
+                  </View>
+                  {homeFriends}
+                </ScrollView>
               ) : loaded && loadError && allPeople.length === 0 ? (
                 // Load failed with nothing cached to show. Rendering the page here
                 // would show "0" totals — the false data-loss signal this audience
@@ -2216,9 +2237,15 @@ export default function HomeScreen() {
                   }
                   discoveryActive={peopleSearch.visible}
                   friendPersonIds={peopleSearch.visible ? peopleSearch.friendPersonIds : undefined}
+                  friends={homeFriends}
                   discovery={
                     <PeopleSearchSection
                       search={peopleSearch}
+                      excludeAccountIds={
+                        friendsAccountId
+                          ? new Set(directoryFriends.map((person) => person.account_id))
+                          : undefined
+                      }
                       localPeople={visibleAllPeople}
                       visiblePeople={homePeople}
                       actionLabel={t("peopleProfile.view")}
@@ -2803,6 +2830,7 @@ function HomePage(
       controls: React.ReactNode;
       renderFirstCustomerRow?: (hasFollowingRows: boolean) => React.ReactNode;
       discovery?: React.ReactNode;
+      friends?: React.ReactNode;
       discoveryActive?: boolean;
       selectionControls: React.ReactNode;
       summary: React.ReactNode;
@@ -2982,6 +3010,7 @@ function HomePage(
                 separated={props.people.length > 0}
               />
             </SettledAccountsSection>
+            {props.friends}
             {props.discovery}
           </HomeBalanceFilterSwipe>
         </ScrollView>
@@ -3122,12 +3151,6 @@ const styles = StyleSheet.create({
   // future tweaks easy. The headerSubname style was removed alongside
   // its JSX (Phase 7 founder feedback — the user-name subtitle is gone).
   profileBtn: {},
-  friendsShortcut: {
-    minWidth: TOUCH_MIN,
-    minHeight: TOUCH_MIN,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   // Read-only badge in the header (viewer on a shared kaata).
   readOnlyBadge: {
     maxWidth: "25%",

@@ -43,6 +43,8 @@ export function PeopleSearchSection(props: {
   opensProfile?: boolean;
   localPeople: readonly { id: string }[];
   visiblePeople: readonly { id: string }[];
+  /** Already rendered in the inline Friends section above these directory results. */
+  excludeAccountIds?: ReadonlySet<string>;
 }) {
   const rtl = useIsRTL();
   const { search } = props;
@@ -55,7 +57,10 @@ export function PeopleSearchSection(props: {
       (search.vaultId ? discoveredPersonId(search.vaultId, person.account_id) : "");
     return localIds.has(id) ? id : null;
   };
-  const people = search.people.filter((person) => !visibleIds.has(existingId(person) ?? ""));
+  const people = search.people.filter(
+    (person) =>
+      !props.excludeAccountIds?.has(person.account_id) && !visibleIds.has(existingId(person) ?? ""),
+  );
   if (
     !search.loading &&
     !search.error &&
