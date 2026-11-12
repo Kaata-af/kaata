@@ -462,6 +462,7 @@ func main() {
 			Get("/v1/tabs/inbox", tabsH.Inbox)
 		pr.With(httpx.RateLimitPerIP(httpx.TabWriteLimit, httpx.TabWriteWindow)).
 			Post("/v1/tabs/inbox/read", tabsH.ReadInbox)
+		pr.With(httpx.RateLimitPerAccountOrIP(httpx.TabJoinLimit, httpx.TabJoinWindow)).Post("/v1/notifications/registration", tabsH.AccountNotifications)
 		pr.With(httpx.RateLimitPerIP(httpx.TabReadLimit, httpx.TabReadWindow)).
 			Post("/v1/tabs/by-token", tabsH.ByToken)
 		pr.With(httpx.RateLimitPerAccountOrIP(httpx.TabReadLimit, httpx.TabReadWindow),

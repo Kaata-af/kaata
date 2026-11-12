@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 	"github.com/matee/kaata-backend/internal/ownership"
 )
 
@@ -213,10 +214,26 @@ func (s *Service) verifyOwnershipTransfer(ctx context.Context, tx pgx.Tx, vaultI
 
 func foldOwnershipTransfer(ctx context.Context, tx pgx.Tx, vaultID string, ev *PushEvent, p ownership.Proof) ([]string, error) {
 	from, to := p.Authorization.Grant.FromAccountID, p.Receipt.ToAccountID
+	changed, promoted := false, false
 	// The issuing service normally committed these writes with this event.
 	// This guarded fold also makes replay/relay unable to undo a later role.
 	for _, cell := range []struct{ id, role string }{{to, "owner"}, {from, "editor"}} {
-		_, err := tx.Exec(ctx, `UPDATE vault_members SET role=$3,updated_at=NOW(),last_change_hlc_ms=$4
+		var previous string
+		err := tx.QueryRow(ctx, `SELECT role FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid AND accepted_at IS NOT NULL AND revoked_at IS NULL
+ AND (last_change_hlc_ms IS NULL OR last_change_hlc_ms<=$3) FOR UPDATE`, vaultID, cell.id, ev.HLC.PhysicalMS).Scan(&previous)
+		if err == pgx.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if previous != cell.role {
+			changed = true
+			if cell.id == to {
+				promoted = true
+			}
+		}
+		_, err = tx.Exec(ctx, `UPDATE vault_members SET role=$3,updated_at=NOW(),last_change_hlc_ms=$4
 		 WHERE vault_id=$1::uuid AND account_id=$2::uuid AND accepted_at IS NOT NULL AND revoked_at IS NULL
 		 AND (last_change_hlc_ms IS NULL OR last_change_hlc_ms<=$4)`, vaultID, cell.id, cell.role, ev.HLC.PhysicalMS)
 		if err != nil {
@@ -230,6 +247,16 @@ func foldOwnershipTransfer(ctx context.Context, tx pgx.Tx, vaultID string, ev *P
 		vaultID, to, p.Receipt.VaultEpoch, from, ownership.ReceiptDomain, ev.HLC.PhysicalMS)
 	if err != nil {
 		return nil, err
+	}
+	if changed {
+		if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_invite_accepted", SourceID: p.Receipt.TransferID, RecipientID: from, ActorID: to, VaultID: vaultID, Detail: "owner"}); err != nil {
+			return nil, err
+		}
+	}
+	if promoted {
+		if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_role_changed", SourceID: ev.EventID, RecipientID: to, ActorID: from, VaultID: vaultID, Detail: "owner"}); err != nil {
+			return nil, err
+		}
 	}
 	return []string{from, to}, nil
 }

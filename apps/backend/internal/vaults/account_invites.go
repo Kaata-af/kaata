@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 	"github.com/matee/kaata-backend/internal/memberreadmission"
 	"github.com/matee/kaata-backend/internal/rolepolicy"
 )
@@ -201,6 +202,12 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
  revoked_reason='invite_replaced',updated_at=NOW() WHERE invite_request_id=$1::uuid`, id, in.InviterAccID); err != nil {
 			return AccountInviteResult{}, err
 		}
+		if err := connectionnotice.Handled(ctx, tx, "vault_invite_requested", id); err != nil {
+			return AccountInviteResult{}, err
+		}
+		if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_invite_cancelled", SourceID: id, RecipientID: in.TargetAccountID, ActorID: in.InviterAccID, VaultID: in.VaultID}); err != nil {
+			return AccountInviteResult{}, err
+		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return AccountInviteResult{}, err
 	}
@@ -240,6 +247,9 @@ func (s *Service) CreateAccountInvite(ctx context.Context, in CreateAccountInvit
 		return AccountInviteResult{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE vaults SET vault_epoch=vault_epoch+1 WHERE vault_id=$1::uuid`, in.VaultID); err != nil {
+		return AccountInviteResult{}, err
+	}
+	if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_invite_requested", SourceID: id, RecipientID: in.TargetAccountID, ActorID: in.InviterAccID, VaultID: in.VaultID, Detail: in.Role}); err != nil {
 		return AccountInviteResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -341,8 +351,8 @@ func (s *Service) DeclineAccountInvite(ctx context.Context, accountID, inviteID 
 		return err
 	}
 	if unexpired && currentInviter == inviterID && states[inviterID].active {
-		if _, err := tx.Exec(ctx, `INSERT INTO account_connection_notifications(event_kind,source_id,recipient_account_id,actor_account_id,actor_label,vault_label)
- SELECT 'vault_invite_rejected',$1::uuid,$2::uuid,actor.id,`+inviterNameSQL("actor")+`,v.name
+		if _, err := tx.Exec(ctx, `INSERT INTO account_connection_notifications(event_kind,source_id,recipient_account_id,actor_account_id,actor_label,vault_label,vault_id)
+ SELECT 'vault_invite_rejected',$1::uuid,$2::uuid,actor.id,`+inviterNameSQL("actor")+`,v.name,v.vault_id
  FROM vaults v JOIN accounts actor ON actor.id=$3::uuid WHERE v.vault_id=$4::uuid
  AND v.archived_at IS NULL AND v.purged_at IS NULL
  AND EXISTS(SELECT 1 FROM vault_members authority WHERE authority.vault_id=v.vault_id
@@ -350,6 +360,12 @@ func (s *Service) DeclineAccountInvite(ctx context.Context, accountID, inviteID 
   AND authority.role IN ('owner','manager') AND `+inviteManagerCapabilitySQL+`)`, inviteID, inviterID, accountID, vaultID); err != nil {
 			return err
 		}
+	}
+	if err := connectionnotice.Handled(ctx, tx, "vault_invite_requested", inviteID); err != nil {
+		return err
+	}
+	if err := connectionnotice.Handled(ctx, tx, "vault_member_return_requested", inviteID); err != nil {
+		return err
 	}
 	if _, err := writeAudit(ctx, tx, vaultID, &accountID, "invite_declined", &accountID, map[string]any{"invite_id": inviteID}); err != nil {
 		return err

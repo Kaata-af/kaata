@@ -84,6 +84,12 @@ func TestOwnerReadmissionPublishesOnlyTheConsentingDeviceAtomically(t *testing.T
 		if err := f.pool.QueryRow(ctx, `SELECT COUNT(*) FROM account_connection_notifications WHERE event_kind='vault_invite_accepted' AND source_id=$1::uuid`, returnInvite.InviteID).Scan(&got); err != nil || got != want {
 			t.Fatalf("completed readmission notifications = %d, want %d: %v", got, want, err)
 		}
+		if err := f.pool.QueryRow(ctx, `SELECT COUNT(*) FROM account_connection_notifications WHERE event_kind='vault_member_return_requested' AND source_id=$1::uuid AND recipient_account_id=$2::uuid`, returnInvite.InviteID, f.ownerAcct).Scan(&got); err != nil || got != 1 {
+			t.Fatalf("owner consent notices=%d: %v", got, err)
+		}
+		if err := f.pool.QueryRow(ctx, `SELECT COUNT(*) FROM account_connection_notifications WHERE event_kind='vault_member_return_requested' AND source_id=$1::uuid AND read_at IS NULL`, returnInvite.InviteID).Scan(&got); err != nil || got != 1-want {
+			t.Fatalf("unresolved owner consent notices=%d: %v", got, err)
+		}
 	}
 	result, err := books.AcceptInvite(ctx, consent)
 	if err != nil || !result.ReadmissionPending || f.memberRow(t, guest) != "" {

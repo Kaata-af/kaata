@@ -4,7 +4,7 @@ import { useFocusEffect } from "expo-router";
 import { getSessionAccountIdSync } from "../db-tx";
 import { getAppMeta, setAppMeta } from "../db";
 import { getLocale } from "../i18n";
-import { observeIncomingRequests, type IncomingRequestSnapshot } from "../incoming-request-cue";
+import { onNotificationInboxChanged, isRequestedConnectionNotice } from "../notification-events";
 import { fetchInbox, type InboxPage } from "./api";
 import { onTabApplied } from "./events";
 import {
@@ -50,9 +50,11 @@ const FLUSH_WAIT_MS = 3_000;
 function applyReads(page: InboxPage, specs: InboxReadSpec[]): InboxPage {
   if (!specs.length) return page;
   let flipped = 0;
+  let requestsFlipped = 0;
   const items = page.items.map((item) => {
     if (item.read || !specs.some((spec) => inboxItemMatches(item, spec))) return item;
     flipped++;
+    if (isRequestedConnectionNotice(item.kind)) requestsFlipped++;
     return { ...item, read: true };
   });
   const unread = specs.some((spec) => coversWholeInbox(page, spec))
@@ -61,7 +63,13 @@ function applyReads(page: InboxPage, specs: InboxReadSpec[]): InboxPage {
       ? items.filter((item) => !item.read).length
       : Math.max(0, page.unread - flipped);
   if (!flipped && unread === page.unread) return page;
-  return { ...page, items, unread };
+  const request_unread =
+    page.request_unread === undefined
+      ? undefined
+      : specs.some((spec) => coversWholeInbox(page, spec))
+        ? 0
+        : Math.max(0, page.request_unread - requestsFlipped);
+  return { ...page, items, unread, ...(request_unread === undefined ? {} : { request_unread }) };
 }
 
 async function withPendingReads(page: InboxPage, account: string): Promise<InboxPage> {
@@ -115,7 +123,6 @@ export function useInbox() {
   const generation = useRef(0);
   const busy = useRef(false);
   const refreshPending = useRef(false);
-  const observedResults = useRef<IncomingRequestSnapshot | null>(null);
   // The page as last committed, for the read listener: it runs outside a
   // render and must flip what is on screen, not what its closure captured.
   // Every state write goes through `commit` so the two never disagree.
@@ -133,7 +140,6 @@ export function useInbox() {
       const who = getSessionAccountIdSync();
       if (owner.current !== who) {
         owner.current = who;
-        observedResults.current = null;
         commit(empty());
       }
       if (!who) return;
@@ -164,21 +170,6 @@ export function useInbox() {
         // Marks the flush could not send yet still win over the server page.
         const next = await withPendingReads(fetched, who);
         if (!current()) return;
-        if (!before) {
-          observedResults.current = observeIncomingRequests(
-            observedResults.current,
-            next.items.filter(
-              (item) =>
-                item.kind === "friend_accepted" ||
-                item.kind === "vault_invite_accepted" ||
-                item.kind === "vault_invite_rejected" ||
-                item.kind === "invitation_accepted" ||
-                item.kind === "invitation_declined",
-            ),
-            "connection_result",
-            current,
-          );
-        }
         commit(
           before
             ? {
@@ -216,7 +207,6 @@ export function useInbox() {
       const run = ++generation.current;
       busy.current = false;
       refreshPending.current = false;
-      observedResults.current = null;
       owner.current = account;
       commit(empty());
       setLoading(false);
@@ -247,6 +237,9 @@ export function useInbox() {
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => void reload(), 250);
       });
+      const offNotice = onNotificationInboxChanged(({ account: who }) => {
+        if (who === account) void reload();
+      });
       // A notice handled anywhere — a review on the person screen, an OS
       // button, a tap on the tray — flips here at once, no round trip: the
       // badge must drop before the network is even tried, offline included.
@@ -261,7 +254,6 @@ export function useInbox() {
       });
       const app = AppState.addEventListener("change", (state) => {
         if (state === "active") void reload();
-        else observedResults.current = null;
       });
       const poll = setInterval(() => {
         if (AppState.currentState === "active") void reload();
@@ -270,8 +262,8 @@ export function useInbox() {
         generation.current++;
         busy.current = false;
         refreshPending.current = false;
-        observedResults.current = null;
         off();
+        offNotice();
         offReads();
         app.remove();
         clearInterval(poll);

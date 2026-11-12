@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 )
 
 var (
@@ -263,6 +264,9 @@ func (s *Service) SendFriendRequest(ctx context.Context, viewer, target string) 
 	if err != nil {
 		return FriendshipState{}, err
 	}
+	if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "friend_requested", SourceID: id, RecipientID: target, ActorID: viewer}); err != nil {
+		return FriendshipState{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return FriendshipState{}, err
 	}
@@ -351,10 +355,18 @@ func (s *Service) changeFriendship(ctx context.Context, viewer, id, action strin
 	if err != nil {
 		return FriendshipState{}, err
 	}
-	if status == "accepted" {
-		_, err = tx.Exec(ctx, `INSERT INTO account_connection_notifications(event_kind,source_id,recipient_account_id,actor_account_id,actor_label)
- SELECT 'friend_accepted',$1::uuid,$2::uuid,a.id,COALESCE(NULLIF(a.display_name,''),a.name,'') FROM accounts a WHERE a.id=$3::uuid`, id, f.requestedBy, viewer)
-		if err != nil {
+	if err := connectionnotice.Handled(ctx, tx, "friend_requested", id); err != nil {
+		return FriendshipState{}, err
+	}
+	recipient := f.low
+	if recipient == viewer {
+		recipient = f.high
+	}
+	kind := map[string]string{"accepted": "friend_accepted", "declined": "friend_rejected", "cancelled": "friend_cancelled", "removed": "friend_removed"}[status]
+	// Expired requests are already over; dismissing their stale UI is not a
+	// new rejection or cancellation to notify the other account about.
+	if status == "accepted" || status == "removed" || f.expires.After(time.Now()) {
+		if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: kind, SourceID: id, RecipientID: recipient, ActorID: viewer}); err != nil {
 			return FriendshipState{}, err
 		}
 	}

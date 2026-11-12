@@ -778,6 +778,7 @@ function requestHookFixture() {
         },
       },
       "./incoming-request-cue": { observeIncomingRequests: () => null },
+      "./notification-events": compileUI("../notification-events", {}),
       "./tabs/errors": errors,
     },
     {

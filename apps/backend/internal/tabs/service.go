@@ -1419,11 +1419,12 @@ func (s *Service) createTx(ctx context.Context, tx pgx.Tx, in CreateInput) (Crea
 
 	entries := make([]Entry, 0, 1)
 	if in.Opening != nil {
-		rev, err := bumpRev(ctx, tx, tabID, "a", pushEvent{Kind: "updated", ActorAccountID: in.AccountID})
+		openingID := uuid.NewString()
+		rev, err := bumpRev(ctx, tx, tabID, "a", pushEvent{Kind: "entry_created", EntryID: openingID, ActorAccountID: in.AccountID})
 		if err != nil {
 			return CreateResult{}, err
 		}
-		e, err := insertEntry(ctx, tx, tabID, uuid.NewString(), 1, rev, "a", in.Opening.Direction,
+		e, err := insertEntry(ctx, tx, tabID, openingID, 1, rev, "a", in.Opening.Direction,
 			openingMinor, "opening", openingNote, in.Opening.OccurredAtMS, "pending", nil, nil, in.AccountID, (Party{AccountID: in.AccountID}).evidenceRole())
 		if err != nil {
 			return CreateResult{}, err
@@ -2478,6 +2479,10 @@ func (s *Service) Close(ctx context.Context, p Party, withdrawUnjoinedOpening ..
 }
 
 func (s *Service) closeTx(ctx context.Context, tx pgx.Tx, p Party, withdrawUnjoinedOpening ...bool) (TabResponse, bool, error) {
+	return s.closeTxWithNotice(ctx, tx, p, false, withdrawUnjoinedOpening...)
+}
+
+func (s *Service) closeTxWithNotice(ctx context.Context, tx pgx.Tx, p Party, suppress bool, withdrawUnjoinedOpening ...bool) (TabResponse, bool, error) {
 	if !p.allows(rankEditor) {
 		return TabResponse{}, false, ErrRoleInsufficient
 	}
@@ -2521,12 +2526,18 @@ func (s *Service) closeTx(ctx context.Context, tx pgx.Tx, p Party, withdrawUnjoi
 	// Leaving does not create or erase money. Credit limits must never force
 	// either party to keep sharing; existing proposals remain resolvable.
 	if t.ClosedAt == nil {
+		var unjoined bool
+		if err := tx.QueryRow(ctx, `SELECT joined_at IS NULL AND NOT account_bound_once FROM tab_parties WHERE tab_id=$1::uuid AND role='b'`, p.TabID).Scan(&unjoined); err != nil {
+			return TabResponse{}, false, err
+		}
 		if _, err := tx.Exec(ctx, `
 		UPDATE tabs SET closed_at = NOW(), closed_by = $2 WHERE id = $1::uuid
 	`, p.TabID, p.Role); err != nil {
 			return TabResponse{}, false, fmt.Errorf("close tab: %w", err)
 		}
-		if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
+		event := p.pushEvent("unlinked", "")
+		event.Suppress = suppress || unjoined
+		if _, err := bumpRev(ctx, tx, p.TabID, p.Role, event); err != nil {
 			return TabResponse{}, false, err
 		}
 		changed = true

@@ -178,12 +178,25 @@ function emit(specs: InboxReadSpec[], source: InboxReadSource): void {
  * leaves it. Nothing is queued or sent: the server is where this came from.
  */
 export function announceServerReads(
-  items: ReadonlyArray<{ tab_id: string; rev: number; read: boolean }>,
+  items: ReadonlyArray<{
+    id?: string;
+    recipient_account_id?: string;
+    tab_id: string;
+    rev: number;
+    read: boolean;
+  }>,
 ): void {
   const specs: InboxReadSpec[] = [];
   for (const item of items) {
     if (item.read && typeof item.tab_id === "string" && item.rev > 0)
       specs.push({ tab_id: item.tab_id, rev: item.rev });
+    else if (
+      item.read &&
+      !item.tab_id &&
+      item.id &&
+      item.recipient_account_id === getAccountIdSync()
+    )
+      specs.push({ id: item.id });
   }
   emit(specs, "server");
 }

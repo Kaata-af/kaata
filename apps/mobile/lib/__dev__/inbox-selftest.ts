@@ -406,7 +406,7 @@ async function main() {
   await output.reload();
   await settle();
   assert.equal(output.page.unread, 1);
-  assert.deepEqual(cues, ["account:c:connection_result:11"], "a new acceptance cues exactly once");
+  assert.deepEqual(cues, [], "inbox refresh delegates audio to the app-wide observer");
   marker = async (body) => {
     assert.deepEqual(body, { id: "11" }, "friend notice is read by its inbox id");
     fetcher = async () => connectionResult("11", "friend_accepted", true);
@@ -418,7 +418,7 @@ async function main() {
   await output.reload();
   await settle();
   assert.equal(output.page.unread, 1);
-  const expectedCues = ["account:c:connection_result:11", "account:c:connection_result:12"];
+  const expectedCues: string[] = [];
   assert.deepEqual(cues, expectedCues, "a new rejection cues exactly once");
   marker = async (body) => {
     assert.deepEqual(body, { id: "12" }, "a rejected invite is read by its inbox id");
@@ -435,7 +435,7 @@ async function main() {
     await output.reload();
     await output.reload();
     await settle();
-    expectedCues.push(`account:c:connection_result:${id}`);
+
     assert.deepEqual(cues, expectedCues, `${kind} cues exactly once`);
   }
   connectionsEnabled = false;
@@ -451,7 +451,7 @@ async function main() {
   assert.equal(output.page.unread, 1);
   assert.deepEqual(cues, expectedCues, "muted and first-load notices stay quiet");
   console.log(
-    "PASS 14: friend, member and shared invite outcomes cue once and respect mute/account scope",
+    "PASS 14: friend, member and shared outcomes remain readable; the app-wide observer owns audio",
   );
 
   account = "legacy";

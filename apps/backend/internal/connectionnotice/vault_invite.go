@@ -17,9 +17,9 @@ import (
 func VaultInviteAccepted(ctx context.Context, tx pgx.Tx, memberID int64) error {
 	source := uuid.NewSHA1(uuid.NameSpaceOID, []byte("kaata:vault-invite:"+strconv.FormatInt(memberID, 10)))
 	_, err := tx.Exec(ctx, `INSERT INTO account_connection_notifications
- (event_kind,source_id,recipient_account_id,actor_account_id,actor_label,vault_label)
+ (event_kind,source_id,recipient_account_id,actor_account_id,actor_label,vault_label,vault_id)
  SELECT 'vault_invite_accepted',COALESCE(vm.invite_request_id,$2::uuid),vm.invited_by,vm.account_id,
- COALESCE(NULLIF(actor.display_name,''),NULLIF(actor.name,''),'Kaata user'),v.name
+ COALESCE(NULLIF(actor.display_name,''),NULLIF(actor.name,''),'Kaata user'),v.name,v.vault_id
  FROM vault_members vm JOIN vaults v ON v.vault_id=vm.vault_id
  JOIN accounts actor ON actor.id=vm.account_id JOIN accounts recipient ON recipient.id=vm.invited_by
  WHERE vm.id=$1 AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
@@ -30,6 +30,12 @@ func VaultInviteAccepted(ctx context.Context, tx pgx.Tx, memberID int64) error {
   (vm.readmission_member_event_id IS NOT NULL AND vm.readmission_device_event_id IS NOT NULL))
  AND EXISTS(SELECT 1 FROM vault_members authority WHERE authority.vault_id=vm.vault_id
   AND authority.account_id=vm.invited_by AND authority.accepted_at IS NOT NULL AND authority.revoked_at IS NULL)
- ON CONFLICT(event_kind,source_id) DO NOTHING`, memberID, source)
+ ON CONFLICT(event_kind,source_id,recipient_account_id) DO NOTHING`, memberID, source)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE account_connection_notifications SET read_at=COALESCE(read_at,NOW())
+ WHERE event_kind IN ('vault_invite_requested','vault_member_return_requested') AND source_id=(SELECT COALESCE(invite_request_id,$2::uuid)
+ FROM vault_members WHERE id=$1 AND accepted_at IS NOT NULL)`, memberID, source)
 	return err
 }

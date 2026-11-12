@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 	"github.com/matee/kaata-backend/internal/credit"
 	"github.com/matee/kaata-backend/internal/rolepolicy"
 )
@@ -148,7 +150,28 @@ func (s *Service) SaveCustomRole(ctx context.Context, vaultID, callerID string, 
 		return CustomRole{}, errInvalidCustomRole
 	}
 	role.Permissions = permissions
-	tx, _, err := s.beginCustomRoles(ctx, vaultID, callerID, true)
+	var recipients []string
+	if role.ID != "" {
+		rows, err := s.pool.Query(ctx, `SELECT DISTINCT account_id::text FROM vault_members WHERE vault_id=$1::uuid
+ AND custom_role_id=$2::uuid AND accepted_at IS NOT NULL AND revoked_at IS NULL`, vaultID, role.ID)
+		if err != nil {
+			return CustomRole{}, err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return CustomRole{}, err
+			}
+			recipients = append(recipients, id)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return CustomRole{}, err
+		}
+	}
+	tx, _, err := s.beginCustomRoles(ctx, vaultID, callerID, true, recipients...)
 	if err != nil {
 		return CustomRole{}, err
 	}
@@ -164,8 +187,9 @@ func (s *Service) SaveCustomRole(ctx context.Context, vaultID, callerID string, 
 			return CustomRole{}, errCustomRoleLimit
 		}
 	} else {
-		var oldBase string
-		err := tx.QueryRow(ctx, `SELECT base_role FROM vault_custom_roles WHERE vault_id=$1::uuid AND id=$2::uuid`, vaultID, role.ID).Scan(&oldBase)
+		var oldBase, oldName string
+		var oldPermissions []string
+		err := tx.QueryRow(ctx, `SELECT base_role,name,permissions FROM vault_custom_roles WHERE vault_id=$1::uuid AND id=$2::uuid`, vaultID, role.ID).Scan(&oldBase, &oldName, &oldPermissions)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return CustomRole{}, ErrNotFound
 		}
@@ -174,6 +198,9 @@ func (s *Service) SaveCustomRole(ctx context.Context, vaultID, callerID string, 
 		}
 		if oldBase != role.BaseRole {
 			return CustomRole{}, errCustomRoleBaseMismatch
+		}
+		if oldName == role.Name && slices.Equal(oldPermissions, role.Permissions) {
+			return role, tx.Commit(ctx)
 		}
 	}
 	var nameTaken bool
@@ -194,10 +221,23 @@ func (s *Service) SaveCustomRole(ctx context.Context, vaultID, callerID string, 
 	if err != nil {
 		return CustomRole{}, fmt.Errorf("save custom role: %w", err)
 	}
-	if _, err = writeAudit(ctx, tx, vaultID, &callerID, "custom_role_saved", nil, map[string]any{
+	auditID, err := writeAudit(ctx, tx, vaultID, &callerID, "custom_role_saved", nil, map[string]any{
 		"role_id": role.ID, "name": role.Name, "base_role": role.BaseRole, "permissions": role.Permissions,
-	}); err != nil {
+	})
+	if err != nil {
 		return CustomRole{}, err
+	}
+	for _, recipient := range recipients {
+		var assigned bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid
+ AND custom_role_id=$3::uuid AND accepted_at IS NOT NULL AND revoked_at IS NULL)`, vaultID, recipient, role.ID).Scan(&assigned); err != nil {
+			return CustomRole{}, err
+		}
+		if assigned {
+			if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_role_changed", SourceID: connectionnotice.AuditSource(auditID), RecipientID: recipient, ActorID: callerID, VaultID: vaultID, Detail: role.BaseRole}); err != nil {
+				return CustomRole{}, err
+			}
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return CustomRole{}, err
@@ -279,9 +319,13 @@ func (s *Service) AssignCustomRole(ctx context.Context, vaultID, callerID, targe
 	if _, err := tx.Exec(ctx, `UPDATE vault_members SET custom_role_id=$2::uuid WHERE id=$1`, memberID, roleID); err != nil {
 		return err
 	}
-	if _, err := writeAudit(ctx, tx, vaultID, &callerID, "custom_role_assigned", &targetID, map[string]any{
+	auditID, err := writeAudit(ctx, tx, vaultID, &callerID, "custom_role_assigned", &targetID, map[string]any{
 		"from_role_id": old, "role_id": roleID,
-	}); err != nil {
+	})
+	if err != nil {
+		return err
+	}
+	if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_role_changed", SourceID: connectionnotice.AuditSource(auditID), RecipientID: targetID, ActorID: callerID, VaultID: vaultID, Detail: preset}); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

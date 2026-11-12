@@ -64,6 +64,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/matee/kaata-backend/internal/canonical"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 	"github.com/matee/kaata-backend/internal/mesh"
 	"github.com/matee/kaata-backend/internal/ownership"
 	"github.com/matee/kaata-backend/internal/rolepolicy"
@@ -791,6 +792,7 @@ func (s *Service) foldMembershipEvent(
 	pusherAccountID string,
 	ev *PushEvent,
 	readmissionSeatID int64,
+	lockedAccounts map[uuid.UUID]bool,
 ) ([]string, error) {
 	switch ev.EventType {
 	case EventVaultMemberAdded:
@@ -875,6 +877,15 @@ func (s *Service) foldMembershipEvent(
 				map[string]any{"role": p.Role, "source": "membership_chain"}); err != nil {
 				return nil, err
 			}
+			if readmissionSeatID == 0 && invitedBy != nil {
+				var seatID int64
+				if err := tx.QueryRow(ctx, `SELECT id FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid AND revoked_at IS NULL`, vaultID, p.AccountID).Scan(&seatID); err != nil {
+					return nil, err
+				}
+				if err := connectionnotice.VaultInviteAccepted(ctx, tx, seatID); err != nil {
+					return nil, err
+				}
+			}
 		}
 		if err := foldBumpEpoch(ctx, tx, vaultID); err != nil {
 			return nil, err
@@ -927,6 +938,14 @@ func (s *Service) foldMembershipEvent(
 		// change (chain or legacy) is skipped; ties re-apply idempotently
 		// (>=). NULL last_change_hlc_ms (pre-M2 / un-stamped rows) is treated
 		// as -infinity so the first guarded write always lands.
+		var previousRole string
+		if err := tx.QueryRow(ctx, `SELECT role FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid
+ AND revoked_at IS NULL AND accepted_at IS NOT NULL FOR UPDATE`, vaultID, p.AccountID).Scan(&previousRole); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, nil
+			}
+			return nil, err
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE vault_members
 			   SET role = $3, updated_at = NOW(), last_change_hlc_ms = $4
@@ -942,6 +961,11 @@ func (s *Service) foldMembershipEvent(
 			// won the HLC arbitration. Either way nothing to mirror; the
 			// event is still accepted into the log (replica-first).
 			return nil, nil
+		}
+		if previousRole != p.Role {
+			if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_role_changed", SourceID: ev.EventID, RecipientID: p.AccountID, ActorID: signerOrAccount(ev, pusherAccountID), VaultID: vaultID, Detail: p.Role}); err != nil {
+				return nil, err
+			}
 		}
 		// SEC FIX 2: record the role transition at the event's HLC so
 		// roleAtHLC reconstructs the chain-driven role lawful-at-HLC.
@@ -1003,6 +1027,18 @@ func (s *Service) foldMembershipEvent(
 			// No active row, or a newer change already won. Do NOT touch the
 			// devices either — the membership state did not change here.
 			return nil, nil
+		}
+		actorID := signerOrAccount(ev, pusherAccountID)
+		if actorID == p.AccountID {
+			locked := make([]string, 0, len(lockedAccounts))
+			for id := range lockedAccounts {
+				locked = append(locked, id.String())
+			}
+			if err := connectionnotice.MemberLeft(ctx, tx, vaultID, actorID, ev.EventID, locked); err != nil {
+				return nil, err
+			}
+		} else if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_removed", SourceID: ev.EventID, RecipientID: p.AccountID, ActorID: actorID, VaultID: vaultID}); err != nil {
+			return nil, err
 		}
 		// §2: removing the account removes all its devices.
 		if _, err := tx.Exec(ctx, `

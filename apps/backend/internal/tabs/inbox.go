@@ -27,22 +27,26 @@ const inboxAccess = `((p.account_id=$1::uuid AND NOT EXISTS(
  AND n.actor_account_id IS DISTINCT FROM $1::uuid`
 
 type InboxItem struct {
-	ID             string `json:"id"`
-	TabID          string `json:"tab_id"`
-	Role           string `json:"role"`
-	Rev            int64  `json:"rev"`
-	Kind           string `json:"kind"`
-	EntryID        string `json:"entry_id"`
-	ActorAccountID string `json:"actor_account_id,omitempty"`
-	Body           string `json:"body"`
-	CreatedAtMS    int64  `json:"created_at_ms"`
-	Read           bool   `json:"read"`
+	ID                 string `json:"id"`
+	TabID              string `json:"tab_id"`
+	Role               string `json:"role"`
+	Rev                int64  `json:"rev"`
+	Kind               string `json:"kind"`
+	EntryID            string `json:"entry_id"`
+	ActorAccountID     string `json:"actor_account_id,omitempty"`
+	RecipientAccountID string `json:"recipient_account_id,omitempty"`
+	SourceID           string `json:"source_id,omitempty"`
+	VaultID            string `json:"vault_id,omitempty"`
+	Body               string `json:"body"`
+	CreatedAtMS        int64  `json:"created_at_ms"`
+	Read               bool   `json:"read"`
 }
 type InboxPage struct {
-	Items      []InboxItem `json:"items"`
-	Unread     int         `json:"unread"`
-	NextBefore string      `json:"next_before"`
-	LatestID   string      `json:"latest_id"`
+	Items         []InboxItem `json:"items"`
+	Unread        int         `json:"unread"`
+	RequestUnread int         `json:"request_unread"`
+	NextBefore    string      `json:"next_before"`
+	LatestID      string      `json:"latest_id"`
 }
 
 func (h *Handler) Inbox(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +75,9 @@ func (h *Handler) Inbox(w http.ResponseWriter, r *http.Request) {
 
 func inboxConnectionKinds(r *http.Request) []string {
 	query := r.URL.Query()
+	if query.Get("include_connection_events") == "1" {
+		return connectionEventKinds
+	}
 	if query.Get("include_connections") != "1" {
 		return nil
 	}
@@ -92,15 +99,16 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
 	}
 	defer tx.Rollback(ctx)
 	// Keep old clients' counts and cursors scoped to rows they can display.
-	err = tx.QueryRow(ctx, `SELECT tabs.unread+connections.unread,GREATEST(tabs.latest,connections.latest)::text FROM (
+	err = tx.QueryRow(ctx, `SELECT tabs.unread+connections.unread,GREATEST(tabs.latest,connections.latest)::text,connections.request_unread FROM (
  SELECT COUNT(*) FILTER (WHERE nr.notification_id IS NULL) AS unread,COALESCE(MAX(n.id),0) AS latest
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  LEFT JOIN tab_notification_reads nr ON nr.notification_id=n.id AND nr.account_id=$1::uuid
  WHERE `+inboxAccess+`
  ) tabs CROSS JOIN (
- SELECT COUNT(*) FILTER (WHERE n.read_at IS NULL) AS unread,COALESCE(MAX(n.id),0) AS latest
+ SELECT COUNT(*) FILTER (WHERE n.read_at IS NULL AND `+connectionNoticeCurrentSQL+`) AS unread,COALESCE(MAX(n.id),0) AS latest,
+ COUNT(*) FILTER (WHERE n.read_at IS NULL AND n.event_kind IN('friend_requested','vault_invite_requested','shared_invite_requested') AND `+connectionNoticeCurrentSQL+`) AS request_unread
  FROM account_connection_notifications n WHERE n.recipient_account_id=$1::uuid AND n.event_kind=ANY($2::text[])
- ) connections`, accountID, connectionKinds).Scan(&page.Unread, &page.LatestID)
+ ) connections`, accountID, connectionKinds).Scan(&page.Unread, &page.LatestID, &page.RequestUnread)
 	if err != nil {
 		return page, err
 	}
@@ -111,14 +119,14 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
  COALESCE((SELECT vm.role IN ('owner','manager','editor') FROM vault_members vm WHERE vm.vault_id=p.vault_id
    AND vm.account_id=$1::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL),p.account_id=$1::uuid,FALSE)
    AND t.recording_mode='review' AND COALESCE(e.status='pending',FALSE),
- ''::text,''::text
+ ''::text,''::text,''::text,''::text,''::text,''::text
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  JOIN tabs t ON t.id=n.tab_id LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
  LEFT JOIN tab_notification_reads nr ON nr.notification_id=n.id AND nr.account_id=$1::uuid
  WHERE `+inboxAccess+` AND ($2::bigint=0 OR n.id<$2) ORDER BY n.id DESC LIMIT 51
  ) UNION ALL (
- SELECT n.id,''::text,''::text,0,n.event_kind,''::text,n.actor_label,n.created_at,n.read_at IS NOT NULL,
- 0,''::text,''::text,FALSE,n.actor_account_id::text,COALESCE(n.vault_label,'')
+ SELECT n.id,''::text,''::text,0,n.event_kind,''::text,n.actor_label,n.created_at,(n.read_at IS NOT NULL OR NOT (`+connectionNoticeCurrentSQL+`)),
+ 0,''::text,''::text,FALSE,n.actor_account_id::text,COALESCE(n.vault_label,''),n.recipient_account_id::text,n.source_id::text,COALESCE(n.vault_id::text,''),COALESCE(n.detail,'')
  FROM account_connection_notifications n
  WHERE n.recipient_account_id=$1::uuid AND n.event_kind=ANY($3::text[]) AND ($2::bigint=0 OR n.id<$2)
  ORDER BY n.id DESC LIMIT 51
@@ -131,22 +139,17 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
 		var item InboxItem
 		var id int64
 		var at time.Time
-		var actor, direction, currency, vault string
+		var actor, direction, currency, vault, detail string
 		var amount int64
 		var canReview bool
-		if err = rows.Scan(&id, &item.TabID, &item.Role, &item.Rev, &item.Kind, &item.EntryID, &actor, &at, &item.Read, &amount, &direction, &currency, &canReview, &item.ActorAccountID, &vault); err != nil {
+		if err = rows.Scan(&id, &item.TabID, &item.Role, &item.Rev, &item.Kind, &item.EntryID, &actor, &at, &item.Read, &amount, &direction, &currency, &canReview, &item.ActorAccountID, &vault, &item.RecipientAccountID, &item.SourceID, &item.VaultID, &detail); err != nil {
 			return page, err
 		}
 		item.ID = strconv.FormatInt(id, 10)
 		item.CreatedAtMS = at.UnixMilli()
-		switch item.Kind {
-		case "friend_accepted":
-			item.Body = friendAcceptedBody(locale, actor)
-		case "vault_invite_rejected":
-			item.Body = vaultInviteRejectedBody(locale, actor, vault)
-		case "vault_invite_accepted":
-			item.Body = vaultInviteAcceptedBody(locale, actor, vault)
-		default:
+		if item.SourceID != "" {
+			item.Body = connectionNoticeBody(item.Kind, locale, actor, vault, detail)
+		} else {
 			item.Body = detailedPushBody(item.Kind, locale, actor, amount, direction, currency, item.Role, canReview)
 		}
 		page.Items = append(page.Items, item)
@@ -373,6 +376,9 @@ func vaultInviteAcceptedBody(locale, actor, vault string) string {
 }
 
 func detailedPushBody(kind, locale, actor string, minor int64, direction, currency, recipient string, canReview bool) string {
+	if kind == "settled" || kind == "unlinked" {
+		return tabLifecycleBody(kind, locale, actor)
+	}
 	locale = applocale.Normalize(locale)
 	actor = notificationLabel(actor)
 	if actor == "" {

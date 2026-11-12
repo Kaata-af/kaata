@@ -279,7 +279,8 @@ func TestNotificationPreferencesShapeActualProviderPayload(t *testing.T) {
 				t.Fatal("silent policy sent an iOS sound")
 			}
 			data := payload["data"].(map[string]any)
-			if data["entry_id"] != entry.Entry.ID || len(data) > 6 {
+			notificationID, hasID := data["notification_id"].(string)
+			if data["entry_id"] != entry.Entry.ID || !hasID || notificationID == "" || len(data) > 7 {
 				t.Fatal("notification lost navigation or gained private money data", data)
 			}
 			if _, err := f.pool.Exec(ctx, "DELETE FROM tab_push_outbox"); err != nil {

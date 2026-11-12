@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { startTabSyncLoop } from "../lib/tabs/sync";
+import { startNotificationObserver } from "../lib/notification-observer";
 
 // Mutual-tab sync host (docs/mutual-tab-design.md §4.6). Mounts once at the
 // app root beside <AutoSync/> and starts the tab loop: syncAllTabs on start,
@@ -13,5 +14,6 @@ import { startTabSyncLoop } from "../lib/tabs/sync";
 // for a signed-in legacy claim, never as ongoing read/write authority.
 export function TabSync() {
   useEffect(() => startTabSyncLoop(), []);
+  useEffect(() => startNotificationObserver(), []);
   return null;
 }

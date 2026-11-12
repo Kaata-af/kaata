@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 	"github.com/matee/kaata-backend/internal/httpx"
 	"github.com/matee/kaata-backend/internal/memberreadmission"
 )
@@ -74,6 +75,12 @@ func consentMemberReadmission(ctx context.Context, tx pgx.Tx, in AcceptInviteInp
 			map[string]any{"kind": "member_readmission", "invite_id": requestID, "device_id": ready.DeviceID}); err != nil {
 			return AcceptInviteResult{}, err
 		}
+		if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_return_requested", SourceID: requestID, RecipientID: inviter, ActorID: in.AccountID, VaultID: vaultID, Detail: out.Role}); err != nil {
+			return AcceptInviteResult{}, err
+		}
+	}
+	if err := connectionnotice.Handled(ctx, tx, "vault_invite_requested", requestID); err != nil {
+		return AcceptInviteResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return AcceptInviteResult{}, err

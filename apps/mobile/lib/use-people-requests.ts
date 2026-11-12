@@ -5,6 +5,7 @@ import { getSessionAccountIdSync, onAccountIdentityChanged } from "./db-tx";
 import { observeIncomingRequests, type IncomingRequestSnapshot } from "./incoming-request-cue";
 import { declinePeopleRequest, listPeopleRequests, type PeopleRequest } from "./people-connections";
 import { TabApiError } from "./tabs/errors";
+import { onNotificationInboxChanged, notifyNotificationInboxChanged } from "./notification-events";
 
 /** Invitations stay in the existing inbox. No ledger or contacts are created
  * on receipt; only the normal join screen may accept an invitation. */
@@ -26,10 +27,15 @@ export function usePeopleRequests() {
   const sequence = useRef(0);
   const active = useRef(false);
   const busy = useRef(false);
+  const refreshPending = useRef(false);
   const observed = useRef<IncomingRequestSnapshot | null>(null);
   const isCurrent = () => !!account && active.current && currentScope() === scope;
   const reload = useCallback(async () => {
-    if (!account || currentScope() !== scope || !active.current || busy.current) return;
+    if (!account || currentScope() !== scope || !active.current) return;
+    if (busy.current) {
+      refreshPending.current = true;
+      return;
+    }
     const run = ++sequence.current;
     const current = () => active.current && run === sequence.current && currentScope() === scope;
     busy.current = true;
@@ -51,16 +57,26 @@ export function usePeopleRequests() {
         setFailure({ scope, failed: !(error instanceof TabApiError && error.status === 404) });
       }
     } finally {
-      if (run === sequence.current) busy.current = false;
+      if (run === sequence.current) {
+        busy.current = false;
+        if (refreshPending.current) {
+          refreshPending.current = false;
+          void reload();
+        }
+      }
     }
   }, [account, scope]);
   useFocusEffect(
     useCallback(() => {
       active.current = true;
+      refreshPending.current = false;
       observed.current = null;
       busy.current = false;
       setFailure(null);
       void reload();
+      const offNotice = onNotificationInboxChanged(({ account: who }) => {
+        if (who === account) void reload();
+      });
       const listener = AppState.addEventListener("change", (state) => {
         if (state === "active") void reload();
         else observed.current = null;
@@ -70,9 +86,11 @@ export function usePeopleRequests() {
       }, 60_000);
       return () => {
         active.current = false;
+        refreshPending.current = false;
         sequence.current++;
         busy.current = false;
         listener.remove();
+        offNotice();
         clearInterval(timer);
       };
     }, [reload]),
@@ -88,6 +106,7 @@ export function usePeopleRequests() {
           ? { ...previous, rows: previous.rows.filter((item) => item.id !== id) }
           : previous,
       );
+      if (account) notifyNotificationInboxChanged(account, "local");
     }
   };
   return {

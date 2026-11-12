@@ -19,3 +19,12 @@ export function notificationVars(link: TabLink, entry: TabEntryRow, fallback: st
     amount: `\u2066${sign}${minorToWire(entry.amount_minor)} ${link.currency}\u2069`,
   };
 }
+
+/** Completed ledger milestones have their own copy, including after unlinking. */
+export function tabLifecycleNotificationKey(
+  kind: string,
+): "tab.notify.settled" | "tab.notify.unlinked" | null {
+  if (kind === "settled") return "tab.notify.settled";
+  if (kind === "unlinked") return "tab.notify.unlinked";
+  return null;
+}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 )
 
 // Account deletion locks account before vault. Push must acquire every account
@@ -23,23 +24,46 @@ func lockPushAccounts(ctx context.Context, tx pgx.Tx, in PushInput) (map[uuid.UU
 			ids[id] = true
 		}
 	}
+	notifyAdmins := false
 	for _, ev := range in.Events {
+		if ev.EventType == EventVaultMemberRemoved {
+			notifyAdmins = true
+		}
 		if ev.ActorAccountID != nil {
 			add(*ev.ActorAccountID)
 		}
 		if IsMembershipEventType(ev.EventType) {
 			var p struct {
-				AccountID string `json:"account_id"`
-				Witness   *struct {
+				AccountID         string `json:"account_id"`
+				OwnershipTransfer *struct {
+					Authorization struct {
+						Grant struct {
+							FromAccountID string `json:"from_account_id"`
+						} `json:"grant"`
+					} `json:"authorization"`
+				} `json:"ownership_transfer"`
+				Witness *struct {
 					InviterAccountID string `json:"inviter_account_id"`
 				} `json:"witness"`
 			}
 			if json.Unmarshal(ev.Payload, &p) == nil {
 				add(p.AccountID)
+				if p.OwnershipTransfer != nil {
+					add(p.OwnershipTransfer.Authorization.Grant.FromAccountID)
+				}
 				if p.Witness != nil {
 					add(p.Witness.InviterAccountID)
 				}
 			}
+		}
+	}
+	if notifyAdmins {
+		admins, err := connectionnotice.AdminAccounts(ctx, tx, in.VaultID)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range admins {
+			add(id)
 		}
 	}
 	keys := make([]string, 0, len(ids))

@@ -180,7 +180,7 @@ func (s *Service) Settle(ctx context.Context, p Party, in SettleInput) (Settleme
 	if newEntries == 0 {
 		return SettlementResponse{}, ErrSettlementEmpty
 	}
-	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", ""))
+	rev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("settled", ""))
 	if err != nil {
 		return SettlementResponse{}, err
 	}

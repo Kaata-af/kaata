@@ -568,6 +568,10 @@ func TestSelfSignedMemberRemovedIsAcceptedAsLeave(t *testing.T) {
 	f.signEvent(t, &leave, staffPriv)
 
 	requireAccepted(t, f.pushAs(t, staff, leave), 1)
+	var leaveNotices int
+	if err := f.pool.QueryRow(ctx, `SELECT COUNT(*) FROM account_connection_notifications WHERE event_kind='vault_member_left' AND source_id=$1::uuid AND actor_account_id=$2::uuid AND recipient_account_id=$3::uuid`, leave.EventID, staff, f.ownerAcct).Scan(&leaveNotices); err != nil || leaveNotices != 1 {
+		t.Fatalf("self-leave notice=%d: %v", leaveNotices, err)
+	}
 	if role := f.memberRow(t, staff); role != "" {
 		t.Errorf("staff still active after self-leave fold: role %q", role)
 	}

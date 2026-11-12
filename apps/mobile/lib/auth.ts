@@ -2674,13 +2674,28 @@ export async function signOut(): Promise<void> {
   const jwt = await SecureStore.getItemAsync(SESSION_KEY);
   if (jwt) {
     try {
+      const notifications = await import("./tabs/notify");
+      await notifications.unregisterAccountNotificationPush({
+        bindingVersion,
+        jwt,
+        accountId: getAccountIdSync(),
+      });
+    } catch {
+      /* Device sign-out must work offline too. */
+    }
+    const signoutController = new AbortController();
+    const signoutTimeout = setTimeout(() => signoutController.abort(), 3500);
+    try {
       const baseUrl = await getBackendUrl();
       await fetch(`${baseUrl}/v1/auth/signout`, {
         method: "POST",
         headers: { Authorization: `Bearer ${jwt}` },
+        signal: signoutController.signal,
       });
     } catch {
       // network failure — don't block the local wipe
+    } finally {
+      clearTimeout(signoutTimeout);
     }
   }
   await mutateLocalSession(async () => {

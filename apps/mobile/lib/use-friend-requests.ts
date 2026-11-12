@@ -11,6 +11,7 @@ import {
 } from "./friends-api";
 import { observeIncomingRequests, type IncomingRequestSnapshot } from "./incoming-request-cue";
 import { TabApiError } from "./tabs/errors";
+import { onNotificationInboxChanged, notifyNotificationInboxChanged } from "./notification-events";
 
 type RequestSnapshot = { scope: string; rows: FriendRequest[]; failed: boolean };
 type RequestAction = { scope: string; id: string; action: "accept" | "decline" };
@@ -37,6 +38,7 @@ export function useFriendRequests() {
   const focused = useRef(false);
   const sequence = useRef(0);
   const loading = useRef(false);
+  const refreshPending = useRef(false);
   const commit = useCallback((next: RequestSnapshot) => {
     latest.current = next;
     setSnapshot(next);
@@ -50,7 +52,11 @@ export function useFriendRequests() {
     latest.current?.scope === scope &&
     latest.current.rows.some((row) => row.id === id);
   const reload = useCallback(async () => {
-    if (!isCurrent() || loading.current) return;
+    if (!isCurrent()) return;
+    if (loading.current) {
+      refreshPending.current = true;
+      return;
+    }
     const run = ++sequence.current;
     const current = () => isCurrent() && run === sequence.current;
     const guard = () => {
@@ -83,16 +89,26 @@ export function useFriendRequests() {
         });
       }
     } finally {
-      if (run === sequence.current) loading.current = false;
+      if (run === sequence.current) {
+        loading.current = false;
+        if (refreshPending.current) {
+          refreshPending.current = false;
+          void reload();
+        }
+      }
     }
   }, [commit, isCurrent, scope]);
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
+      refreshPending.current = false;
       loading.current = false;
       cueBaseline.current = null;
       setResponding(null);
       void reload();
+      const offNotice = onNotificationInboxChanged(({ account: who }) => {
+        if (who === account) void reload();
+      });
       const subscription = AppState.addEventListener("change", (state) => {
         if (state === "active") void reload();
         else cueBaseline.current = null;
@@ -102,10 +118,12 @@ export function useFriendRequests() {
       }, 60_000);
       return () => {
         focused.current = false;
+        refreshPending.current = false;
         activeResponse.current = null;
         sequence.current++;
         loading.current = false;
         subscription.remove();
+        offNotice();
         clearInterval(timer);
       };
     }, [reload]),
@@ -144,6 +162,7 @@ export function useFriendRequests() {
       if (previous?.scope === scope) {
         commit({ ...previous, rows: previous.rows.filter((row) => row.id !== id) });
       }
+      if (account) notifyNotificationInboxChanged(account, "local");
     } finally {
       if (activeResponse.current === operation) {
         activeResponse.current = null;

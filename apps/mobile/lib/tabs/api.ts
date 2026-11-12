@@ -605,6 +605,9 @@ export type InboxItem = {
   kind: string;
   entry_id: string;
   actor_account_id?: string;
+  recipient_account_id?: string;
+  source_id?: string;
+  vault_id?: string;
   body: string;
   created_at_ms: number;
   read: boolean;
@@ -612,12 +615,13 @@ export type InboxItem = {
 export type InboxPage = {
   items: InboxItem[];
   unread: number;
+  request_unread?: number;
   latest_id: string;
   next_before: string;
 };
 
 const INBOX_CONNECTIONS_QUERY =
-  "include_connections=1&include_vault_invite_results=1&include_vault_invite_acceptances=1";
+  "include_connections=1&include_vault_invite_results=1&include_vault_invite_acceptances=1&include_connection_events=1";
 
 export async function fetchInbox(locale: string, before = ""): Promise<InboxPage> {
   return request(

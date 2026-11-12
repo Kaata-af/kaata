@@ -4,6 +4,7 @@ import { AppState } from "react-native";
 import { getSessionAccountIdSync, onAccountIdentityChanged } from "./db-tx";
 import { observeIncomingRequests, type IncomingRequestSnapshot } from "./incoming-request-cue";
 import { ApiError } from "./vault-api";
+import { onNotificationInboxChanged, notifyNotificationInboxChanged } from "./notification-events";
 import {
   declineVaultMemberRequest,
   listVaultMemberRequests,
@@ -32,6 +33,7 @@ export function useVaultMemberRequests() {
   const sequence = useRef(0);
   const active = useRef(false);
   const busy = useRef(false);
+  const refreshPending = useRef(false);
   const observed = useRef<IncomingRequestSnapshot | null>(null);
   const commit = useCallback((next: RequestSnapshot) => {
     latest.current = next;
@@ -44,7 +46,11 @@ export function useVaultMemberRequests() {
     latest.current?.scope === scope &&
     latest.current.rows.some((row) => row.id === id);
   const reload = useCallback(async () => {
-    if (!account || currentScope() !== scope || !active.current || busy.current) return;
+    if (!account || currentScope() !== scope || !active.current) return;
+    if (busy.current) {
+      refreshPending.current = true;
+      return;
+    }
     const run = ++sequence.current;
     const current = () => active.current && run === sequence.current && currentScope() === scope;
     busy.current = true;
@@ -64,16 +70,26 @@ export function useVaultMemberRequests() {
       if (current())
         setFailure({ scope, failed: !(error instanceof ApiError && error.status === 404) });
     } finally {
-      if (run === sequence.current) busy.current = false;
+      if (run === sequence.current) {
+        busy.current = false;
+        if (refreshPending.current) {
+          refreshPending.current = false;
+          void reload();
+        }
+      }
     }
   }, [account, scope, commit]);
   useFocusEffect(
     useCallback(() => {
       active.current = true;
+      refreshPending.current = false;
       observed.current = null;
       busy.current = false;
       setFailure(null);
       void reload();
+      const offNotice = onNotificationInboxChanged(({ account: who }) => {
+        if (who === account) void reload();
+      });
       const listener = AppState.addEventListener("change", (state) => {
         if (state === "active") void reload();
         else observed.current = null;
@@ -83,9 +99,11 @@ export function useVaultMemberRequests() {
       }, 60_000);
       return () => {
         active.current = false;
+        refreshPending.current = false;
         sequence.current++;
         busy.current = false;
         listener.remove();
+        offNotice();
         clearInterval(timer);
       };
     }, [reload]),
@@ -98,6 +116,7 @@ export function useVaultMemberRequests() {
       sequence.current++;
       busy.current = false;
       commit({ scope, rows: previous.rows.filter((item) => item.id !== id) });
+      if (account) notifyNotificationInboxChanged(account, "local");
     }
   };
   return {

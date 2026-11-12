@@ -46,7 +46,11 @@ func (s *Service) StartPush(ctx context.Context, enabled bool, accessToken strin
 					log.Printf("tabs push: delivery attempt failed (%T)", err)
 					break
 				}
-				if !more {
+				accountMore, accountErr := s.deliverAccountPush(ctx)
+				if accountErr != nil {
+					log.Printf("account push: delivery attempt failed (%T)", accountErr)
+				}
+				if !more && !accountMore {
 					break
 				}
 			}
@@ -283,9 +287,8 @@ func (p *pushClient) post(ctx context.Context, path string, body any, out any) e
 // read in the app (a review reads it server-side) must not ring the phone
 // afterwards, and an entry_created request to review a tally is moot once
 // that tally is reviewed or voided. Notification-only recorded tallies need
-// no review and remain eligible. Closing a tab stops
-// all remote alerts, including outcomes of its remaining pending reviews;
-// the durable inbox and live history still record those decisions.
+// no review and remain eligible. Closure stops new tally requests but does
+// not silence unlink notices or valid decisions on earlier pending entries.
 // An invalid job is deleted.
 func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
@@ -307,7 +310,7 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
   (t.recording_mode='review' AND COALESCE((SELECT vm.role IN ('owner','manager','editor') FROM vault_members vm
     WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL),s.account_id=p.account_id,FALSE)),
 	  s.renewed_at>NOW()-INTERVAL '30 days' AND o.created_at>NOW()-INTERVAL '24 hours'
-	  AND t.closed_at IS NULL
+	  AND (t.closed_at IS NULL OR o.event_kind IN ('settled','unlinked','invitation_accepted','invitation_declined','entry_accepted','entry_rejected','entry_voided','entry_removal_approved','entry_removal_declined'))
 	  AND EXISTS(SELECT 1 FROM auth_credentials ac WHERE ac.install_id=s.install_id AND ac.account_id=s.account_id AND ac.revoked_at IS NULL)
  AND NOT EXISTS(SELECT 1 FROM vault_members removed WHERE removed.vault_id=p.vault_id
    AND removed.account_id=s.account_id AND removed.revoked_at IS NOT NULL
@@ -359,12 +362,13 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 		var sendErr error
 		if receipt == nil {
 			body := pushBodyFor(kind, locale, canReview)
-			var actor, direction, currency string
+			var actor, direction, currency, notificationID string
+			var actorID *string
 			var minor int64
-			err = tx.QueryRow(ctx, `SELECT n.actor_label,COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency
+			err = tx.QueryRow(ctx, `SELECT n.actor_label,COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency,n.id::text,n.actor_account_id::text
  FROM tab_notifications n JOIN tabs t ON t.id=n.tab_id
  LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
- WHERE n.tab_id=$1::uuid AND n.rev=$2`, tabID, rev).Scan(&actor, &minor, &direction, &currency)
+ WHERE n.tab_id=$1::uuid AND n.rev=$2`, tabID, rev).Scan(&actor, &minor, &direction, &currency, &notificationID, &actorID)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return false, err
 			}
@@ -375,14 +379,18 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 				body = notificationBodyWithPreferences(*preferences, kind, locale, actor, minor, direction, currency, role, canReview)
 			}
 			data := map[string]any{"tab_id": tabID, "rev": rev, "kind": kind, "role": role}
-			var actorID *string
-			if err := tx.QueryRow(ctx, "SELECT actor_account_id::text FROM tab_notifications WHERE tab_id=$1::uuid AND rev=$2", tabID, rev).Scan(&actorID); err == nil && actorID != nil {
+			if notificationID != "" {
+				data["notification_id"] = notificationID
+			}
+			if actorID != nil {
 				data["actor_account_id"] = *actorID
 			}
 			if entryID != "" {
 				data["entry_id"] = entryID
 			}
 			payload := notificationPayloadWithPreferences(token, body, data, preferences)
+			stable := "kaata-tab-" + uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%s:%s:%s:%d", subID, tabID, role, rev))).String()
+			payload["collapseId"], payload["tag"] = stable, stable
 			if kind == "entry_created" && canReview {
 				// Do not put buttons on an entry already reviewed/voided/closed.
 				var current bool
@@ -449,6 +457,9 @@ func pushBody(kind, locale string) string { return pushBodyFor(kind, locale, tru
 // party's own account, or an owner/manager/editor of its kaata) is asked to
 // accept or reject; a clerk or viewer is told what happened (audit #7).
 func pushBodyFor(kind, locale string, canReview bool) string {
+	if kind == "settled" || kind == "unlinked" {
+		return tabLifecycleBody(kind, locale, "")
+	}
 	locale = applocale.Normalize(locale)
 	if kind == "invitation_accepted" || kind == "invitation_declined" {
 		return sharedInvitationResultBody(kind, locale)

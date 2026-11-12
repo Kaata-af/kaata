@@ -1057,6 +1057,9 @@ mocks["../lib/tabs/use-inbox"] = {
   }),
 };
 mocks["../lib/tabs/open-notification"] = { openTabNotification: async () => {} };
+mocks["../lib/notification-events"] = require("../notification-events");
+mocks["../lib/open-connection-notification"] = { openConnectionNotification: async () => {} };
+mocks["../lib/db-tx"] = { getSessionAccountIdSync: () => "test-account" };
 mocks["../lib/use-customer-reminders"] = { useCustomerReminders: () => ({ due: [], rows: [] }) };
 const emptyRequests = () => ({
   rows: [],

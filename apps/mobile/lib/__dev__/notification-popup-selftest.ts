@@ -149,6 +149,17 @@ function fixture(full = false) {
       "../lib/i18n": { t: (key: string) => key },
       "../lib/tokens": { TOUCH_MIN: 44, typography: {}, icon: { row: 22 }, radius: { lg: 16 } },
       "../lib/tabs/use-inbox": { useInbox: () => inbox },
+      "../lib/notification-events": require("../notification-events"),
+      "../lib/db-tx": { getSessionAccountIdSync: () => "test-account" },
+      "../lib/open-connection-notification": {
+        openConnectionNotification: async (item: any, current: () => boolean) => {
+          if (current())
+            routes.push({
+              pathname: "/people/[accountId]",
+              params: { accountId: item.actor_account_id },
+            });
+        },
+      },
       "../lib/tabs/open-notification": {
         openTabNotification: async (...args: any[]) => {
           opens.push(args);
@@ -662,11 +673,19 @@ async function main() {
     const row = nodes(confirmations.hooks.tree).find((node) => node.props.item === rejected)!;
     assert.ok(row, "a rejected invitation appears in the inbox");
     row.props.onPress();
+    confirmations.flushTimers();
     await settleUI();
     assert.deepEqual(confirmations.reads, ["43"]);
     assert.deepEqual(confirmations.opens, []);
-    assert.deepEqual(confirmations.routes, [], "reading a rejection never navigates");
-    if (!full) assert.equal(confirmations.find("Modal").props.visible, true);
+    assert.deepEqual(
+      confirmations.routes,
+      [{ pathname: "/people/[accountId]", params: { accountId: "peer-account" } }],
+      "responses use the connection destination resolver",
+    );
+    if (!full) {
+      confirmations.render();
+      assert.equal(confirmations.find("Modal").props.visible, false);
+    }
     confirmations.hooks.unmount();
   }
   const friend = { id: "friend-request", from: { account_id: "peer-account", name: "Peer" } };

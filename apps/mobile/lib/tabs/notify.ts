@@ -5,26 +5,44 @@ import { isRunningInExpoGo } from "expo";
 import Constants from "expo-constants";
 import * as TaskManager from "expo-task-manager";
 import { getAppMeta, setAppMeta } from "../db";
-import { getAccountIdSync, getInstallIdSync, getSessionAccountIdSync } from "../db-tx";
+import {
+  getAccountIdSync,
+  getInstallIdSync,
+  getSessionAccountIdSync,
+  onAccountIdentityChanged,
+} from "../db-tx";
 import { applyForCurrentSession, captureCurrentSession } from "../auth";
 import { getLocale, subscribeLocale, t, tIn, type LocaleCode } from "../i18n";
 import { playForegroundNotificationCue } from "../foreground-notification-cue";
+import { registerAccountNotifications } from "../account-notifications";
+import { claimNotificationDelivery } from "../notification-delivery";
+import {
+  isConnectionNotice,
+  noticeAllowedAfterUnlink,
+  notificationEventKey,
+  notifyNotificationInboxChanged,
+} from "../notification-events";
 import { getTabLink, listTabLinks, listTabLinksForId, queueNotificationReview } from "./db";
-import { registerTabNotifications, resolveTabAuth } from "./api";
+import { registerTabNotifications, resolveTabAuth, type InboxItem } from "./api";
 import { setTabPushRefreshHook, syncTab, requestTabSync } from "./sync";
 import { onTabApplied } from "./events";
 import { markInboxHandled, onInboxReadsApplied, type InboxReadSpec } from "./inbox-reads";
 import { setTabNotifyHook } from "./link";
 import { parseTabReview, TAB_ACCEPT, TAB_REJECT } from "./notification-data";
-import { notificationVars } from "./notification-text";
+import { notificationVars, tabLifecycleNotificationKey } from "./notification-text";
 import type { TabEntryRow, TabLink } from "./types";
 import { isTabVaultRevoked } from "./binding-access";
-import type { NotificationResponse, NotificationTaskPayload } from "expo-notifications";
+import type {
+  DevicePushToken,
+  NotificationResponse,
+  NotificationTaskPayload,
+} from "expo-notifications";
 import {
   notificationAllowed,
   notificationChannel,
   notificationChannelDelivery,
   notificationTimeZone,
+  type NotificationPolicy,
 } from "../notification-policy";
 import { notificationPreferencesSupported } from "../notification-capabilities";
 import {
@@ -46,6 +64,25 @@ let registrationTimeZone: string | null = null;
 let registrationBindings = "";
 let registering: Promise<void> | null = null;
 let notificationsPromise: Promise<typeof import("expo-notifications")> | null = null;
+let registrationEpoch = 0;
+let registrationController: AbortController | null = null;
+let signingOutAccount: string | null = null;
+let nativeUnregistration: Promise<void> | null = null;
+let latestDevicePushToken: DevicePushToken | null = null;
+let tokenAcquisitionEpoch: number | null = null;
+async function bounded(work: Promise<unknown>, milliseconds: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      work.catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, milliseconds);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 const processing = new Map<string, Promise<void>>();
 
 function tabCueKey(owner: string, tabId: string, entryId: string, rev: number | string): string {
@@ -68,9 +105,12 @@ async function linkForNotification(data: unknown) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-/** Closing sharing mutes alerts, independently of the remaining review rights. */
+/** Final decisions remain relevant after sharing ends. */
 async function isClosedTabNotice(data: unknown): Promise<boolean> {
-  return (await linkForNotification(data))?.closed_at != null;
+  return (
+    (await linkForNotification(data))?.closed_at != null &&
+    !noticeAllowedAfterUnlink((data as { kind?: unknown } | null)?.kind)
+  );
 }
 
 async function notifications() {
@@ -252,32 +292,50 @@ async function bootstrap() {
           .catch(() => false));
       const reminder = data?.kind === "customer_reminder";
       const creditAlert = data?.kind === "credit_alert";
+      const connection = isConnectionNotice(data ?? {});
       const kind = String(data?.kind ?? "updated");
       const ownNotice =
         typeof data?.actor_account_id === "string" && data.actor_account_id === getAccountIdSync();
       const current = () =>
         owner === notificationOwnerScope() && revision === notificationPreferencesRevision();
-      const allowed =
+      const account = getSessionAccountIdSync();
+      const recipientAllowed =
+        data?.target === "connection" || connection
+          ? connection && !!account && data?.recipient_account_id === account
+          : true;
+      const viewAllowed = !link || !(await isTabVaultRevoked(link.vault_id));
+      let allowed =
         creditAllowed &&
+        recipientAllowed &&
+        viewAllowed &&
         current() &&
         (reminder || creditAlert
           ? data?.owner_scope === owner
           : getSessionAccountIdSync() != null) &&
         notificationAllowed(policy, kind) &&
         (reminder || (!closed && !ownNotice));
+      const eventKey = reminder || creditAlert ? null : notificationEventKey(owner, data ?? {});
+      if (allowed && eventKey && account)
+        allowed = await claimNotificationDelivery(account, eventKey, current);
       const show =
         allowed &&
         (reminder ||
           policy.foreground ||
           AppState.currentState === "background" ||
           AppState.currentState === "inactive");
-      if (allowed && !show && AppState.currentState === "active" && (link || creditAlert)) {
+      if (
+        allowed &&
+        !show &&
+        AppState.currentState === "active" &&
+        (link || creditAlert || connection)
+      ) {
         const key =
-          typeof data?.tab_id === "string" &&
+          eventKey ??
+          (typeof data?.tab_id === "string" &&
           typeof data?.entry_id === "string" &&
           (typeof data?.rev === "number" || typeof data?.rev === "string")
             ? tabCueKey(owner, data.tab_id, data.entry_id, data.rev)
-            : `${owner}:notification:${notification.request.identifier}`;
+            : `${owner}:notification:${notification.request.identifier}`);
         playForegroundNotificationCue(
           policy,
           () => current() && notificationAllowed(policy, kind),
@@ -296,8 +354,26 @@ async function bootstrap() {
     void handleResponse(r);
   });
   n.addNotificationReceivedListener((r) => {
-    const id = r.request.content.data?.tab_id;
+    const data = r.request.content.data;
+    const id = data?.tab_id;
     if (typeof id === "string") requestTabSync(id);
+    const account = getSessionAccountIdSync();
+    if (account && (!isConnectionNotice(data ?? {}) || data?.recipient_account_id === account))
+      notifyNotificationInboxChanged(account, "push");
+  });
+  n.addPushTokenListener((token) => {
+    if (latestDevicePushToken && JSON.stringify(latestDevicePushToken) === JSON.stringify(token))
+      return;
+    const initial = latestDevicePushToken == null;
+    latestDevicePushToken = token;
+    // SDK 58 emits this event during getDevicePushTokenAsync itself. Its
+    // initial token is already being exchanged by our in-flight request;
+    // invalidating that request would prevent the first registration forever.
+    if (initial && tokenAcquisitionEpoch === registrationEpoch) return;
+    nextRegistration = 0;
+    registrationEpoch++;
+    registrationController?.abort();
+    void syncTabPushSubscriptions();
   });
   await configure(n);
   if (Platform.OS === "android") await n.registerTaskAsync(TASK);
@@ -308,8 +384,9 @@ async function bootstrap() {
 if (!isRunningInExpoGo()) void bootstrap().catch(() => undefined);
 
 export async function syncTabPushSubscriptions(): Promise<void> {
-  const account = getAccountIdSync();
-  if (!account) return;
+  const account = getSessionAccountIdSync();
+  if (!account || account === signingOutAccount) return;
+  const epoch = registrationEpoch;
   let links: TabLink[];
   try {
     const candidates = await listTabLinks();
@@ -330,6 +407,8 @@ export async function syncTabPushSubscriptions(): Promise<void> {
   if (registering) {
     return registering.then(() => {
       if (
+        nextRegistration === 0 ||
+        epoch !== registrationEpoch ||
         getAccountIdSync() !== registrationAccount ||
         bindings !== registrationBindings ||
         getLocale() !== registrationLocale ||
@@ -343,7 +422,9 @@ export async function syncTabPushSubscriptions(): Promise<void> {
   const preferencesRevision = notificationPreferencesRevision();
   const timeZone = notificationTimeZone();
   const current = () =>
-    account === getAccountIdSync() &&
+    epoch === registrationEpoch &&
+    account !== signingOutAccount &&
+    account === getSessionAccountIdSync() &&
     locale === getLocale() &&
     preferencesRevision === notificationPreferencesRevision() &&
     timeZone === notificationTimeZone();
@@ -362,9 +443,12 @@ export async function syncTabPushSubscriptions(): Promise<void> {
     registrationTimeZone = timeZone;
   }
   if (Date.now() < nextRegistration) return Promise.resolve();
-  registering = (async () => {
+  const work = (async () => {
     await drainNativeReviews();
-    if (!current() || !links.length) return;
+    if (!current()) return;
+    const session = await captureCurrentSession();
+    if (!current() || !session.jwt || session.accountId !== account) return;
+    registrationController = new AbortController();
     const n = await notifications();
     if (!n) return;
     await configure(n);
@@ -384,17 +468,58 @@ export async function syncTabPushSubscriptions(): Promise<void> {
       permission.canAskAgain &&
       (await getAppMeta(ASKED)) !== "1"
     ) {
-      await resolveTabAuth(links[0]);
+      await applyForCurrentSession(session, async () => {});
       if (!current()) return;
       permission = await n.requestPermissionsAsync();
       await setAppMeta(ASKED, "1");
     }
     const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
     if (!projectId) return;
-    const token = allowed() ? (await n.getExpoPushTokenAsync({ projectId })).data : "";
+    // A previous account's native token deletion must finish before a new
+    // registration obtains its token, even if sign-out's bounded wait ended.
+    await nativeUnregistration;
+    if (!current()) return;
+    let token = "";
+    if (allowed()) {
+      tokenAcquisitionEpoch = epoch;
+      try {
+        // Supplying the listener's native token avoids asking native for the
+        // same token again (which would emit the listener recursively).
+        token = (
+          await n.getExpoPushTokenAsync({
+            projectId,
+            ...(latestDevicePushToken ? { devicePushToken: latestDevicePushToken } : {}),
+          })
+        ).data;
+      } finally {
+        if (tokenAcquisitionEpoch === epoch) tokenAcquisitionEpoch = null;
+      }
+    }
+    if (!current()) return;
+    await applyForCurrentSession(session, async () => {});
+    if (!current()) return;
     let enabled = false;
     let failed = false;
     let supported: boolean | undefined;
+    try {
+      const result = await registerAccountNotifications(
+        session,
+        token,
+        locale,
+        globalPolicy,
+        registrationController.signal,
+      );
+      if (!current()) return;
+      enabled ||= result.enabled && !!token;
+      await setAppMeta(
+        `account_push_active:${account}`,
+        result.enabled && token ? String(Date.now()) : "0",
+      );
+    } catch {
+      if (!current()) return;
+      failed = true;
+      await setAppMeta(`account_push_active:${account}`, "0");
+    }
     for (const link of links) {
       if (!current()) return;
       if (await isTabVaultRevoked(link.vault_id)) continue;
@@ -456,15 +581,135 @@ export async function syncTabPushSubscriptions(): Promise<void> {
       await setAppMeta("tab_push_error", "credentials_or_network").catch(() => undefined);
     })
     .finally(() => {
-      registering = null;
+      if (registering === work) {
+        registrationController = null;
+        registering = null;
+      }
     });
-  return registering;
+  registering = work;
+  return work;
 }
 
 export async function ensureTabNotificationPermission() {
   nextRegistration = 0;
   await syncTabPushSubscriptions();
 }
+
+/** Polling can win the race with push. Honor optional foreground banners while
+ * the normal native handler claims the same event receipt as remote delivery. */
+export async function presentForegroundInboxNotification(
+  item: InboxItem,
+  policy: NotificationPolicy,
+  isCurrent: () => boolean,
+): Promise<boolean> {
+  const current = () => isCurrent() && AppState.currentState === "active";
+  if (!policy.foreground || !current()) return false;
+  const n = await notifications();
+  if (!n || !current()) return false;
+  const permission = await n.getPermissionsAsync();
+  if (!permission.granted && permission.ios?.status !== n.IosAuthorizationStatus.PROVISIONAL)
+    return false;
+  const key = notificationEventKey(notificationOwnerScope(), item);
+  if (!key || !current()) return false;
+  await configure(n);
+  if (!current()) return false;
+  const lifecycle = tabLifecycleNotificationKey(item.kind);
+  const connection = isConnectionNotice(item);
+  await n.scheduleNotificationAsync({
+    identifier: key,
+    content: {
+      title: t("tab.notify.fallbackTitle"),
+      body:
+        policy.previews === "full"
+          ? lifecycle
+            ? t(lifecycle)
+            : item.body
+          : t("notificationSettings.alert.private"),
+      sound: policy.sound ? "default" : undefined,
+      data: {
+        notification_id: item.id,
+        kind: item.kind,
+        source_id: item.source_id,
+        actor_account_id: item.actor_account_id,
+        recipient_account_id: item.recipient_account_id ?? getSessionAccountIdSync(),
+        ...(connection
+          ? { target: "connection", vault_id: item.vault_id }
+          : { tab_id: item.tab_id, entry_id: item.entry_id, role: item.role, rev: item.rev }),
+      },
+    },
+    trigger: { channelId: notificationChannel(policy) },
+  });
+  if (!current()) await n.dismissNotificationAsync(key).catch(() => undefined);
+  return true;
+}
+
+/** Prevent a token-registration already in flight from undoing sign-out. */
+export async function unregisterAccountNotificationPush(
+  session: import("../auth").SessionSnapshot,
+): Promise<void> {
+  if (!session.accountId || !session.jwt) return;
+  signingOutAccount = session.accountId;
+  registrationEpoch++;
+  nextRegistration = 0;
+  registrationController?.abort();
+  // A native token acquisition can hang offline. Its generation is revoked
+  // above, so it cannot register even if it eventually returns after logout.
+  const previous = registering;
+  if (previous) await bounded(previous, 1000);
+  if (registering === previous) {
+    registering = null;
+    registrationController = null;
+  }
+  const n = await notifications().catch(() => null);
+  if (n) {
+    try {
+      await applyForCurrentSession(session, async () => {
+        latestDevicePushToken = null;
+        const work = n.unregisterForNotificationsAsync().catch(() => undefined);
+        nativeUnregistration = work;
+        void work.finally(() => {
+          if (nativeUnregistration === work) nativeUnregistration = null;
+        });
+      });
+      if (nativeUnregistration) await bounded(nativeUnregistration, 2500);
+    } catch {
+      /* A replacement sign-in owns its native token. */
+    }
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+  try {
+    await registerAccountNotifications(session, "", getLocale(), undefined, controller.signal);
+  } catch {
+    /* Server signout also revokes account/install delivery authority. */
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+onAccountIdentityChanged(() => {
+  signingOutAccount = null;
+  registrationEpoch++;
+  registrationController?.abort();
+  registering = null;
+  registrationController = null;
+  nextRegistration = 0;
+  const owner = notificationOwnerScope();
+  const current = () => owner === notificationOwnerScope();
+  void syncTabPushSubscriptions().catch(() => undefined);
+  void notifications()
+    .then(async (n) => {
+      if (!n) return;
+      const account = getSessionAccountIdSync();
+      for (const shown of await n.getPresentedNotificationsAsync()) {
+        if (!current()) return;
+        const data = shown.request.content.data;
+        if (isConnectionNotice(data ?? {}) && data?.recipient_account_id !== account)
+          await n.dismissNotificationAsync(shown.request.identifier).catch(() => undefined);
+      }
+    })
+    .catch(() => undefined);
+});
 
 // Fallback alerts cover incoming changes when remote delivery is unavailable.
 // Foreground cues do not require an OS banner or notification permission.
@@ -478,7 +723,7 @@ onTabApplied((ev) => {
     const session = await captureCurrentSession();
     if (!session.jwt || !stillCurrent()) return;
     const link = await getTabLink(ev.tabId, ev.vaultId);
-    if (!link || link.closed_at != null || !stillCurrent()) return;
+    if (!link || !stillCurrent()) return;
     const registered = Number(await getAppMeta(pushRegistrationKey(account, link)));
     if (registered && !isRunningInExpoGo() && Date.now() - registered < 2 * 3600_000) return;
     const n = await notifications();
@@ -487,6 +732,7 @@ onTabApplied((ev) => {
     if (!n && !shouldCue()) return;
     let canReview: boolean | undefined;
     for (const change of ev.changes!) {
+      if (link.closed_at != null && !noticeAllowedAfterUnlink(change.kind)) continue;
       if (!notificationAllowed(policy, change.kind)) continue;
       let body =
         change.kind === "entry_created"
@@ -554,7 +800,12 @@ onTabApplied((ev) => {
       }
       // A local unlink can finish while the entry and native adapters load.
       const current = await getTabLink(ev.tabId, ev.vaultId);
-      if (!current || current.closed_at != null || !stillCurrent()) return;
+      if (
+        !current ||
+        (current.closed_at != null && !noticeAllowedAfterUnlink(change.kind)) ||
+        !stillCurrent()
+      )
+        return;
       const latestPolicy = await notificationPolicyForTab(current);
       if (!stillCurrent() || JSON.stringify(latestPolicy) !== JSON.stringify(policy)) return;
       const identifier = `tab:${ev.tabId}:${change.entryId}:${change.rev}`;
@@ -562,6 +813,15 @@ onTabApplied((ev) => {
         const currentPolicy = () => stillCurrent() && notificationAllowed(policy, change.kind);
         if (!currentPolicy()) return;
         if (shouldCue()) {
+          if (
+            !account ||
+            !(await claimNotificationDelivery(
+              account,
+              tabCueKey(notificationOwnerScope(), ev.tabId, change.entryId, change.rev),
+              currentPolicy,
+            ))
+          )
+            return;
           playForegroundNotificationCue(
             policy,
             () => currentPolicy() && shouldCue(),
@@ -614,6 +874,21 @@ onTabApplied((ev) => {
  * spec that names neither rev nor entry vouches for nothing.
  */
 function trayMatches(data: Record<string, unknown> | undefined, spec: InboxReadSpec): boolean {
+  if (
+    "through" in spec &&
+    typeof data?.notification_id === "string" &&
+    /^\d+$/.test(data.notification_id) &&
+    /^\d+$/.test(spec.through)
+  )
+    return (
+      (!isConnectionNotice(data) || data.recipient_account_id === getSessionAccountIdSync()) &&
+      BigInt(data.notification_id) <= BigInt(spec.through)
+    );
+  if (data && isConnectionNotice(data)) {
+    if (data.recipient_account_id !== getSessionAccountIdSync()) return false;
+    if ("through" in spec) return true;
+    return "id" in spec && data.notification_id === spec.id;
+  }
   if (typeof data?.tab_id !== "string") return false;
   if ("through" in spec) return true;
   if (!spec.tab_id || data.tab_id !== spec.tab_id) return false;
@@ -631,10 +906,12 @@ function trayMatches(data: Record<string, unknown> | undefined, spec: InboxReadS
 // server reports (the other phone on the account reviewed it). Best-effort;
 // Expo Go has no tray to clear. One tray read per announcement, batch or not.
 onInboxReadsApplied((specs) => {
+  const owner = notificationOwnerScope();
   void (async () => {
     const n = await notifications();
     if (!n) return;
     for (const shown of await n.getPresentedNotificationsAsync()) {
+      if (owner !== notificationOwnerScope()) return;
       if (specs.some((spec) => trayMatches(shown.request.content.data, spec)))
         await n.dismissNotificationAsync(shown.request.identifier).catch(() => undefined);
     }
@@ -644,33 +921,36 @@ onInboxReadsApplied((specs) => {
 /**
  * The tray against the truth: an "Accept or reject it" notification for a
  * tally that is no longer pending (reviewed by this account's other phone or
- * a kaata member, or cancelled by its author) is moot. Closing a relationship
- * separately mutes ALL of its tray alerts, including review outcomes, while
- * retaining its inbox history and pending review rights. The server drops
- * closed-tab pushes while queued; one that was already delivered
- * — a late FCM arrival after the review, or a phone that got it before the
- * account handled it elsewhere — is only ever cleared here. Runs on return to
- * the foreground and after every pull, reads the local cache only, never
- * throws, and leaves anything it cannot vouch for.
+ * a kaata member, or cancelled by its author) is moot. Closed relationships
+ * suppress stale requests and metadata alerts; final settlement, unlink and
+ * review outcomes remain visible. Runs on foreground and after every pull,
+ * reads the local cache only, and leaves anything it cannot vouch for. A sweep
+ * that started for another account must never dismiss the current account's tray.
  */
 async function sweepTray(): Promise<void> {
+  const owner = notificationOwnerScope();
+  const epoch = registrationEpoch;
+  const current = () => owner === notificationOwnerScope() && epoch === registrationEpoch;
   const n = await notifications();
-  if (!n) return;
+  if (!n || !current()) return;
   const shown = await n.getPresentedNotificationsAsync();
-  if (!shown.length) return;
+  if (!shown.length || !current()) return;
   const { getDb } = await import("../db-tx");
   const db = await getDb();
+  if (!current()) return;
   const links = new Map<string, Awaited<ReturnType<typeof getTabLink>>>();
   for (const s of shown) {
+    if (!current()) return;
     const data = s.request.content.data as Record<string, unknown> | undefined;
     if (typeof data?.tab_id !== "string" || data.kind === "customer_reminder") continue;
     const scope = `${data.tab_id}:${data.role ?? ""}`;
     let link = links.get(scope);
     if (link === undefined) {
       link = await linkForNotification(data);
+      if (!current()) return;
       links.set(scope, link);
     }
-    if (link?.closed_at != null) {
+    if (link?.closed_at != null && !noticeAllowedAfterUnlink(data.kind)) {
       await n.dismissNotificationAsync(s.request.identifier).catch(() => undefined);
       continue;
     }
@@ -683,6 +963,7 @@ async function sweepTray(): Promise<void> {
     const moot =
       row != null &&
       ((row.status !== "pending" && row.status !== "recorded") || row.voided_by_entry_id != null);
+    if (!current()) return;
     if (moot) await n.dismissNotificationAsync(s.request.identifier).catch(() => undefined);
   }
 }
@@ -712,7 +993,10 @@ onNotificationPreferencesChanged(() => {
     if (!n) return;
     for (const shown of await n.getPresentedNotificationsAsync()) {
       if (notificationOwnerScope() !== owner) return;
-      if (typeof shown.request.content.data?.tab_id === "string")
+      if (
+        typeof shown.request.content.data?.tab_id === "string" ||
+        isConnectionNotice(shown.request.content.data ?? {})
+      )
         await n.dismissNotificationAsync(shown.request.identifier).catch(() => undefined);
     }
   };

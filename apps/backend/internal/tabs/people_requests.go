@@ -213,6 +213,12 @@ func (s *Service) SendPeopleRequest(ctx context.Context, account, groupID, recip
 		return out, err
 	}
 	out.GroupID, out.Token, out.CreatedAtMS = groupID, "r_"+out.ID, created.UnixMilli()
+	if _, err = tx.Exec(ctx, `INSERT INTO account_connection_notifications(event_kind,source_id,recipient_account_id,actor_account_id,actor_label,vault_label)
+ SELECT 'shared_invite_requested',$1::uuid,$2::uuid,a.id,COALESCE(a.display_name,a.name,''),v.name
+ FROM accounts a LEFT JOIN vaults v ON v.vault_id=$4::uuid WHERE a.id=$3::uuid
+ ON CONFLICT DO NOTHING`, out.ID, recipient, account, g.AVault); err != nil {
+		return out, err
+	}
 	// Turning a public link into a targeted invitation adds an expiry and a
 	// recipient restriction. Publish that metadata to all sender-side devices.
 	ids, err := groupTabIDs(ctx, tx, groupID)
@@ -296,6 +302,9 @@ func (s *Service) DeclinePeopleRequest(ctx context.Context, account, id string) 
 	}
 	var ids []string
 	if changed {
+		if _, err = tx.Exec(ctx, `UPDATE account_connection_notifications SET read_at=COALESCE(read_at,NOW()) WHERE event_kind='shared_invite_requested' AND source_id=$1::uuid`, id); err != nil {
+			return err
+		}
 		ids, err = groupTabIDs(ctx, tx, group)
 		if err != nil {
 			return err

@@ -109,7 +109,7 @@ func (p NotificationPreferences) permits(kind string, now time.Time) bool {
 		if !p.Tallies {
 			return false
 		}
-	case "entry_accepted", "entry_rejected":
+	case "entry_accepted", "entry_rejected", "settled":
 		if !p.Reviews {
 			return false
 		}

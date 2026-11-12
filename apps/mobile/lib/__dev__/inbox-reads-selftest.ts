@@ -519,6 +519,7 @@ async function main() {
   });
 
   await test("server reads are announced as exact (tab, rev) notices and never queued or sent", async () => {
+    assert.ok(account, "read announcements belong to the signed-in fixture account");
     const seen: Array<[unknown, string]> = [];
     const off = onInboxReadsApplied((specs, source) => seen.push([specs, source]));
     announceServerReads([
@@ -526,17 +527,13 @@ async function main() {
       { tab_id: TAB, rev: 4, read: false },
       { tab_id: TAB2, rev: 0, read: true },
       { tab_id: TAB2, rev: 9, read: true },
+      { id: "100", recipient_account_id: account, tab_id: "", rev: 0, read: true },
+      { id: "101", recipient_account_id: "other-account", tab_id: "", rev: 0, read: true },
     ]);
     announceServerReads([{ tab_id: TAB, rev: 1, read: false }]);
     await settle();
     assert.deepEqual(seen, [
-      [
-        [
-          { tab_id: TAB, rev: 3 },
-          { tab_id: TAB2, rev: 9 },
-        ],
-        "server",
-      ],
+      [[{ tab_id: TAB, rev: 3 }, { tab_id: TAB2, rev: 9 }, { id: "100" }], "server"],
     ]);
     assert.equal(meta.has(QUEUE), false);
     assert.equal(posted.length, 0);

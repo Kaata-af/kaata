@@ -448,6 +448,7 @@ function hookFixture(kind: "members" | "people" = "members") {
       "./auth": { SessionChangedError },
       "./vault-api": { ApiError },
       "./incoming-request-cue": { observeIncomingRequests: () => null },
+      "./notification-events": compileUI("../notification-events", {}),
       "./tabs/errors": errors,
       "./people-connections": { listPeopleRequests: startList, declinePeopleRequest: startDecline },
       "./vault-member-requests": {

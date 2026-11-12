@@ -61,6 +61,7 @@ let preferencesSupported = true;
 let onTabPolicyRead: (() => Promise<void>) | null = null;
 const preferenceListeners = new Set<() => void>();
 let onEntryRead: (() => void) | null = null;
+let onSweepRead: (() => Promise<void>) | null = null;
 // tab_entries rows by id for the tray sweep; anything else answers currentEntry.
 const rows = new Map<string, any>();
 let responseListener: any;
@@ -69,6 +70,13 @@ let registeredTask = "";
 const channels = new Map<string, Record<string, unknown>>();
 let categories: Array<{ id: string; actions: any[] }> = [];
 let registrations: any[] = [];
+let accountRegistrations: any[] = [];
+let tokenListener: ((token: { type: string; data: string }) => void) | undefined;
+let tokenGate: Promise<{ data: string }> | null = null;
+let onTokenRequest: ((options: any) => Promise<void>) | null = null;
+const tokenOptions: any[] = [];
+let unregisters = 0;
+const identityListeners = new Set<() => void>();
 let scheduled: any[] = [];
 let nativePending: any[] = [];
 let authFailure = false;
@@ -83,6 +91,7 @@ const queued = new Set<string>();
 const reviewScopes: string[] = [];
 // The OS tray, and what left it; the read marks that reached the server stub.
 let presented: any[] = [];
+let trayGate: Promise<any[]> | null = null;
 const dismissed: string[] = [];
 const inboxMarks: unknown[] = [];
 const cues: Array<{ key: string; sound: boolean; vibration: boolean }> = [];
@@ -111,6 +120,10 @@ stub("../db", {
   },
 });
 stub("../db-tx", {
+  onAccountIdentityChanged: (listener: () => void) => {
+    identityListeners.add(listener);
+    return () => identityListeners.delete(listener);
+  },
   getInstallIdSync: () => "install",
   getAccountIdSync: () => accountId,
   getSessionAccountIdSync: () => (signedIn ? accountId : null),
@@ -121,6 +134,11 @@ stub("../db-tx", {
         const hook = onEntryRead;
         onEntryRead = null;
         hook?.();
+      }
+      if (sql.includes("SELECT status, voided_by_entry_id FROM tab_entries")) {
+        const hook = onSweepRead;
+        onSweepRead = null;
+        await hook?.();
       }
       return row;
     },
@@ -201,6 +219,17 @@ stub("../tabs/api", {
     inboxMarks.push(body);
   },
 });
+stub("../account-notifications", {
+  registerAccountNotifications: async (
+    session: unknown,
+    token: string,
+    locale: string,
+    preferences: unknown,
+  ) => {
+    accountRegistrations.push({ session, token, locale, preferences });
+    return { enabled: !!token };
+  },
+});
 stub("../tabs/sync", {
   setTabPushRefreshHook: () => {},
   syncTab: async () => {
@@ -228,6 +257,10 @@ stub("../../modules/kaata-notification-actions", {
   },
 });
 stub("expo-notifications", {
+  addPushTokenListener: (listener: (token: { type: string; data: string }) => void) => {
+    tokenListener = listener;
+    return { remove() {} };
+  },
   AndroidImportance: { DEFAULT: 3 },
   setNotificationChannelAsync: async (id: string, options: Record<string, unknown>) => {
     channels.set(id, options);
@@ -254,12 +287,19 @@ stub("expo-notifications", {
     granted = grantOnRequest;
     return { granted, canAskAgain };
   },
-  getExpoPushTokenAsync: async () => ({ data: "synthetic-push-token" }),
+  getExpoPushTokenAsync: async (options: any) => {
+    tokenOptions.push(options);
+    await onTokenRequest?.(options);
+    return tokenGate ? await tokenGate : { data: "synthetic-push-token" };
+  },
+  unregisterForNotificationsAsync: async () => {
+    unregisters++;
+  },
   dismissNotificationAsync: async (id: string) => {
     calls.push("dismiss");
     dismissed.push(id);
   },
-  getPresentedNotificationsAsync: async () => presented,
+  getPresentedNotificationsAsync: async () => (trayGate ? await trayGate : presented),
   scheduleNotificationAsync: async (n: unknown) => {
     scheduled.push(n);
   },
@@ -307,6 +347,11 @@ function reset() {
   calls.length = 0;
   asks = 0;
   registrations = [];
+  accountRegistrations = [];
+  tokenGate = null;
+  onTokenRequest = null;
+  tokenOptions.length = 0;
+  unregisters = 0;
   scheduled = [];
   signedIn = true;
   accountId = "account";
@@ -323,12 +368,14 @@ function reset() {
   reviewScopes.length = 0;
   nativePending = [];
   presented = [];
+  trayGate = null;
   dismissed.length = 0;
   inboxMarks.length = 0;
   cues.length = 0;
   rows.clear();
   currentEntry = undefined;
   onEntryRead = null;
+  onSweepRead = null;
 }
 let passed = 0;
 async function test(name: string, fn: () => Promise<void>) {
@@ -514,15 +561,19 @@ async function main() {
     assert.equal(registrations.at(-1).options.token, "");
     assert.equal(meta.get("tab_push_error"), "permission_denied");
   });
-  await test("signed-out or unlinked app never prompts", async () => {
+  await test("signed-out app never prompts; signed-in accounts register without shared tallies", async () => {
     signedIn = false;
     await notify.ensureTabNotificationPermission();
     assert.equal(asks, 0);
     assert.equal(registrations.length, 0);
     signedIn = true;
     links = [];
+    accountRegistrations = [];
     await notify.ensureTabNotificationPermission();
-    assert.equal(asks, 0);
+    assert.equal(asks, 1);
+    assert.equal(accountRegistrations.length, 1);
+    assert.equal(accountRegistrations[0].token, "synthetic-push-token");
+    assert.equal(registrations.length, 0);
   });
   await test("Android background accept queues before dismiss and sync, and marks handled", async () => {
     await task({ data: response("tab-accept") });
@@ -696,8 +747,8 @@ async function main() {
     await settled();
     assert.deepEqual(
       dismissed,
-      ["reviewed", "closed", "closed-outcome", "closed-meta"],
-      "closed relationships mute every alert; only stale review requests disappear on open ones",
+      ["reviewed", "closed", "closed-meta"],
+      "closed relationships mute stale requests but retain final outcome alerts",
     );
     dismissed.length = 0;
     presented = sweepable();
@@ -706,7 +757,7 @@ async function main() {
     await settled();
     assert.deepEqual(
       dismissed,
-      ["reviewed", "pending", "closed", "closed-outcome", "closed-meta"],
+      ["reviewed", "pending", "closed", "closed-meta"],
       "a pull sweeps; a voided tally is moot too",
     );
     dismissed.length = 0;
@@ -733,7 +784,7 @@ async function main() {
     ];
     emitApplied({ tabId: TAB, origin: "local", changes: [] });
     await settled();
-    assert.deepEqual(dismissed, ["created", "accepted", "rejected", "metadata"]);
+    assert.deepEqual(dismissed, ["created", "metadata"]);
     assert.deepEqual(
       inboxMarks,
       [],
@@ -765,6 +816,7 @@ async function main() {
       platform.OS = os;
       state.currentState = "active";
       cues.length = 0;
+      meta.delete("notification_delivered_v1:account");
       const result = await handler.handleNotification(response("default").notification);
       assert.deepEqual(result, {
         shouldShowBanner: false,
@@ -777,7 +829,8 @@ async function main() {
       ]);
       deliveryPolicy.foreground = true;
       assert.equal(
-        (await handler.handleNotification(response("default").notification)).shouldPlaySound,
+        (await handler.handleNotification(response("default", { ...payload, rev: 2 }).notification))
+          .shouldPlaySound,
         true,
       );
       deliveryPolicy.foreground = false;
@@ -785,7 +838,8 @@ async function main() {
       assert.equal((await handler.handleNotification(own)).shouldShowBanner, false);
       state.currentState = "background";
       assert.equal(
-        (await handler.handleNotification(response("default").notification)).shouldShowBanner,
+        (await handler.handleNotification(response("default", { ...payload, rev: 3 }).notification))
+          .shouldShowBanner,
         true,
       );
       assert.equal((await handler.handleNotification(own)).shouldShowBanner, false);
@@ -806,43 +860,34 @@ async function main() {
       assert.equal(cues.length, 1, "no additional app cue for system alerts or own notices");
     }
   });
-  await test("late remote alerts for closed relationships stay silent on both platforms", async () => {
+  await test("closed relationships suppress new work but deliver terminal outcomes once", async () => {
     state.currentState = "background";
-    for (const os of ["android", "ios"]) {
-      platform.OS = os;
-      for (const closed_reason of [null, "account_deleted"] as const) {
-        links = [{ ...link, closed_at: 30, closed_reason }];
-        for (const kind of [
-          "entry_created",
-          "entry_accepted",
-          "entry_rejected",
-          "entry_voided",
-          "updated",
-        ]) {
-          const result = await handler.handleNotification(
-            response("default", { ...payload, kind }).notification,
-          );
-          assert.deepEqual(result, {
-            shouldShowBanner: false,
-            shouldShowList: false,
-            shouldPlaySound: false,
-            shouldSetBadge: false,
-          });
-        }
-        assert.equal(
-          (
-            await handler.handleNotification(
-              response("default", {
-                tab_id: TAB,
-                kind: "customer_reminder",
-                owner_scope: `account:${accountId}`,
-              }).notification,
-            )
-          ).shouldShowBanner,
-          true,
-          "the user's own reminder remains independent of shared alerts",
-        );
-      }
+    links = [{ ...link, closed_at: 30 }];
+    let rev = 10;
+    for (const kind of [
+      "entry_created",
+      "entry_removal_requested",
+      "updated",
+      "settled",
+      "unlinked",
+      "entry_accepted",
+      "entry_rejected",
+      "entry_voided",
+      "entry_removal_approved",
+      "entry_removal_declined",
+    ]) {
+      const notification = response("default", { ...payload, kind, rev: ++rev }).notification;
+      const shouldShow = !["entry_created", "entry_removal_requested", "updated"].includes(kind);
+      assert.equal(
+        (await handler.handleNotification(notification)).shouldShowBanner,
+        shouldShow,
+        kind,
+      );
+      assert.equal(
+        (await handler.handleNotification(notification)).shouldShowBanner,
+        false,
+        `retry of ${kind}`,
+      );
     }
   });
   await test("pull fallback cues in the foreground and skips own acknowledgements", async () => {
@@ -893,7 +938,7 @@ async function main() {
     assert.equal(cues.length, 0, "silent baseline");
     seen = poll(seen, [fresh, existing]);
     await settled();
-    assert.equal(cues[0]?.key, "account:account:friend_request:fresh");
+    assert.equal(cues[0]?.key, "account:account:connection:friend_requested:fresh");
     seen = poll(seen, [existing, { id: "older", created_at_ms: 9 }]);
     await settled();
     assert.equal(cues.length, 1, "an older request can become visible after an action");
@@ -907,32 +952,29 @@ async function main() {
     await settled();
     assert.equal(cues.length, 1, "pending policy lookup cannot cue across an account switch");
   });
-  await test("closed-period pulls update history without scheduling any fallback alerts", async () => {
+  await test("closed-period pulls retain final outcomes but suppress stale entry creation", async () => {
     state.currentState = "background";
     currentEntry = {
       created_by: "a",
-      status: "pending",
+      status: "accepted",
       amount_minor: 100,
       direction: "a_to_b",
       author_name: "Writer",
       author_account_id: "peer",
     };
-    for (const closed_reason of [null, "account_deleted"] as const) {
-      links = [{ ...link, closed_at: 40, closed_reason }];
-      emitApplied({
-        tabId: TAB,
-        origin: "pull",
-        changes: ["entry_created", "entry_accepted", "entry_rejected", "entry_voided"].map(
-          (kind) => ({
-            entryId: ENTRY,
-            rev: 1,
-            kind,
-          }),
-        ),
-      });
-      await settled();
-    }
-    assert.equal(scheduled.length, 0);
+    links = [{ ...link, closed_at: 40 }];
+    emitApplied({
+      tabId: TAB,
+      origin: "pull",
+      changes: ["entry_created", "entry_accepted", "entry_rejected", "entry_voided"].map(
+        (kind, i) => ({ entryId: ENTRY, rev: i + 1, kind }),
+      ),
+    });
+    await settled();
+    assert.deepEqual(
+      scheduled.map((item) => item.content.data.kind),
+      ["entry_accepted", "entry_rejected", "entry_voided"],
+    );
     assert.deepEqual(inboxMarks, []);
   });
   await test("unlinking during an incoming fallback's entry read prevents the alert", async () => {
@@ -1024,7 +1066,8 @@ async function main() {
     state.currentState = "active";
     deliveryPolicy.foreground = true;
     assert.equal(
-      (await handler.handleNotification(response("default").notification)).shouldShowBanner,
+      (await handler.handleNotification(response("default", { ...payload, rev: 2 }).notification))
+        .shouldShowBanner,
       true,
     );
     deliveryPolicy.time_zone = "UTC";
@@ -1213,6 +1256,237 @@ async function main() {
     emitApplied(event);
     await settled();
     assert.equal(scheduled.length, 1);
+  });
+  await test("account connection pushes ring with no tabs and reject old-account delivery", async () => {
+    links = [];
+    const data = {
+      target: "connection",
+      kind: "friend_accepted",
+      notification_id: "900",
+      source_id: ENTRY,
+      actor_account_id: "peer",
+      recipient_account_id: accountId,
+    };
+    await handler.handleNotification(response("default", data).notification);
+    await handler.handleNotification(response("default", data).notification);
+    assert.equal(cues.length, 1, "provider retry cues only once");
+    const before = cues.length;
+    await handler.handleNotification(
+      response("default", { ...data, notification_id: "901", recipient_account_id: "other" })
+        .notification,
+    );
+    assert.equal(cues.length, before, "old account recipient is ignored");
+    await handler.handleNotification(
+      response("default", { ...data, notification_id: "902", recipient_account_id: undefined })
+        .notification,
+    );
+    assert.equal(cues.length, before, "missing recipient is not trusted");
+    state.currentState = "background";
+    assert.equal(
+      (
+        await handler.handleNotification(
+          response("default", { ...data, notification_id: "903" }).notification,
+        )
+      ).shouldShowBanner,
+      true,
+    );
+  });
+  await test("foreground inbox banners share push receipts and respect private previews", async () => {
+    links = [];
+    granted = true;
+    deliveryPolicy.foreground = true;
+    deliveryPolicy.previews = "private";
+    const item = {
+      id: "910",
+      kind: "friend_accepted",
+      actor_account_id: "peer",
+      recipient_account_id: accountId,
+      source_id: ENTRY,
+      body: "Sensitive full detail",
+      created_at_ms: Date.now(),
+      read: false,
+      tab_id: "",
+      entry_id: "",
+      role: "" as const,
+      rev: 0,
+    };
+    assert.equal(
+      await notify.presentForegroundInboxNotification(item, deliveryPolicy, () => true),
+      true,
+    );
+    assert.equal(scheduled[0].content.body, "notificationSettings.alert.private");
+    assert.equal(scheduled[0].content.data.target, "connection");
+    const data = scheduled[0].content.data;
+    assert.equal(
+      (await handler.handleNotification(response("default", data).notification)).shouldShowBanner,
+      true,
+    );
+    assert.equal(
+      (await handler.handleNotification(response("default", data).notification)).shouldShowBanner,
+      false,
+    );
+    assert.equal(cues.length, 0);
+    const baseline = observeIncomingRequests(null, [], "friend_request", () => true);
+    observeIncomingRequests(
+      baseline,
+      [{ id: ENTRY2, created_at_ms: Date.now() }],
+      "friend_request",
+      () => true,
+    );
+    await settled();
+    assert.equal(cues.length, 0, "request cards leave enabled banners to the global observer");
+  });
+  await test("remote connection reads clear exact tray IDs and mark-all preserves newer notices", async () => {
+    const data = {
+      target: "connection",
+      kind: "friend_requested",
+      source_id: ENTRY,
+      recipient_account_id: accountId,
+    };
+    presented = [
+      shown("old", { ...data, notification_id: "920" }),
+      shown("new", { ...data, notification_id: "921" }),
+    ];
+    inboxReads.announceServerReads([
+      { id: "920", recipient_account_id: accountId, tab_id: "", rev: 0, read: true },
+    ]);
+    await settled();
+    assert.deepEqual(dismissed, ["old"]);
+    dismissed.length = 0;
+    await inboxReads.markInboxHandled({ through: "920" });
+    await settled();
+    assert.deepEqual(dismissed, ["old"], "mark-all cursor never dismisses a later notification");
+  });
+  await test("late tray cleanup cannot clear a replacement account's notifications", async () => {
+    let release!: (value: any[]) => void;
+    trayGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const marking = inboxReads.markInboxHandled({ through: "999" });
+    await settled();
+    accountId = "replacement";
+    bindingVersion++;
+    identityListeners.forEach((fn) => fn());
+    await settled();
+    accountId = "third";
+    bindingVersion++;
+    identityListeners.forEach((fn) => fn());
+    await settled();
+    release([
+      shown("current", {
+        target: "connection",
+        kind: "friend_accepted",
+        notification_id: "930",
+        recipient_account_id: "third",
+      }),
+    ]);
+    await marking;
+    await settled();
+    assert.deepEqual(dismissed, [], "A mark-all and B cleanup cannot dismiss C's valid notice");
+  });
+  await test("a shared-tray sweep cannot dismiss notices after its account changes during SQLite reads", async () => {
+    presented = [shown("current-account-notice", { ...payload })];
+    rows.set(ENTRY, { status: "accepted", voided_by_entry_id: null });
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    onSweepRead = () => pending;
+    emitApplied({ tabId: TAB, vaultId: "vault", origin: "pull", changes: [] });
+    await settled();
+    assert.equal(onSweepRead, null, "the shipped sweep reached its SQLite await");
+    accountId = "replacement";
+    bindingVersion++;
+    identityListeners.forEach((fn) => fn());
+    release();
+    await settled();
+    assert.deepEqual(
+      dismissed,
+      [],
+      "previous account's cached verdict cannot clear the replacement account's tray",
+    );
+  });
+  await test("SDK 58's initial native-token event does not cancel or recursively restart registration", async () => {
+    links = [];
+    granted = true;
+    const nativeToken = { type: "android", data: "native-initial" };
+    onTokenRequest = async (options) => {
+      if (!options.devicePushToken) tokenListener?.(nativeToken);
+    };
+    await notify.ensureTabNotificationPermission();
+    await settled();
+    assert.equal(tokenOptions.length, 1, "native acquisition is not recursively repeated");
+    assert.equal(
+      accountRegistrations.length,
+      1,
+      "the initial native event does not invalidate its own registration",
+    );
+    assert.ok(Number(meta.get("account_push_active:account")) > 0);
+    tokenListener?.(nativeToken);
+    tokenListener?.({ ...nativeToken });
+    await settled();
+    assert.equal(tokenOptions.length, 1, "repeated identical token emissions are no-ops");
+    assert.equal(accountRegistrations.length, 1);
+  });
+  await test("a genuine token rotation during exchange registers the latest token without losing the wakeup", async () => {
+    links = [];
+    granted = true;
+    let release!: () => void;
+    const exchanging = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    onTokenRequest = async () => exchanging;
+    const old = notify.ensureTabNotificationPermission();
+    await settled();
+    assert.equal(tokenOptions[0].devicePushToken.data, "native-initial");
+    tokenListener?.({ type: "android", data: "native-rotated-during-exchange" });
+    onTokenRequest = null;
+    release();
+    await old;
+    await settled();
+    assert.equal(tokenOptions.length, 2);
+    assert.equal(tokenOptions[1].devicePushToken.data, "native-rotated-during-exchange");
+    assert.equal(accountRegistrations.length, 1, "stale token exchange is never registered");
+    assert.ok(Number(meta.get("account_push_active:account")) > 0);
+  });
+  await test("token changes re-register an account with no existing shared tallies", async () => {
+    links = [];
+    granted = true;
+    await notify.ensureTabNotificationPermission();
+    assert.equal(accountRegistrations.length, 1);
+    tokenListener?.({ type: "android", data: "rotated-token" });
+    await settled();
+    assert.equal(accountRegistrations.length, 2);
+  });
+  await test("hung native token acquisition cannot trap logout or register a stale account", async () => {
+    links = [];
+    granted = true;
+    let release!: (value: { data: string }) => void;
+    tokenGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const pending = notify.ensureTabNotificationPermission();
+    await settled();
+    const began = Date.now();
+    await notify.unregisterAccountNotificationPush({ accountId, bindingVersion, jwt: "synthetic" });
+    assert.ok(
+      Date.now() - began < 3500,
+      "logout wait is bounded even when native token acquisition never resolves",
+    );
+    assert.equal(unregisters, 1, "native push token revoked on sign-out");
+    assert.equal(accountRegistrations.at(-1).token, "");
+    accountId = "replacement";
+    bindingVersion++;
+    tokenGate = null;
+    identityListeners.forEach((fn) => fn());
+    await settled();
+    assert.equal(accountRegistrations.at(-1).session.accountId, "replacement");
+    release({ data: "stale-token" });
+    await pending;
+    assert.equal(
+      accountRegistrations.some((registration) => registration.token === "stale-token"),
+      false,
+    );
   });
   await test("Expo Go skips native registration and tray dismissal", async () => {
     expoGo = true;

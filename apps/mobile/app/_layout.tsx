@@ -172,6 +172,11 @@ async function routeFromNotificationData(
   canOpen: () => boolean = () => true,
 ): Promise<void> {
   if (!canOpen()) return;
+  if ((data as { target?: unknown } | null)?.target === "connection") {
+    const { openConnectionNotification } = await import("../lib/open-connection-notification");
+    if (canOpen()) await openConnectionNotification(data, canOpen);
+    return;
+  }
   const reminder = data as {
     kind?: unknown;
     reminder_id?: unknown;

@@ -155,7 +155,7 @@ export function notificationAllowed(
         ? "credit_alerts"
         : kind === "entry_created"
           ? "tallies"
-          : kind === "entry_accepted" || kind === "entry_rejected"
+          : kind === "entry_accepted" || kind === "entry_rejected" || kind === "settled"
             ? "reviews"
             : kind === "entry_voided" ||
                 kind === "entry_removal_requested" ||

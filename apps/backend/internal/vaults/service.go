@@ -799,7 +799,11 @@ func (s *Service) Leave(ctx context.Context, vaultID, accountID string) (int64, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := lockActiveAccounts(ctx, tx, accountID); err != nil {
+	admins, err := connectionnotice.AdminAccounts(ctx, tx, vaultID)
+	if err != nil {
+		return 0, err
+	}
+	if err := lockActiveAccounts(ctx, tx, accountID, admins...); err != nil {
 		return 0, err
 	}
 
@@ -843,9 +847,13 @@ func (s *Service) Leave(ctx context.Context, vaultID, accountID string) (int64, 
 	// chain; the server only records the audit row + the revoked_at above. We
 	// do NOT server-emit an unsigned mirror event — peers correctly tombstone
 	// unsigned membership events (see vaults/event_emit removal note).
-	if _, err := writeAudit(ctx, tx, vaultID, &accountID, "member_left", &accountID, map[string]any{
+	auditID, err := writeAudit(ctx, tx, vaultID, &accountID, "member_left", &accountID, map[string]any{
 		"role_at_leave": role,
-	}); err != nil {
+	})
+	if err != nil {
+		return 0, err
+	}
+	if err := connectionnotice.MemberLeft(ctx, tx, vaultID, accountID, connectionnotice.AuditSource(auditID), admins); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -947,10 +955,16 @@ func (s *Service) TransferOwnership(ctx context.Context, in TransferInput) (int6
 	// (see vaults/event_emit removal note). On the client, server-anchored
 	// transfer routes through lib/vault-router.ts which authors the signed
 	// chain events that actually propagate.
-	if _, err := writeAudit(ctx, tx, in.VaultID, &in.AccountID, "ownership_transferred", &in.ToAccountID, map[string]any{
+	auditID, err := writeAudit(ctx, tx, in.VaultID, &in.AccountID, "ownership_transferred", &in.ToAccountID, map[string]any{
 		"from": in.AccountID, "to": in.ToAccountID, "demote_self_to": in.DemoteSelfTo,
-	}); err != nil {
+	})
+	if err != nil {
 		return 0, err
+	}
+	if targetRole != "owner" {
+		if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_role_changed", SourceID: connectionnotice.AuditSource(auditID), RecipientID: in.ToAccountID, ActorID: in.AccountID, VaultID: in.VaultID, Detail: "owner"}); err != nil {
+			return 0, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)
@@ -1055,9 +1069,13 @@ func (s *Service) SetMemberRole(ctx context.Context, vaultID, callerID, targetID
 	// Authoritative role flip is the vault_members UPDATE + audit row above. No
 	// server-emit: unsigned mirror events are tombstoned by peers; the signed
 	// vault_member_role_changed authored client-side carries the new role.
-	if _, err := writeAudit(ctx, tx, vaultID, &callerID, "role_changed", &targetID, map[string]any{
+	auditID, err := writeAudit(ctx, tx, vaultID, &callerID, "role_changed", &targetID, map[string]any{
 		"from": oldRole, "to": newRole,
-	}); err != nil {
+	})
+	if err != nil {
+		return 0, err
+	}
+	if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_role_changed", SourceID: connectionnotice.AuditSource(auditID), RecipientID: targetID, ActorID: callerID, VaultID: vaultID, Detail: newRole}); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1086,7 +1104,14 @@ func (s *Service) RevokeMember(ctx context.Context, in RevokeInput) (int64, erro
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := lockActiveAccounts(ctx, tx, in.CallerID, in.TargetID); err != nil {
+	var admins []string
+	if in.CallerID == in.TargetID {
+		admins, err = connectionnotice.AdminAccounts(ctx, tx, in.VaultID)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if err := lockActiveAccounts(ctx, tx, in.CallerID, append(admins, in.TargetID)...); err != nil {
 		return 0, err
 	}
 
@@ -1152,10 +1177,20 @@ func (s *Service) RevokeMember(ctx context.Context, in RevokeInput) (int64, erro
 	// Authoritative revoke is the vault_members UPDATE + audit row above. No
 	// server-emit: unsigned mirror events are tombstoned by peers; the signed
 	// vault_member_removed authored client-side carries the revocation.
-	if _, err := writeAudit(ctx, tx, in.VaultID, &in.CallerID, "member_revoked", &in.TargetID, map[string]any{
+	auditID, err := writeAudit(ctx, tx, in.VaultID, &in.CallerID, "member_revoked", &in.TargetID, map[string]any{
 		"revoked_role": targetRole, "reason": reason,
-	}); err != nil {
+	})
+	if err != nil {
 		return 0, err
+	}
+	if in.CallerID == in.TargetID {
+		if err := connectionnotice.MemberLeft(ctx, tx, in.VaultID, in.CallerID, connectionnotice.AuditSource(auditID), admins); err != nil {
+			return 0, err
+		}
+	} else {
+		if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_removed", SourceID: connectionnotice.AuditSource(auditID), RecipientID: in.TargetID, ActorID: in.CallerID, VaultID: in.VaultID}); err != nil {
+			return 0, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit tx: %w", err)

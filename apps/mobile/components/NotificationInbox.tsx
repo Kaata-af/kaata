@@ -34,6 +34,13 @@ import { prepareVaultMemberInviteAcceptance } from "../lib/vault-member-invite-i
 import { useFriendRequests } from "../lib/use-friend-requests";
 import type { FriendRequest } from "../lib/friends-api";
 import { Button } from "./Button";
+import {
+  isConnectionNotice,
+  noticeHasRequestCard,
+  notificationBadgeCount,
+} from "../lib/notification-events";
+import { openConnectionNotification } from "../lib/open-connection-notification";
+import { getSessionAccountIdSync } from "../lib/db-tx";
 
 type Inbox = ReturnType<typeof useInbox>;
 
@@ -140,13 +147,13 @@ function renderRequestCard({
 }
 
 async function openInboxNotice(inbox: Inbox, item: InboxItem) {
-  if (item.kind === "friend_accepted" || item.kind === "vault_invite_accepted") {
-    if (!inbox.isCurrent() || !item.actor_account_id) return;
-    router.push({
-      pathname: "/people/[accountId]",
-      params: { accountId: item.actor_account_id },
-    });
-  } else if (item.kind !== "vault_invite_rejected") {
+  if (isConnectionNotice(item)) {
+    if (!inbox.isCurrent()) return;
+    await openConnectionNotification(
+      { ...item, recipient_account_id: item.recipient_account_id ?? getSessionAccountIdSync() },
+      inbox.isCurrent,
+    );
+  } else {
     // The tally route also marks this id for the OS tray. The inbox read
     // below is idempotent and refreshes the page.
     await openTabNotification(
@@ -237,6 +244,14 @@ function InboxContent({
   const [acceptingMember, setAcceptingMember] = useState<string | null>(null);
   const openingMemberRef = useRef(false);
   const { page, loading, failed, signedIn } = inbox;
+  const history = page.items.filter(
+    (item) =>
+      !noticeHasRequestCard(item, {
+        friends: friendRequests.rows,
+        members: memberRequests.rows,
+        shared: requests.rows,
+      }),
+  );
   const toReminders = openReminders ?? (() => router.push("/reminders"));
   return (
     <>
@@ -463,7 +478,7 @@ function InboxContent({
             </View>
           );
         })}
-        {page.items.length === 0 &&
+        {history.length === 0 &&
         requests.rows.length === 0 &&
         memberRequests.rows.length === 0 &&
         friendRequests.rows.length === 0 ? (
@@ -480,7 +495,7 @@ function InboxContent({
             )}
           </View>
         ) : (
-          (compact ? page.items.slice(0, 5) : page.items).map((item) => (
+          (compact ? history.slice(0, 5) : history).map((item) => (
             <NoticeRow key={item.id} item={item} onPress={() => open(item)} />
           ))
         )}
@@ -568,11 +583,11 @@ export function NotificationBell({
   const reminders = useCustomerReminders(undefined, undefined, true);
   const dueReminders = reminders.due.length;
   const hasReminders = reminders.rows.length > 0;
-  const noticeCount =
-    inbox.page.unread +
-    requests.rows.length +
-    memberRequests.rows.length +
-    friendRequests.rows.length;
+  const noticeCount = notificationBadgeCount(inbox.page, {
+    friends: friendRequests.rows,
+    members: memberRequests.rows,
+    shared: requests.rows,
+  });
   const badge = noticeCount + dueReminders;
   const toast = useToast();
   const anchor = useRef<ViewInstance>(null);
@@ -664,8 +679,7 @@ export function NotificationBell({
     const handle = () => {
       void openInboxNotice(inbox, item).catch(() => toast.push(t("inbox.openFailed"), "error"));
     };
-    if (item.kind === "vault_invite_rejected") handle();
-    else close(handle);
+    close(handle);
   };
   return (
     <>

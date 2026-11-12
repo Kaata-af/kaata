@@ -219,6 +219,26 @@ function fixture() {
 function policyChecks() {
   const defaults = policy.defaultNotificationPolicy();
   assert.equal(defaults.previews, "name");
+  // Settlement follows review preferences; relationship events use connections.
+  assert.equal(policy.notificationAllowed({ ...defaults, reviews: false }, "settled"), false);
+  assert.equal(policy.notificationAllowed({ ...defaults, connections: false }, "settled"), true);
+  for (const kind of [
+    "unlinked",
+    "friend_requested",
+    "friend_rejected",
+    "friend_cancelled",
+    "friend_removed",
+    "vault_invite_requested",
+    "vault_member_return_requested",
+    "vault_member_removed",
+    "vault_member_role_changed",
+  ])
+    assert.equal(
+      policy.notificationAllowed({ ...defaults, connections: false }, kind),
+      false,
+      kind,
+    );
+
   for (const key of [
     "enabled",
     "tallies",

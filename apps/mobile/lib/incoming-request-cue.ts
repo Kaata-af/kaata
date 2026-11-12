@@ -1,5 +1,8 @@
 import { AppState } from "react-native";
 import { playForegroundNotificationCue } from "./foreground-notification-cue";
+import { claimNotificationDelivery } from "./notification-delivery";
+import { notificationEventKey, notifyNotificationInboxChanged } from "./notification-events";
+import { getSessionAccountIdSync } from "./db-tx";
 import { notificationAllowed } from "./notification-policy";
 import {
   notificationOwnerScope,
@@ -42,10 +45,29 @@ export function observeIncomingRequests(
     notificationOwnerScope() === owner &&
     notificationPreferencesRevision() === revision;
   void notificationPolicyForContact()
-    .then((policy) => {
+    .then(async (policy) => {
       const allowed = () => current() && notificationAllowed(policy, kind);
       if (allowed()) {
-        playForegroundNotificationCue(policy, allowed, `${owner}:${kind}:${fresh.id}`);
+        const eventKind =
+          kind === "friend_request"
+            ? "friend_requested"
+            : kind === "people_request"
+              ? "shared_invite_requested"
+              : kind === "vault_member_request"
+                ? "vault_invite_requested"
+                : kind;
+        const key =
+          notificationEventKey(owner, { kind: eventKind, source_id: fresh.id }) ??
+          `${owner}:${kind}:${fresh.id}`;
+        const account = getSessionAccountIdSync();
+        if (account && policy.foreground) {
+          // The app-wide observer owns banner delivery (and its Expo Go /
+          // permission-denied cue fallback). Do not steal its receipt here.
+          notifyNotificationInboxChanged(account, "local");
+          return;
+        }
+        if (account && (await claimNotificationDelivery(account, key, allowed)))
+          playForegroundNotificationCue(policy, allowed, key);
       }
     })
     .catch(() => undefined);

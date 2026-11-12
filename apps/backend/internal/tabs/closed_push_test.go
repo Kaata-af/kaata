@@ -2,6 +2,7 @@ package tabs
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,12 +11,22 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestClosedSharedHistoryRetainsInboxWithoutRemoteAlerts(t *testing.T) {
+func TestClosedSharedHistoryRetainsInboxAndDeliversDecisions(t *testing.T) {
 	f := newHTTPFixture(t)
 	ctx := context.Background()
 	providerCalls := 0
+	deliveredKinds := map[string]int{}
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		providerCalls++
+		var payload struct {
+			Data struct {
+				Kind string `json:"kind"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode push: %v", err)
+		}
+		deliveredKinds[payload.Data.Kind]++
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":{"status":"ok","id":"unexpected"}}`))
 	}))
@@ -62,13 +73,13 @@ func TestClosedSharedHistoryRetainsInboxWithoutRemoteAlerts(t *testing.T) {
 			break
 		}
 	}
-	if providerCalls != 0 {
-		t.Fatalf("closed account sent %d remote alerts", providerCalls)
+	if providerCalls != 4 || deliveredKinds["unlinked"] != 1 || deliveredKinds["entry_accepted"] != 1 || deliveredKinds["entry_rejected"] != 1 || deliveredKinds["entry_voided"] != 1 {
+		t.Fatalf("closed account must deliver only unlink and committed decisions: %d %+v", providerCalls, deliveredKinds)
 	}
 	for _, account := range []string{f.acctA, f.acctB} {
 		page, err := f.svc.listInbox(ctx, account, "en", 0, nil)
 		if err != nil || len(page.Items) == 0 {
-			t.Fatalf("silencing remote alerts removed durable inbox for %s: %+v %v", account, page, err)
+			t.Fatalf("closed shared account lost durable inbox for %s: %+v %v", account, page, err)
 		}
 	}
 	var finalKinds int

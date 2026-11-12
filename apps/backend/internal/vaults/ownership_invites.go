@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/matee/kaata-backend/internal/canonical"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 	"github.com/matee/kaata-backend/internal/ownership"
 )
 
@@ -403,7 +404,8 @@ func (s *Service) AcceptOwnershipInvite(ctx context.Context, in AcceptInviteInpu
 	}
 	// Existing staff keep their seat; a removed recipient gets a fresh seat.
 	var targetMember int64
-	err = tx.QueryRow(ctx, `SELECT id FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, vaultID, in.AccountID).Scan(&targetMember)
+	var targetRole string
+	err = tx.QueryRow(ctx, `SELECT id,role FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid AND revoked_at IS NULL FOR UPDATE`, vaultID, in.AccountID).Scan(&targetMember, &targetRole)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `INSERT INTO vault_members(vault_id,account_id,role,invited_by,accepted_at,last_change_hlc_ms) VALUES($1::uuid,$2::uuid,'owner',$3::uuid,NOW(),$4) RETURNING id`, vaultID, in.AccountID, sourceID, stamp).Scan(&targetMember)
 	} else if err == nil {
@@ -439,6 +441,14 @@ func (s *Service) AcceptOwnershipInvite(ctx context.Context, in AcceptInviteInpu
 	}
 	if _, err = writeAudit(ctx, tx, vaultID, &sourceID, "ownership_transferred", &in.AccountID, map[string]any{"from": sourceID, "to": in.AccountID, "demote_self_to": "editor", "transfer_id": transferID}); err != nil {
 		return out, err
+	}
+	if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_invite_accepted", SourceID: transferID, RecipientID: sourceID, ActorID: in.AccountID, VaultID: vaultID, Detail: "owner"}); err != nil {
+		return out, err
+	}
+	if targetRole != "owner" {
+		if err := connectionnotice.Add(ctx, tx, connectionnotice.Notice{Kind: "vault_member_role_changed", SourceID: eventID, RecipientID: in.AccountID, ActorID: sourceID, VaultID: vaultID, Detail: "owner"}); err != nil {
+			return out, err
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return out, err

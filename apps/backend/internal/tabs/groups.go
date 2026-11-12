@@ -17,9 +17,10 @@ import (
 )
 
 var (
-	ErrGroupChanged         = errors.New("shared account changed; refresh before retrying")
-	ErrGroupCurrencyHistory = errors.New("this currency has existing history; link it with a validated opening before sharing")
-	ErrGroupOperation       = errors.New("manage all currencies through the shared account")
+	ErrGroupChanged               = errors.New("shared account changed; refresh before retrying")
+	ErrGroupCurrencyHistory       = errors.New("this currency has existing history; link it with a validated opening before sharing")
+	ErrGroupOperation             = errors.New("manage all currencies through the shared account")
+	errGroupNoticeAudienceChanged = errors.New("shared invitation recipient changed while locking")
 )
 
 type GroupCurrencyInput struct {
@@ -643,6 +644,10 @@ func (s *Service) JoinGroup(ctx context.Context, id string, in GroupJoinInput) (
 	if _, err = tx.Exec(ctx, `UPDATE tab_groups SET b_account_id=$2::uuid,b_vault_id=$3::uuid,b_relationship_id=$4::uuid,b_joined_at=COALESCE(b_joined_at,NOW()),b_account_bound_once=TRUE,rev=rev+1 WHERE id=$1::uuid`, id, in.AccountID, in.VaultID, in.RelationshipID); err != nil {
 		return GroupResponse{}, err
 	}
+	if _, err = tx.Exec(ctx, `UPDATE account_connection_notifications SET read_at=COALESCE(read_at,NOW())
+ WHERE event_kind='shared_invite_requested' AND source_id IN(SELECT id FROM people_requests WHERE group_id=$1::uuid)`, id); err != nil {
+		return GroupResponse{}, err
+	}
 	g, err = loadGroup(ctx, tx, id, false)
 	if err != nil {
 		return GroupResponse{}, err
@@ -661,11 +666,69 @@ func (s *Service) JoinGroup(ctx context.Context, id string, in GroupJoinInput) (
 }
 
 func (s *Service) CloseGroup(ctx context.Context, id, account, role string, withdraw bool) (GroupResponse, error) {
-	tx, err := s.beginMutation(ctx, &account)
+	for attempt := 0; attempt < 3; attempt++ {
+		out, err := s.closeGroupAttempt(ctx, id, account, role, withdraw)
+		if !errors.Is(err, errGroupNoticeAudienceChanged) {
+			return out, err
+		}
+	}
+	return GroupResponse{}, ErrGroupChanged
+}
+
+func groupNoticeRecipient(ctx context.Context, q querier, id string) (string, error) {
+	var recipient string
+	err := q.QueryRow(ctx, `SELECT recipient_account_id::text FROM people_requests WHERE group_id=$1::uuid`, id).Scan(&recipient)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return recipient, err
+}
+
+func (s *Service) closeGroupAttempt(ctx context.Context, id, account, role string, withdraw bool) (GroupResponse, error) {
+	if _, err := uuid.Parse(id); err != nil {
+		return GroupResponse{}, ErrNotFound
+	}
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return GroupResponse{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// Notification recipient FKs must follow the same account-before-group
+	// lock order as sending, accepting and deleting an account. Recheck this
+	// snapshot under the group lock before any mutation; a concurrent newly
+	// issued invitation restarts the transaction with its complete audience.
+	recipient, err := groupNoticeRecipient(ctx, tx, id)
+	if err != nil {
+		return GroupResponse{}, err
+	}
+	accounts := []string{account}
+	if recipient != "" {
+		accounts = append(accounts, recipient)
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text,disabled_at IS NULL AND pending_delete_at IS NULL FROM accounts WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`, accounts)
+	if err != nil {
+		return GroupResponse{}, err
+	}
+	actorActive := false
+	for rows.Next() {
+		var id string
+		var active bool
+		if err := rows.Scan(&id, &active); err != nil {
+			rows.Close()
+			return GroupResponse{}, err
+		}
+		if id == account {
+			actorActive = active
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return GroupResponse{}, err
+	}
+	if !actorActive {
+		return GroupResponse{}, ErrAuthRequired
+	}
 	// Read scope before locking rows; legacy monetary operations take the same
 	// vault-credit lock before a tab lock.
 	g, err := loadGroup(ctx, tx, id, false)
@@ -685,6 +748,13 @@ func (s *Service) CloseGroup(ctx context.Context, id, account, role string, with
 	if err != nil {
 		return GroupResponse{}, err
 	}
+	currentRecipient, err := groupNoticeRecipient(ctx, tx, id)
+	if err != nil {
+		return GroupResponse{}, err
+	}
+	if currentRecipient != recipient {
+		return GroupResponse{}, errGroupNoticeAudienceChanged
+	}
 	p, err = groupAuthorized(ctx, tx, g, account, p.Role, rankEditor)
 	if err != nil {
 		return GroupResponse{}, err
@@ -693,12 +763,28 @@ func (s *Service) CloseGroup(ctx context.Context, id, account, role string, with
 	if err != nil {
 		return GroupResponse{}, err
 	}
-	for _, tabID := range ids {
+	// A targeted pending invitation belongs to the recipient account even
+	// before a B-side tab binding exists. Closing it needs an account notice.
+	if g.Closed == nil && g.BJoined == nil && !g.BClaimed {
+		if _, err = tx.Exec(ctx, `INSERT INTO account_connection_notifications(event_kind,source_id,recipient_account_id,actor_account_id,actor_label,vault_label)
+ SELECT 'shared_invite_cancelled',r.id,r.recipient_account_id,a.id,COALESCE(a.display_name,a.name,''),v.name
+ FROM people_requests r JOIN accounts a ON a.id=$2::uuid JOIN accounts recipient ON recipient.id=r.recipient_account_id LEFT JOIN vaults v ON v.vault_id=$3::uuid
+ WHERE r.group_id=$1::uuid AND r.declined_at IS NULL AND r.expires_at>NOW() AND r.recipient_account_id<>a.id
+ AND recipient.disabled_at IS NULL AND recipient.pending_delete_at IS NULL
+ ON CONFLICT DO NOTHING`, id, account, g.AVault); err != nil {
+			return GroupResponse{}, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE account_connection_notifications SET read_at=COALESCE(read_at,NOW())
+ WHERE event_kind='shared_invite_requested' AND source_id IN(SELECT id FROM people_requests WHERE group_id=$1::uuid)`, id); err != nil {
+			return GroupResponse{}, err
+		}
+	}
+	for i, tabID := range ids {
 		leg, err := partyByAccountRoleQuery(ctx, tx, tabID, account, p.Role)
 		if err != nil {
 			return GroupResponse{}, err
 		}
-		if _, _, err = s.closeTx(ctx, tx, leg, withdraw); err != nil {
+		if _, _, err = s.closeTxWithNotice(ctx, tx, leg, i > 0, withdraw); err != nil {
 			return GroupResponse{}, err
 		}
 	}

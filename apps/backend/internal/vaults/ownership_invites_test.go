@@ -168,6 +168,9 @@ func TestOwnershipInviteAtomicAcceptanceAndImmutableRetry(t *testing.T) {
 			if f.count(t, `SELECT COUNT(*) FROM events`) != 2 {
 				t.Fatal("retry created another proof")
 			}
+			if f.count(t, `SELECT COUNT(*) FROM account_connection_notifications WHERE event_kind='vault_invite_accepted' AND recipient_account_id=$1::uuid`, f.owner) != 1 || f.count(t, `SELECT COUNT(*) FROM account_connection_notifications WHERE event_kind='vault_member_role_changed' AND recipient_account_id=$1::uuid`, f.to) != 1 {
+				t.Fatal("ownership acceptance missing or duplicated notices")
+			}
 			if _, err = f.svc.Archive(ctx, f.vault, f.owner); !errors.Is(err, ErrNotOwner) {
 				t.Fatalf("old owner may archive: %v", err)
 			}

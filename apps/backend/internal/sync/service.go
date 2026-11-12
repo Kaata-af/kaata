@@ -870,7 +870,7 @@ func (s *Service) PushEvents(ctx context.Context, in PushInput) (*PushResponse, 
 		// accepting the event without revoking the vault_members row would
 		// leave the server ACL forever out of step with the leaver's device.
 		if m2Verified || legacySelfLeave {
-			accts, ferr := s.foldMembershipEvent(ctx, tx, in.VaultID, in.AccountID, &ev, readmissionSeatID)
+			accts, ferr := s.foldMembershipEvent(ctx, tx, in.VaultID, in.AccountID, &ev, readmissionSeatID, lockedAccounts)
 			if ferr != nil {
 				return nil, fmt.Errorf("fold membership event %s: %w", ev.EventID, ferr)
 			}

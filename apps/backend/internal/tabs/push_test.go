@@ -33,7 +33,7 @@ func TestPushOutboxDeliveryAndRevocation(t *testing.T) {
 			if !strings.Contains(body["body"].(string), "Matee") || !strings.Contains(body["body"].(string), "AFN") {
 				t.Error("push lost actor/amount context")
 			}
-			if len(body["data"].(map[string]any)) > 6 {
+			if len(body["data"].(map[string]any)) > 7 {
 				t.Error("unexpected private data in payload")
 			}
 			if mode == "retry" {
@@ -258,7 +258,8 @@ func TestPushReviewActionsRequireCurrentEntryAndRole(t *testing.T) {
 					t.Fatal("wrong localized action category")
 				}
 				data := payload["data"].(map[string]any)
-				if data["entry_id"] != added.Entry.ID || data["kind"] != "entry_created" || data["role"] != "b" || data["rev"] != float64(added.Entry.Rev) || len(data) != 6 {
+				notificationID, hasID := data["notification_id"].(string)
+				if data["entry_id"] != added.Entry.ID || data["kind"] != "entry_created" || data["role"] != "b" || data["rev"] != float64(added.Entry.Rev) || !hasID || notificationID == "" || len(data) != 7 {
 					t.Fatalf("wrong action target: %v", data)
 				}
 			case <-time.After(time.Second):
@@ -321,8 +322,8 @@ func TestPushStopsAfterInstallationSignsOut(t *testing.T) {
 
 // Handled means read: a phone that read a notice in the app, or reviewed the
 // tally by any path, is not rung about it afterwards; a review request is
-// dropped once the tally is no longer pending, and a closed tab sends no
-// remote alerts; a provider that keeps rejecting a message
+// dropped once the tally is no longer pending; closure still announces itself.
+// A provider that keeps rejecting a message
 // gets exactly one re-send before the job is dropped.
 func TestPushSkipsReadAndReviewed(t *testing.T) {
 	f := newHTTPFixture(t)
@@ -506,7 +507,7 @@ func TestPushSkipsReadAndReviewed(t *testing.T) {
 	}
 	sendMode = "ok"
 
-	// (6) Closing stops every remote alert; existing proposals stay in history.
+	// (6) Closing suppresses old entry requests but still announces unlinking.
 	f.append(t, pa, "a_to_b", "70", now)
 	if _, err := f.svc.Close(ctx, pa); err != nil {
 		t.Fatal(err)
@@ -516,7 +517,12 @@ func TestPushSkipsReadAndReviewed(t *testing.T) {
 	}
 	deliver(true)
 	deliver(true)
-	if sends != 6 || jobs() != 0 {
+	if sends != 7 || lastKind != "unlinked" || jobs() != 1 {
 		t.Fatalf("close: sends=%d kind=%s jobs=%d", sends, lastKind, jobs())
+	}
+	rearm()
+	deliver(true)
+	if jobs() != 0 {
+		t.Fatal("unlink receipt remained queued")
 	}
 }

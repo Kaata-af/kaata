@@ -137,6 +137,7 @@ function inboxFixture() {
       "./db-tx": f.dbScope,
       "./friends-api": f.api,
       "./incoming-request-cue": { observeIncomingRequests: () => null },
+      "./notification-events": compileUI("../notification-events", {}),
       "./tabs/errors": tabErrors,
     },
     { setInterval: () => 1, clearInterval: () => {} },
