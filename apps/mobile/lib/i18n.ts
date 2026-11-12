@@ -4113,7 +4113,7 @@ const fa: Partial<Record<Key, string>> = {
   "share.footer": "— فرستاده‌شده از طریق https://kaata.af",
   "share.fullLedger": "کاتای مکمل را اینجا ببینید:",
   "share.currencySettled": "🤝 {currency}: تصفیه شده.",
-  "share.billSettled": "🤝 تصفیه شد.",
+  "share.billSettled": "🤝 حساب ما تصفیه شد.",
   "share.billUnavailable": "کاتای مکمل ضمیمه نشد. این‌ها فقط بیلانس‌ها هستند.",
   "share.askLang.title": "پیام به کدام زبان فرستاده شود؟",
 
