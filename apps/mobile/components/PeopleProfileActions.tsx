@@ -246,15 +246,13 @@ export function PeopleProfileActions(props: {
         />
       ) : null}
       <NavRow
-        icon="swap-horizontal-outline"
+        icon="book-outline"
         label={t(
           pending
             ? "peopleProfile.tallyPending"
-            : declined
-              ? "tab.chip.declined"
-              : active
-                ? "peopleProfile.openTally"
-                : "peopleProfile.shareTally",
+            : opensLedger
+              ? "peopleProfile.openTally"
+              : "peopleProfile.shareTally",
         )}
         hint={
           pending
@@ -262,19 +260,22 @@ export function PeopleProfileActions(props: {
             : opensLedger && !shown?.localPersonId
               ? t("peopleProfile.tallySyncHint")
               : declined
-                ? t("tab.invite.declinedHint")
+                ? t("peopleProfile.tallyDeclinedHint")
                 : shown && !active && !shown.canReceiveRequests
                   ? t("peopleProfile.friendRequired")
                   : shown
                     ? t(
-                        permissions.current.share || active
-                          ? "peopleProfile.shareTallyHint"
-                          : "peopleProfile.actionUnavailable",
+                        active
+                          ? "peopleProfile.openTallyHint"
+                          : permissions.current.share
+                            ? "peopleProfile.shareTallyHint"
+                            : "peopleProfile.actionUnavailable",
                         { kaata: shown.vaultName },
                       )
                     : undefined
         }
         onPress={() => void act("share")}
+        hintLines={0}
         disabled={!canShare}
         isRTL={rtl}
       />
@@ -315,6 +316,7 @@ export function PeopleProfileActions(props: {
             : undefined
         }
         onPress={() => void act("member")}
+        hintLines={0}
         disabled={!canAddMember}
         isRTL={rtl}
         isLast

@@ -210,6 +210,11 @@ async function main() {
   {
     const f = fixture({ activity: { shared_tally: "active" }, local: "saved-contact" });
     await f.settle();
+    assert.equal(
+      f.row("peopleProfile.openTally").props.hint,
+      'peopleProfile.openTallyHint:{"kaata":"My Shop"}',
+      "An existing account describes viewing records, not setting up a new account",
+    );
     f.row("peopleProfile.openTally").props.onPress();
     await f.settle();
     assert.deepEqual(f.opened, ["saved-contact"]);
@@ -238,9 +243,9 @@ async function main() {
       canReceiveRequests: false,
     });
     await f.settle();
-    const row = f.row("tab.chip.declined");
+    const row = f.row("peopleProfile.openTally");
     assert.equal(row.props.disabled, false);
-    assert.equal(row.props.hint, "tab.invite.declinedHint");
+    assert.equal(row.props.hint, "peopleProfile.tallyDeclinedHint");
     row.props.onPress();
     await f.settle();
     assert.deepEqual(f.opened, ["saved-contact"]);
