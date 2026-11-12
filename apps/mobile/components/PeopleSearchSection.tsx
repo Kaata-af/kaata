@@ -137,13 +137,11 @@ export function PeopleSearchSection(props: {
               </View>
               <Ionicons
                 name={
-                  search.requiresSignIn
-                    ? "lock-closed-outline"
-                    : props.opensProfile || existingId(person)
-                      ? rtl
-                        ? "chevron-back"
-                        : "chevron-forward"
-                      : "person-add-outline"
+                  props.opensProfile || existingId(person)
+                    ? rtl
+                      ? "chevron-back"
+                      : "chevron-forward"
+                    : "person-add-outline"
                 }
                 size={20}
                 color={colors.textSubtle}

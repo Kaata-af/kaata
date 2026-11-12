@@ -824,7 +824,7 @@ async function main() {
     }),
   );
   assert.ok(
-    guestNodes.some((node) => node.type === "Icon" && node.props.name === "lock-closed-outline"),
+    guestNodes.some((node) => node.type === "Icon" && node.props.name === "chevron-forward"),
   );
   const guestRow = guestNodes.find((node) => node.type === "Pressable")!;
   assert.match(guestRow.props.accessibilityLabel, /peopleProfile\.signIn/);
