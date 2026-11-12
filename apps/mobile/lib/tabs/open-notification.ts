@@ -1,7 +1,8 @@
 import { router } from "expo-router";
-import { getAccountIdSync, setActiveVaultId } from "../db-tx";
+import { getAccountIdSync, getActiveVaultIdSyncMaybe, setActiveVaultId } from "../db-tx";
 import { applyVaultCurrency, selectLedgerCurrency } from "../currency";
-import { getTabLink, getPersonIdForRelationship } from "./db";
+import { listTabLinksForId, getPersonIdForRelationship } from "./db";
+import type { TabRole } from "./types";
 import { markInboxHandled, type InboxReadSpec } from "./inbox-reads";
 import { reconcileTabsFromServer, syncTab } from "./sync";
 
@@ -39,23 +40,36 @@ function handledSpec(
 export async function openTabNotification(
   tabId: string,
   entryId?: string | null,
-  opts?: { notificationId?: string; rev?: number },
+  opts?: { notificationId?: string; rev?: number; role?: TabRole; vaultId?: string },
   canOpen: () => boolean = () => true,
 ): Promise<void> {
   if (!canOpen()) return;
   const account = getAccountIdSync();
   if (!account) throw new Error("Signed out");
   if (!UUID.test(tabId)) throw new Error("Invalid tab");
-  if (!(await getTabLink(tabId))) {
+  const findLink = async () => {
+    const links = (await listTabLinksForId(tabId)).filter(
+      (link) =>
+        (!opts?.role || link.role === opts.role) &&
+        (!opts?.vaultId || link.vault_id === opts.vaultId),
+    );
+    // Old pushes do not identify their side. Prefer the current book, but
+    // never choose an arbitrary perspective when two others remain possible.
+    return (
+      links.find((link) => link.vault_id === getActiveVaultIdSyncMaybe()) ??
+      (links.length === 1 ? links[0] : null)
+    );
+  };
+  if (!(await findLink())) {
     if (!canOpen()) return;
     await reconcileTabsFromServer();
   }
   if (!canOpen()) return;
-  const link = await getTabLink(tabId);
+  const link = await findLink();
   if (!canOpen()) return;
   if (!link || getAccountIdSync() !== account) throw new Error("Account unavailable");
   // Sync before routing checks current server access, including removed members.
-  const synced = await syncTab(tabId);
+  const synced = await syncTab(tabId, link.vault_id);
   if (!canOpen()) return;
   if (!synced.ok) throw new Error("Account unavailable");
   const personId = await getPersonIdForRelationship(link.relationship_id);

@@ -135,6 +135,7 @@ import {
 } from "../lib/battery-exemption";
 import type { PersonWithBalance, Self } from "../lib/types";
 import { personSharedAccountStatus } from "../lib/tabs/link-status";
+import { useInvitationTime } from "../lib/tabs/use-invitation-time";
 import { useStoreReviewPrompt } from "../lib/use-store-review-prompt";
 import { isSettledCustomer } from "../lib/settled-customers";
 
@@ -845,12 +846,31 @@ export default function HomeScreen() {
       ? { ...preference, sort: DEFAULT_CUSTOMER_LIST.sort }
       : preference;
   }, [savedListPreference, currencyFilter, amountSortAvailable]);
+  const invitationDeadlines = useMemo(
+    () =>
+      visibleAllPeople.flatMap((person) =>
+        (person.currency_balances?.length ? person.currency_balances : [person])
+          .filter(
+            (row) =>
+              row.tab_id &&
+              row.tab_closed_at == null &&
+              row.tab_other_joined !== 1 &&
+              row.tab_invitation_declined_at == null,
+          )
+          .map((row) => row.tab_invitation_expires_at),
+      ),
+    [visibleAllPeople],
+  );
+  const invitationNow = useInvitationTime(invitationDeadlines);
   const sharedStatusByPerson = useMemo(
     () =>
       Object.fromEntries(
-        visibleAllPeople.map((person) => [person.id, personSharedAccountStatus(person)]),
+        visibleAllPeople.map((person) => [
+          person.id,
+          personSharedAccountStatus(person, invitationNow),
+        ]),
       ),
-    [visibleAllPeople],
+    [visibleAllPeople, invitationNow],
   );
   const creditByPerson = useMemo<Record<string, CreditStatus>>(
     () =>

@@ -60,8 +60,8 @@ func lockActor(ctx context.Context, tx pgx.Tx, accountID *string) error {
 // no-actor branch supports the service's legacy internal/token-only callers;
 // the HTTP resolver always supplies the authenticated ActorAccountID.
 func recheckParty(ctx context.Context, tx pgx.Tx, p Party, minRank int, invitation bool) (Party, error) {
-	if p.ActorAccountID != "" {
-		current, err := partyByAccountRoleQuery(ctx, tx, p.TabID, p.ActorAccountID, p.Role)
+	if account := p.actorAccount(); account != nil {
+		current, err := partyByAccountRoleQuery(ctx, tx, p.TabID, *account, p.Role)
 		if errors.Is(err, ErrNotFound) && invitation {
 			var unclaimed bool
 			if err = tx.QueryRow(ctx, `SELECT NOT account_bound_once AND account_id IS NULL AND vault_id IS NULL

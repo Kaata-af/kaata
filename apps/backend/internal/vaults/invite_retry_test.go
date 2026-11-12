@@ -25,6 +25,9 @@ func TestAcceptInviteRetryHonorsMembershipRevocation(t *testing.T) {
 				t.Fatalf("first accept = %+v", accepted)
 			}
 			audits := graceVaultCount(t, f, `SELECT COUNT(*) FROM vault_audit_log`)
+			if got := graceVaultCount(t, f, `SELECT COUNT(*) FROM account_connection_notifications WHERE event_kind='vault_invite_accepted'`); got != 1 {
+				t.Fatalf("link/email invitation acceptance notices = %d, want 1", got)
+			}
 			for _, expired := range []bool{false, true} {
 				if expired {
 					if _, err := f.pool.Exec(ctx, `UPDATE vault_members SET invite_expires_at=NOW()-INTERVAL '1 day'
@@ -38,6 +41,9 @@ func TestAcceptInviteRetryHonorsMembershipRevocation(t *testing.T) {
 				}
 				if got := graceVaultCount(t, f, `SELECT COUNT(*) FROM vault_audit_log`); got != audits {
 					t.Fatalf("idempotent retry emitted an audit: %d -> %d", audits, got)
+				}
+				if got := graceVaultCount(t, f, `SELECT COUNT(*) FROM account_connection_notifications WHERE event_kind='vault_invite_accepted'`); got != 1 {
+					t.Fatalf("retry duplicated acceptance notification: %d", got)
 				}
 			}
 			// Another signed-in account cannot claim the consumed token.

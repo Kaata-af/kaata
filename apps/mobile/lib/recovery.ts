@@ -192,8 +192,9 @@ async function recoverVaults(
   }
   await apply(async () => {});
 
-  const live = listings.filter((v) =>
-    (opts.includeArchived || v.archived_at_ms == null) && (scope === "all" || v.role !== "owner"),
+  const live = listings.filter(
+    (v) =>
+      (opts.includeArchived || v.archived_at_ms == null) && (scope === "all" || v.role !== "owner"),
   );
   vaultTotal = live.length;
   // Per-vault width of the loop's slice of the bar (0 when nothing to restore).
@@ -314,7 +315,10 @@ async function recoverVaults(
         // the pin check-in above was offline and the witnessed events quarantined.
         await apply(() => setAppMeta(witnessEmitPendingKey(v.vault_id), "1")).catch(() => {});
         if (!(err instanceof JoinProofPendingError))
-          console.warn(`[recovery] witnessed device-bind failed for ${v.vault_id.slice(0, 8)}`, err);
+          console.warn(
+            `[recovery] witnessed device-bind failed for ${v.vault_id.slice(0, 8)}`,
+            err,
+          );
       }
       await apply(async () => {});
       recovered.push(v.vault_id);
@@ -345,7 +349,10 @@ async function recoverVaults(
     const activeRecovered = recovered.filter((id) =>
       live.some((v) => v.vault_id === id && v.archived_at_ms == null),
     );
-    if (activeRecovered.length > 0 && (scope === "all" || !(await getAppMeta(ACTIVE_VAULT_META_KEY)))) {
+    if (
+      activeRecovered.length > 0 &&
+      (scope === "all" || !(await getAppMeta(ACTIVE_VAULT_META_KEY)))
+    ) {
       const originalDefault = await getAppMeta("default_vault_id");
       const accountDefault = await getAppMeta("signin_default_vault_id");
       activeVaultId =
@@ -418,7 +425,9 @@ async function recoverVaults(
   if (opts.requireComplete) {
     try {
       if (tabSweepTimedOut) throw new Error("shared-account recovery timed out");
-      const mine = await fetchMine();
+      const scopedBooks = live.filter((v) => v.archived_at_ms == null || v.role === "owner");
+      const pages = await Promise.all(scopedBooks.map((v) => fetchMine(v.vault_id)));
+      const mine = { tabs: pages.flatMap((page) => page.tabs) };
       await apply(async () => {
         const liveVaultIds = new Set(
           live.filter((v) => v.archived_at_ms == null || v.role === "owner").map((v) => v.vault_id),
@@ -426,7 +435,7 @@ async function recoverVaults(
         const db = await getDb();
         for (const t of mine.tabs) {
           if (!t.vault_id || !t.relationship_id || !liveVaultIds.has(t.vault_id)) continue;
-          const link = await getTabLink(t.tab.id);
+          const link = await getTabLink(t.tab.id, t.vault_id);
           const relationship = await db.getFirstAsync<{ one: number }>(
             "SELECT 1 AS one FROM relationships WHERE id = ? AND vault_id = ? LIMIT 1",
             t.relationship_id,

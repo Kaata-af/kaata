@@ -75,6 +75,23 @@ function notifyTabChanged(vaultId: string, ev: TabAppliedEvent): void {
   }
 }
 
+async function notifyBookChanged(ev: TabAppliedEvent): Promise<void> {
+  notifyTabChanged(ev.vaultId, ev);
+  // Entry rows are shared by both bindings. Refresh another visible Kaata's
+  // balance too, without manufacturing a second notification for this write.
+  for (const binding of await listTabLinksForId(ev.tabId)) {
+    if (binding.vault_id === ev.vaultId) continue;
+    notifyTabChanged(binding.vault_id, {
+      ...ev,
+      vaultId: binding.vault_id,
+      relationshipId: binding.relationship_id,
+      newFromThem: 0,
+      statusChangedOnMine: 0,
+      changes: [],
+    });
+  }
+}
+
 function clampError(err: string): string {
   return err.length > LAST_ERROR_MAX ? err.slice(0, LAST_ERROR_MAX) : err;
 }
@@ -291,11 +308,27 @@ export async function getAnyTabLinkForRelationship(
   return row ?? null;
 }
 
-/** By tab id, open or closed. */
-export async function getTabLink(tabId: string): Promise<TabLink | null> {
+/** By shared book and Kaata. Both parties may be visible to the same account. */
+export async function getTabLink(
+  tabId: string,
+  vaultId: string | null = getActiveVaultIdSyncMaybe(),
+): Promise<TabLink | null> {
   const db = await getDb();
-  const row = await db.getFirstAsync<TabLink>(`SELECT * FROM tab_links WHERE tab_id = ?`, tabId);
+  if (!vaultId) return null;
+  const row = await db.getFirstAsync<TabLink>(
+    `SELECT * FROM tab_links WHERE tab_id = ? AND vault_id = ?`,
+    tabId,
+    vaultId,
+  );
   return row ?? null;
+}
+
+/** Every locally available perspective of one financial book. */
+export async function listTabLinksForId(tabId: string): Promise<TabLink[]> {
+  return (await getDb()).getAllAsync<TabLink>(
+    "SELECT * FROM tab_links WHERE tab_id = ? ORDER BY vault_id",
+    tabId,
+  );
 }
 
 export async function getSharedHistoryReceiptForRelationship(
@@ -352,22 +385,25 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
   if (link.recording_mode != null && !isTabRecordingMode(link.recording_mode))
     throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
   const db = await getDb();
+  await db.runAsync("INSERT OR IGNORE INTO tab_books(tab_id) VALUES(?)", link.tab_id);
   const result = await db.runAsync(
     `INSERT INTO tab_links (tab_id, vault_id, relationship_id, role, currency, party_token,
                             my_label, other_label, other_joined_at, invite_url, rev, closed_at,
                             linked_at, last_synced_at, last_error, history_order, unjoined_invitation, recording_mode, recording_mode_known,
-                            invitation_declined_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(tab_id) DO UPDATE SET
+                            invitation_declined_at, invitation_expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(tab_id,vault_id) DO UPDATE SET
        vault_id = excluded.vault_id, relationship_id = excluded.relationship_id,
        role = excluded.role, currency = excluded.currency, party_token = excluded.party_token,
        my_label = excluded.my_label, other_label = excluded.other_label,
-       other_joined_at = excluded.other_joined_at, invite_url = excluded.invite_url,
-       rev = excluded.rev, closed_at = excluded.closed_at, linked_at = excluded.linked_at,
+       other_joined_at = COALESCE(tab_links.other_joined_at, excluded.other_joined_at), invite_url = excluded.invite_url,
+       rev = MAX(tab_links.rev, excluded.rev), closed_at = COALESCE(tab_links.closed_at, excluded.closed_at), linked_at = excluded.linked_at,
        last_synced_at = excluded.last_synced_at, last_error = excluded.last_error,
        history_order = COALESCE(excluded.history_order, tab_links.history_order),
-       unjoined_invitation = excluded.unjoined_invitation, recording_mode = excluded.recording_mode,
+       unjoined_invitation = CASE WHEN tab_links.unjoined_invitation=0 THEN 0 ELSE excluded.unjoined_invitation END,
+       recording_mode = excluded.recording_mode,
        invitation_declined_at = COALESCE(tab_links.invitation_declined_at, excluded.invitation_declined_at),
+       invitation_expires_at = COALESCE(tab_links.invitation_expires_at, excluded.invitation_expires_at),
        recording_mode_known = CASE WHEN tab_links.recording_mode_known=1 THEN 1 ELSE excluded.recording_mode_known END
      WHERE tab_links.recording_mode_known=0 OR tab_links.recording_mode=excluded.recording_mode`,
     link.tab_id,
@@ -390,6 +426,7 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
     link.recording_mode ?? "review",
     link.recording_mode_known ?? 1,
     link.invitation_declined_at ?? null,
+    link.invitation_expires_at ?? null,
   );
   if (result.changes === 0)
     throw new TabApiError(
@@ -398,23 +435,42 @@ export async function upsertTabLink(link: TabLink): Promise<void> {
       "A cache update cannot change this shared account's recording mode",
     );
   if (link.group_id !== undefined)
-    await db.runAsync("UPDATE tab_links SET group_id=? WHERE tab_id=?", link.group_id, link.tab_id);
+    await db.runAsync(
+      "UPDATE tab_links SET group_id=? WHERE tab_id=? AND vault_id=?",
+      link.group_id,
+      link.tab_id,
+      link.vault_id,
+    );
 }
 
 /** Record (or clear, with null) the last sync failure for the App health line. */
-export async function setTabLinkError(tabId: string, err: string | null): Promise<void> {
+export async function setTabLinkError(
+  tabId: string,
+  err: string | null,
+  vaultId = getActiveVaultIdSyncMaybe(),
+): Promise<void> {
   const db = await getDb();
   await db.runAsync(
-    `UPDATE tab_links SET last_error = ? WHERE tab_id = ?`,
+    `UPDATE tab_links SET last_error = ? WHERE tab_id = ? AND vault_id = ?`,
     err == null ? null : clampError(err),
     tabId,
+    vaultId,
   );
 }
 
 /** Party a re-shares from this; a regenerate-link response lands here. */
-export async function setTabInviteUrl(tabId: string, inviteUrl: string): Promise<void> {
+export async function setTabInviteUrl(
+  tabId: string,
+  inviteUrl: string,
+  vaultId = getActiveVaultIdSyncMaybe(),
+): Promise<void> {
   const db = await getDb();
-  await db.runAsync(`UPDATE tab_links SET invite_url = ? WHERE tab_id = ?`, inviteUrl, tabId);
+  await db.runAsync(
+    `UPDATE tab_links SET invite_url = ? WHERE tab_id = ? AND vault_id = ?`,
+    inviteUrl,
+    tabId,
+    vaultId,
+  );
 }
 
 /**
@@ -530,6 +586,7 @@ export async function upsertTabFromWire(
   let relationshipId = link.relationship_id;
 
   const write = async () => {
+    await db.runAsync("INSERT OR IGNORE INTO tab_books(tab_id) VALUES(?)", link.tab_id);
     await db.runAsync(
       `INSERT OR IGNORE INTO tab_links (tab_id, vault_id, relationship_id, role, currency,
                                         party_token, linked_at, recording_mode, recording_mode_known, rev)
@@ -545,10 +602,17 @@ export async function upsertTabFromWire(
       resp.tab.recording_mode != null ? 1 : (link.recording_mode_known ?? 1),
     );
     const stored = await db.getFirstAsync<TabLink>(
-      `SELECT * FROM tab_links WHERE tab_id = ?`,
+      `SELECT * FROM tab_links WHERE tab_id = ? AND vault_id = ?`,
       link.tab_id,
+      link.vault_id,
     );
     if (!stored) throw new Error(`tab_links row missing after upsert: ${link.tab_id}`);
+    if (stored.role !== resp.tab.you)
+      throw new TabApiError(
+        409,
+        "shared_account_conflict",
+        "The shared account response belongs to the other Kaata",
+      );
     if (stored.group_id && resp.tab.group_id && stored.group_id !== resp.tab.group_id)
       throw new TabApiError(
         409,
@@ -585,7 +649,11 @@ export async function upsertTabFromWire(
       throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally status");
     // An older response must not erase rows from a newer full pull while
     // retaining its higher cursor (which would prevent fetching them again).
-    if (resp.tab.rev < stored.rev) return;
+    const newest = await db.getFirstAsync<{ rev: number }>(
+      "SELECT MAX(rev) AS rev FROM tab_links WHERE tab_id=?",
+      link.tab_id,
+    );
+    if (resp.tab.rev < Math.max(stored.rev, newest?.rev ?? 0)) return;
     // A newly recovered binding changes the contact's source of truth even
     // when its server book is empty at rev 0. Announce its first successful
     // pull so an already-visible contact stops showing its pre-link rows and
@@ -732,9 +800,10 @@ export async function upsertTabFromWire(
     }
 
     await db.runAsync(
-      "UPDATE tab_links SET other_account_name=? WHERE tab_id=?",
+      "UPDATE tab_links SET other_account_name=? WHERE tab_id=? AND vault_id=?",
       resp.tab.parties[them].account_name ?? "",
       link.tab_id,
+      link.vault_id,
     );
     const meta = {
       group_id: resp.tab.group_id ?? stored.group_id ?? null,
@@ -743,11 +812,16 @@ export async function upsertTabFromWire(
         resp.tab.recording_mode != null ? (1 as const) : (stored.recording_mode_known ?? 1),
       my_label: resp.tab.parties[me].label,
       other_label: resp.tab.parties[them].label,
-      other_joined_at: resp.tab.parties[them].joined_at_ms,
+      // Accepting is terminal for this period. Operation replies
+      // do not advance the pull cursor, so an older in-flight read can carry
+      // the same financial revision after either result has been applied.
+      other_joined_at: stored.other_joined_at ?? resp.tab.parties[them].joined_at_ms,
       // Rejection is terminal for this invitation. A same-revision response
       // sent before it (or by an older server) cannot turn it back into waiting.
       invitation_declined_at:
         stored.invitation_declined_at ?? resp.tab.invitation_declined_at_ms ?? null,
+      invitation_expires_at:
+        stored.invitation_expires_at ?? resp.tab.invitation_expires_at_ms ?? null,
       unjoined_invitation:
         // Participation is irreversible. A late equal-revision metadata
         // response must never make a once-bound invitation private again.
@@ -760,6 +834,8 @@ export async function upsertTabFromWire(
                 ? (1 as const)
                 : (0 as const)
               : null,
+      // Closing is also represented optimistically; a refused close must be
+      // able to restore the server's open state on its following full pull.
       closed_at: resp.tab.closed_at_ms,
       closed_reason: resp.tab.closed_reason ?? null,
     };
@@ -773,6 +849,7 @@ export async function upsertTabFromWire(
       meta.other_label !== stored.other_label ||
       meta.other_joined_at !== stored.other_joined_at ||
       meta.invitation_declined_at !== (stored.invitation_declined_at ?? null) ||
+      meta.invitation_expires_at !== (stored.invitation_expires_at ?? null) ||
       meta.recording_mode !== (stored.recording_mode ?? "review") ||
       meta.recording_mode_known !== (stored.recording_mode_known ?? 1) ||
       meta.unjoined_invitation !== (stored.unjoined_invitation ?? null) ||
@@ -787,15 +864,16 @@ export async function upsertTabFromWire(
     await db.runAsync(
       `UPDATE tab_links
           SET rev = MAX(rev, ?), currency = ?, my_label = ?, other_label = ?,
-              other_joined_at = ?, invitation_declined_at = ?, closed_at = ?, closed_reason = ?, last_synced_at = ?, last_error = NULL,
+              other_joined_at = ?, invitation_declined_at = ?, invitation_expires_at = ?, closed_at = ?, closed_reason = ?, last_synced_at = ?, last_error = NULL,
               history_order = COALESCE(?, history_order), unjoined_invitation = ?, recording_mode = ?, recording_mode_known = ?
-        WHERE tab_id = ?`,
+        WHERE tab_id = ? AND vault_id = ?`,
       advanceCursor ? resp.tab.rev : stored.rev,
       resp.tab.currency,
       meta.my_label,
       meta.other_label,
       meta.other_joined_at,
       meta.invitation_declined_at,
+      meta.invitation_expires_at,
       meta.closed_at,
       meta.closed_reason,
       now,
@@ -804,26 +882,41 @@ export async function upsertTabFromWire(
       meta.recording_mode,
       meta.recording_mode_known,
       link.tab_id,
+      link.vault_id,
     );
     if (typeof groupCutover === "number")
       await db.runAsync(
-        "UPDATE tab_links SET linked_at=? WHERE tab_id=?",
+        "UPDATE tab_links SET linked_at=? WHERE tab_id=? AND vault_id=?",
         groupCutover,
         link.tab_id,
+        link.vault_id,
       );
     if (meta.group_id !== null || stored.group_id !== undefined)
       await db.runAsync(
-        "UPDATE tab_links SET group_id=? WHERE tab_id=?",
+        "UPDATE tab_links SET group_id=? WHERE tab_id=? AND vault_id=?",
         meta.group_id,
         link.tab_id,
+        link.vault_id,
       );
+    // Closing belongs to the shared book. In particular, a refused optimistic
+    // close must reopen every cached perspective, including a background one
+    // whose completed-history sweep would otherwise never revisit it.
+    const closure = await db.runAsync(
+      "UPDATE tab_links SET closed_at=?,closed_reason=? WHERE tab_id=? AND (closed_at IS NOT ? OR closed_reason IS NOT ?)",
+      meta.closed_at,
+      meta.closed_reason,
+      link.tab_id,
+      meta.closed_at,
+      meta.closed_reason,
+    );
+    if (closure.changes) changed = true;
     if (meta.group_id) await clearRecoveredGroupIntent({ ...stored, group_id: meta.group_id });
   };
   if (opts.inGroupTransaction) await write();
   else await transaction(write);
 
   if (changed && !opts.suppressNotify) {
-    notifyTabChanged(vaultId, {
+    await notifyBookChanged({
       tabId: link.tab_id,
       relationshipId,
       vaultId,
@@ -873,7 +966,7 @@ export async function upsertTabGroupFromWire(
         response.tab.group_id !== link.group_id
       )
         throw new TabApiError(503, "shared_account_invalid", "Currency binding mismatch");
-      const previous = await getTabLink(link.tab_id);
+      const previous = await getTabLink(link.tab_id, link.vault_id);
       if (
         previous &&
         (previous.vault_id !== link.vault_id ||
@@ -889,10 +982,15 @@ export async function upsertTabGroupFromWire(
       if (!previous) await upsertTabLink(link);
       else {
         if (link.invite_url && !staleInvitation)
-          await setTabInviteUrl(link.tab_id, link.invite_url);
+          await setTabInviteUrl(link.tab_id, link.invite_url, link.vault_id);
         await (
           await getDb()
-        ).runAsync("UPDATE tab_links SET linked_at=? WHERE tab_id=?", link.linked_at, link.tab_id);
+        ).runAsync(
+          "UPDATE tab_links SET linked_at=? WHERE tab_id=? AND vault_id=?",
+          link.linked_at,
+          link.tab_id,
+          link.vault_id,
+        );
       }
       const counts = await upsertTabFromWire(previous ?? link, response, {
         origin: "local",
@@ -914,7 +1012,7 @@ export async function upsertTabGroupFromWire(
         String(options.revision),
       );
   });
-  for (const event of events) notifyTabChanged(event.vaultId, event);
+  for (const event of events) await notifyBookChanged(event);
 }
 
 /** A single wire entry into the cache (append / accept / dispute acks). */
@@ -937,6 +1035,7 @@ export async function listTabSettlements(tabId: string): Promise<TabSettlement[]
  * or makes another period's sequence numbers apply to the current tab. */
 export async function listScopedTabSettlements(
   tabId: string,
+  vaultId = getActiveVaultIdSyncMaybe(),
 ): Promise<Array<TabSettlement & { tab_id: string }>> {
   return (await getDb()).getAllAsync<TabSettlement & { tab_id: string }>(
     `SELECT s.tab_id,s.id,s.rev,s.through_seq,s.settled_at_ms,s.created_by,
@@ -945,9 +1044,10 @@ export async function listScopedTabSettlements(
        ON history.vault_id=anchor.vault_id AND history.relationship_id=anchor.relationship_id
         AND history.currency=anchor.currency
      JOIN tab_settlements s ON s.tab_id=history.tab_id
-     WHERE anchor.tab_id=?
+     WHERE anchor.tab_id=? AND anchor.vault_id=?
      ORDER BY CAST(history.history_order AS INTEGER),s.through_seq,s.id`,
     tabId,
+    vaultId,
   );
 }
 
@@ -1078,7 +1178,7 @@ export async function insertOptimisticEntry(
     )?.display_name ?? "",
   );
   if (notify)
-    notifyTabChanged(link.vault_id, {
+    await notifyBookChanged({
       tabId: link.tab_id,
       relationshipId: link.relationship_id,
       vaultId: link.vault_id,
@@ -1110,7 +1210,7 @@ export async function applyOptimisticStatus(
   );
   if (result.changes === 0) throw new TabReviewFinalError();
   if (notify)
-    notifyTabChanged(link.vault_id, {
+    await notifyBookChanged({
       tabId: link.tab_id,
       relationshipId: link.relationship_id,
       vaultId: link.vault_id,
@@ -1145,7 +1245,7 @@ export async function applyOptimisticVoid(
   );
   if (result.changes === 0) throw new TabReviewFinalError();
   if (notify)
-    notifyTabChanged(link.vault_id, {
+    await notifyBookChanged({
       tabId: link.tab_id,
       relationshipId: link.relationship_id,
       vaultId: link.vault_id,
@@ -1328,9 +1428,10 @@ export async function queueTabMutation(
         break;
       case "label":
         await db.runAsync(
-          `UPDATE tab_links SET my_label = ? WHERE tab_id = ?`,
+          `UPDATE tab_links SET my_label = ? WHERE tab_id = ? AND vault_id = ?`,
           p.label,
           link.tab_id,
+          link.vault_id,
         );
         break;
       case "close":
@@ -1341,9 +1442,9 @@ export async function queueTabMutation(
         );
         break;
     }
-    await enqueueTabOp(op);
+    await enqueueTabOp({ ...op, vault_id: link.vault_id });
   });
-  notifyTabChanged(link.vault_id, {
+  await notifyBookChanged({
     tabId: link.tab_id,
     relationshipId: link.relationship_id,
     vaultId: link.vault_id,
@@ -1358,10 +1459,11 @@ export async function rejectTabOp(op: TabOutboxRow, reason = "refused"): Promise
   const db = await getDb();
   await transaction(async () => {
     await db.runAsync(
-      `INSERT OR IGNORE INTO tab_failed_ops (id, tab_id, op, payload, created_at, reason)
-      VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO tab_failed_ops (id, tab_id, vault_id, op, payload, created_at, reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
       op.id,
       op.tab_id,
+      op.vault_id ?? getActiveVaultIdSyncMaybe(),
       op.op,
       op.payload,
       op.created_at,
@@ -1387,7 +1489,7 @@ export async function listFailedTabEntries(
     created_at: number;
   }>(
     `SELECT f.id, f.payload, f.created_at, l.role,l.currency FROM tab_failed_ops f
-     JOIN tab_links l ON l.tab_id=f.tab_id
+     JOIN tab_links l ON l.tab_id=f.tab_id AND l.vault_id=f.vault_id
      WHERE l.relationship_id=? AND l.currency=? AND f.op='append' AND (?=0 OR f.reason<>'credit_limit_exceeded') ORDER BY f.created_at DESC`,
     relationshipId,
     opts?.currency ?? getLedgerCurrencyCode(),
@@ -1417,11 +1519,15 @@ export async function listFailedTabEntries(
 /** Queue one op. For 'append' the op id IS the entry id (server idempotency). */
 export async function enqueueTabOp(op: TabOutboxRow): Promise<void> {
   const db = await getDb();
+  const vaultId = op.vault_id ?? getActiveVaultIdSyncMaybe();
+  if (!vaultId)
+    throw new TabApiError(409, "shared_account_conflict", "A shared action needs its Kaata");
   await db.runAsync(
-    `INSERT INTO tab_outbox (id, tab_id, op, payload, created_at, attempts, next_at, last_error)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO tab_outbox (id, tab_id, vault_id, op, payload, created_at, attempts, next_at, last_error)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     op.id,
     op.tab_id,
+    vaultId,
     op.op,
     op.payload,
     op.created_at,
@@ -1435,19 +1541,22 @@ export async function enqueueTabOp(op: TabOutboxRow): Promise<void> {
  * Ops whose backoff has elapsed, oldest first (rowid breaks same-ms ties so
  * an append always precedes the accept that follows it). One tab's, or all.
  */
-export async function listDueTabOps(tabId?: string): Promise<TabOutboxRow[]> {
+export async function listDueTabOps(tabId?: string, vaultId?: string): Promise<TabOutboxRow[]> {
   const db = await getDb();
   const now = Date.now();
   return db.getAllAsync<TabOutboxRow>(
     `SELECT o.* FROM tab_outbox o
-      WHERE (? IS NULL OR o.tab_id = ?) AND (o.next_at IS NULL OR o.next_at <= ?)
+      WHERE (? IS NULL OR o.tab_id = ?) AND (? IS NULL OR o.vault_id = ?)
+        AND (o.next_at IS NULL OR o.next_at <= ?)
         AND NOT EXISTS (
           SELECT 1 FROM tab_outbox older
-           WHERE older.tab_id = o.tab_id AND older.rowid < o.rowid AND older.next_at > ?
+           WHERE older.tab_id = o.tab_id AND older.vault_id = o.vault_id AND older.rowid < o.rowid AND older.next_at > ?
         )
       ORDER BY o.rowid ASC`,
     tabId ?? null,
     tabId ?? null,
+    vaultId ?? null,
+    vaultId ?? null,
     now,
     now,
   );
@@ -1455,10 +1564,13 @@ export async function listDueTabOps(tabId?: string): Promise<TabOutboxRow[]> {
 
 /** Tabs with anything queued — including CLOSED links whose close op is still
  *  unsent, which the open-links sweep would otherwise never flush. */
-export async function listTabIdsWithQueuedOps(): Promise<string[]> {
+export async function listTabIdsWithQueuedOps(): Promise<
+  Array<{ tab_id: string; vault_id: string }>
+> {
   const db = await getDb();
-  const rows = await db.getAllAsync<{ tab_id: string }>(`SELECT DISTINCT tab_id FROM tab_outbox`);
-  return rows.map((r) => r.tab_id);
+  return db.getAllAsync<{ tab_id: string; vault_id: string }>(
+    `SELECT DISTINCT tab_id,vault_id FROM tab_outbox`,
+  );
 }
 
 /** Back online: ops sitting out a backoff (30 s up to 1 h) that was mostly
@@ -1508,6 +1620,7 @@ export async function queueNotificationReview(
     await enqueueTabOp({
       id: key,
       tab_id: link.tab_id,
+      vault_id: link.vault_id,
       op: action,
       payload: JSON.stringify({ entry_id: entryId, expected_rev: rev, reason: "" }),
       created_at: Date.now(),

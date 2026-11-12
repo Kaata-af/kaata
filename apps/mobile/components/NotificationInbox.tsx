@@ -140,7 +140,7 @@ function renderRequestCard({
 }
 
 async function openInboxNotice(inbox: Inbox, item: InboxItem) {
-  if (item.kind === "friend_accepted") {
+  if (item.kind === "friend_accepted" || item.kind === "vault_invite_accepted") {
     if (!inbox.isCurrent() || !item.actor_account_id) return;
     router.push({
       pathname: "/people/[accountId]",
@@ -149,10 +149,12 @@ async function openInboxNotice(inbox: Inbox, item: InboxItem) {
   } else if (item.kind !== "vault_invite_rejected") {
     // The tally route also marks this id for the OS tray. The inbox read
     // below is idempotent and refreshes the page.
-    await openTabNotification(item.tab_id, item.entry_id, {
-      notificationId: item.id,
-      rev: item.rev,
-    });
+    await openTabNotification(
+      item.tab_id,
+      item.entry_id,
+      { notificationId: item.id, rev: item.rev, ...(item.role ? { role: item.role } : {}) },
+      inbox.isCurrent,
+    );
   }
   await inbox.read(item.id);
 }
@@ -162,9 +164,13 @@ function NoticeRow({ item, onPress }: { item: InboxItem; onPress: () => void }) 
   const glyph =
     item.kind === "friend_accepted"
       ? "people-outline"
-      : item.kind === "entry_accepted" || item.kind === "entry_removal_approved"
+      : item.kind === "entry_accepted" ||
+          item.kind === "entry_removal_approved" ||
+          item.kind === "invitation_accepted" ||
+          item.kind === "vault_invite_accepted"
         ? "checkmark-outline"
         : item.kind === "vault_invite_rejected" ||
+            item.kind === "invitation_declined" ||
             item.kind === "entry_rejected" ||
             item.kind === "entry_voided" ||
             item.kind === "entry_removal_declined"

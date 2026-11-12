@@ -41,6 +41,7 @@ function fixture(state: State = "none", list = false, qrMode?: "scan" | "show") 
   let discoveryEnabled = false;
   let appState = "active";
   const appListeners = new Set<(state: string) => void>();
+  const timers = new Set<() => void>();
   const calls: Array<{ action: string; target?: string; session: Session }> = [];
   const routes: any[] = [];
   const listeners = new Set<() => void>();
@@ -224,6 +225,13 @@ function fixture(state: State = "none", list = false, qrMode?: "scan" | "show") 
         ? "../../app/people/friends"
         : "../../app/people/[accountId]",
     mocks,
+    {
+      setInterval: (work: () => void) => {
+        timers.add(work);
+        return work;
+      },
+      clearInterval: (work: () => void) => timers.delete(work),
+    },
   ).default;
   const render = () => {
     activeHooks = hooks;
@@ -307,6 +315,9 @@ function fixture(state: State = "none", list = false, qrMode?: "scan" | "show") 
     setAppState(value: string) {
       appState = value;
       appListeners.forEach((notify) => notify(value));
+    },
+    tick() {
+      [...timers].forEach((work) => work());
     },
     setRoute(value: string) {
       route = value;
@@ -409,6 +420,80 @@ async function qrScreens() {
 
 async function main() {
   await qrScreens();
+  {
+    const f = fixture("outgoing");
+    f.render();
+    await f.flush();
+    f.setState("friends");
+    f.tick();
+    f.render();
+    assert.equal(f.find("Spinner"), undefined, "poll keeps the loaded profile visible");
+    await f.flush();
+    assert.ok(f.text("peopleProfile.friends"), "remote acceptance updates the open profile");
+    const reads = () => f.calls.filter((call) => call.action === "get").length;
+    const count = reads();
+    f.setState("outgoing");
+    f.setAppState("background");
+    f.tick();
+    await f.flush();
+    assert.equal(reads(), count, "background profiles do not poll");
+    f.setAppState("active");
+    await f.flush();
+    assert.ok(f.text("peopleProfile.outgoing"), "resume refreshes without navigation");
+    const delayed = deferred<any>();
+    f.setGet(delayed.promise);
+    f.tick();
+    await settleUI();
+    const inFlight = reads();
+    f.tick();
+    f.setAppState("active");
+    await settleUI();
+    assert.equal(reads(), inFlight, "poll and resume coalesce an in-flight read");
+    f.setFocus(false);
+    f.render();
+    delayed.resolve({ person, friendship: { state: "friends", id: friendshipId } });
+    await f.flush();
+    assert.equal(
+      f.find("PeopleProfileActions"),
+      undefined,
+      "a late poll cannot repaint a blurred profile",
+    );
+    f.unmount();
+    assert.equal(f.hooks.lateWrites, 0);
+  }
+  {
+    const f = fixture();
+    f.render();
+    await f.flush();
+    const stale = deferred<any>();
+    f.setGet(stale.promise);
+    f.tick();
+    await settleUI();
+    f.button("peopleProfile.addFriend").props.onPress();
+    await f.flush();
+    stale.resolve({ person, friendship: { state: "none" } });
+    await f.flush();
+    assert.ok(
+      f.text("peopleProfile.outgoing"),
+      "a pre-action poll cannot overwrite a sent request",
+    );
+    f.setGet(Promise.reject(new Error("temporary offline")));
+    f.tick();
+    await f.flush();
+    assert.ok(
+      f.text("peopleProfile.outgoing"),
+      "transient refresh failure retains the current profile",
+    );
+    f.setGet(Promise.reject(new TabApiError(404)));
+    f.tick();
+    await f.flush();
+    assert.ok(
+      f.text("peopleProfile.unavailable"),
+      "revoked visibility clears cached profile details",
+    );
+    assert.equal(f.find("PeopleProfileActions"), undefined);
+    f.unmount();
+  }
   {
     const f = fixture();
     f.identity(null);

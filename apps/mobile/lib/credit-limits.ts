@@ -209,8 +209,9 @@ export async function creditBalanceInTx(
     // An unused invitation's live opening proposes private rows still counted
     // above. Remove that overlap while keeping pending shared exposure.
     const tab = await tx.getFirstAsync<{ balance: number }>(
-      `SELECT (${effectiveRecordedBalanceSql()}) - (${unjoinedOpeningPrivateAdjustmentSql("tl", "pe.disputed_at IS NULL")}) AS balance FROM tab_links tl WHERE tl.tab_id=?`,
+      `SELECT (${effectiveRecordedBalanceSql()}) - (${unjoinedOpeningPrivateAdjustmentSql("tl", "pe.disputed_at IS NULL")}) AS balance FROM tab_links tl WHERE tl.tab_id=? AND tl.vault_id=?`,
       link.tab_id,
+      vaultId,
     );
     balance += tab?.balance ?? 0;
   }
@@ -764,7 +765,7 @@ export async function listCreditIntents(
     entry_amount_minor: number | null;
     entry_note: string | null;
   }>(
-    `SELECT l.currency,o.id,o.payload,l.role,o.created_at,'pending' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=?${tabCurrencyFilter} AND ((o.op='append' AND NOT EXISTS(SELECT 1 FROM tab_entries e WHERE e.id=o.id)) OR (o.op IN ('accept','dispute','void') AND COALESCE(x.local_action_pending,0)=0)) UNION ALL SELECT l.currency,o.id,o.payload,l.role,o.created_at,'refused' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_failed_ops o JOIN tab_links l ON l.tab_id=o.tab_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=?${tabCurrencyFilter} AND o.op IN ('append','accept','dispute','void') AND o.reason='credit_limit_exceeded'`,
+    `SELECT l.currency,o.id,o.payload,l.role,o.created_at,'pending' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id AND l.vault_id=o.vault_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=?${tabCurrencyFilter} AND ((o.op='append' AND NOT EXISTS(SELECT 1 FROM tab_entries e WHERE e.id=o.id)) OR (o.op IN ('accept','dispute','void') AND COALESCE(x.local_action_pending,0)=0)) UNION ALL SELECT l.currency,o.id,o.payload,l.role,o.created_at,'refused' AS admission_status,o.op,x.direction AS entry_direction,x.amount_minor AS entry_amount_minor,x.note AS entry_note FROM tab_failed_ops o JOIN tab_links l ON l.tab_id=o.tab_id AND l.vault_id=o.vault_id LEFT JOIN tab_entries x ON x.id=json_extract(o.payload,'$.entry_id') AND x.tab_id=o.tab_id WHERE l.vault_id=? AND l.relationship_id=?${tabCurrencyFilter} AND o.op IN ('append','accept','dispute','void') AND o.reason='credit_limit_exceeded'`,
     ...tabParams,
     ...tabParams,
   );

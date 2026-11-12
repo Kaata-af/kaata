@@ -73,8 +73,8 @@ export const PersonRow = memo(function PersonRow(props: {
         ? `${t("tab.row.awaiting", { count: person.tab_pending_count ?? 0 })} · ${timeline}`
         : timeline;
   const subtitle =
-    sharedStatus === "waiting" || sharedStatus === "declined"
-      ? `${t(sharedStatus === "declined" ? "tab.chip.declined" : "tab.chip.waiting")} · ${activitySubtitle}`
+    sharedStatus === "waiting" || sharedStatus === "declined" || sharedStatus === "expired"
+      ? `${t(sharedStatus === "declined" ? "tab.chip.declined" : sharedStatus === "expired" ? "tab.chip.expired" : "tab.chip.waiting")} · ${activitySubtitle}`
       : activitySubtitle;
 
   return (

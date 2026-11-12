@@ -377,8 +377,12 @@ export const regenerateTabGroupLink = (groupId: string, auth?: TabAuth) =>
 
 /** GET /v1/tabs/mine — every tab a party of which is bound to this account or
  *  one of its kaatas. JWT only. */
-export async function fetchMine(): Promise<MineResponse> {
-  return request<MineResponse>("GET", "/v1/tabs/mine", await requireJwt());
+export async function fetchMine(vaultId?: string): Promise<MineResponse> {
+  return request<MineResponse>(
+    "GET",
+    `/v1/tabs/mine${vaultId ? `?vault_id=${encodeURIComponent(vaultId)}` : ""}`,
+    await requireJwt(),
+  );
 }
 
 /** GET /v1/tabs/{id}?after_rev=N — entries with rev > N; full when N is 0. */
@@ -612,7 +616,8 @@ export type InboxPage = {
   next_before: string;
 };
 
-const INBOX_CONNECTIONS_QUERY = "include_connections=1&include_vault_invite_results=1";
+const INBOX_CONNECTIONS_QUERY =
+  "include_connections=1&include_vault_invite_results=1&include_vault_invite_acceptances=1";
 
 export async function fetchInbox(locale: string, before = ""): Promise<InboxPage> {
   return request(

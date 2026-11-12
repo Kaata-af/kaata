@@ -115,7 +115,7 @@ func groupTabIDs(ctx context.Context, q querier, id string) ([]string, error) {
 	}
 	return ids, rows.Err()
 }
-func groupResponse(ctx context.Context, q querier, g groupRow, role string) (GroupResponse, error) {
+func groupResponse(ctx context.Context, q querier, g groupRow, role, account string) (GroupResponse, error) {
 	ids, err := groupTabIDs(ctx, q, g.ID)
 	if err != nil {
 		return GroupResponse{}, err
@@ -125,7 +125,7 @@ func groupResponse(ctx context.Context, q querier, g groupRow, role string) (Gro
 	}
 	out := GroupResponse{Group: GroupMeta{ID: g.ID, RecordingMode: g.Mode, Rev: g.Rev, CreatedAtMS: g.Created.UnixMilli(), ClosedAtMS: msPtr(g.Closed), ClosedBy: g.ClosedBy, You: role, Currencies: []string{}}, Tabs: []TabResponse{}}
 	for _, id := range ids {
-		r, err := fullResponse(ctx, q, id, role)
+		r, err := fullResponse(ctx, q, Party{TabID: id, Role: role, ActorAccountID: account})
 		if err != nil {
 			return GroupResponse{}, err
 		}
@@ -288,7 +288,7 @@ func (s *Service) CreateGroup(ctx context.Context, in GroupCreateInput) (GroupRe
 		if prior.Closed != nil {
 			return GroupResponse{}, ErrTabClosed
 		}
-		out, err := groupResponse(ctx, tx, prior, "a")
+		out, err := groupResponse(ctx, tx, prior, "a", in.AccountID)
 		if err != nil {
 			return GroupResponse{}, err
 		}
@@ -385,7 +385,7 @@ func (s *Service) CreateGroup(ctx context.Context, in GroupCreateInput) (GroupRe
 	if err != nil {
 		return GroupResponse{}, err
 	}
-	out, err := groupResponse(ctx, tx, g, "a")
+	out, err := groupResponse(ctx, tx, g, "a", in.AccountID)
 	if err != nil {
 		return GroupResponse{}, err
 	}
@@ -412,12 +412,9 @@ func (s *Service) GetGroup(ctx context.Context, id, account, role string) (Group
 	if err != nil {
 		return GroupResponse{}, err
 	}
-	out, err := groupResponse(ctx, tx, g, p.Role)
+	out, err := groupResponse(ctx, tx, g, p.Role, account)
 	if err != nil {
 		return GroupResponse{}, err
-	}
-	for i := range out.Tabs {
-		out.Tabs[i].Tab.Access = callerTabAccess(p, out.Tabs[i].Tab)
 	}
 	return out, nil
 }
@@ -445,7 +442,7 @@ func (s *Service) PreviewGroup(ctx context.Context, token, account string) (Grou
 		if _, err = groupAuthorized(ctx, tx, g, account, "b", 1); err != nil {
 			return GroupResponse{}, err
 		}
-		return groupResponse(ctx, tx, g, "b")
+		return groupResponse(ctx, tx, g, "b", account)
 	}
 	if g.Closed != nil {
 		return GroupResponse{}, ErrTabClosed
@@ -536,7 +533,7 @@ func (s *Service) JoinGroup(ctx context.Context, id string, in GroupJoinInput) (
 			return GroupResponse{}, err
 		}
 		if g.BJoined != nil {
-			out, err := groupResponse(ctx, tx, g, "b")
+			out, err := groupResponse(ctx, tx, g, "b", in.AccountID)
 			if err != nil {
 				return GroupResponse{}, err
 			}
@@ -638,7 +635,7 @@ func (s *Service) JoinGroup(ctx context.Context, id string, in GroupJoinInput) (
 		if err != nil {
 			return GroupResponse{}, err
 		}
-		_, err = s.joinTx(ctx, tx, p, JoinInput{Label: in.Label, VaultID: &in.VaultID, RelationshipID: &in.RelationshipID, AccountID: &in.AccountID, InstallID: in.InstallID, LinkedAtMS: c.LinkedAtMS, ExpectedPreviousTabID: c.ExpectedPreviousTabID, ExpectedPreviousRev: c.ExpectedPreviousRev, ExpectedHistoryRevisions: c.ExpectedHistoryRevisions})
+		_, err = s.joinTx(ctx, tx, p, JoinInput{Label: in.Label, VaultID: &in.VaultID, RelationshipID: &in.RelationshipID, AccountID: &in.AccountID, InstallID: in.InstallID, LinkedAtMS: c.LinkedAtMS, ExpectedPreviousTabID: c.ExpectedPreviousTabID, ExpectedPreviousRev: c.ExpectedPreviousRev, ExpectedHistoryRevisions: c.ExpectedHistoryRevisions}, i == 0)
 		if err != nil {
 			return GroupResponse{}, err
 		}
@@ -650,7 +647,7 @@ func (s *Service) JoinGroup(ctx context.Context, id string, in GroupJoinInput) (
 	if err != nil {
 		return GroupResponse{}, err
 	}
-	out, err := groupResponse(ctx, tx, g, "b")
+	out, err := groupResponse(ctx, tx, g, "b", in.AccountID)
 	if err != nil {
 		return GroupResponse{}, err
 	}
@@ -712,7 +709,7 @@ func (s *Service) CloseGroup(ctx context.Context, id, account, role string, with
 	if err != nil {
 		return GroupResponse{}, err
 	}
-	out, err := groupResponse(ctx, tx, g, p.Role)
+	out, err := groupResponse(ctx, tx, g, p.Role, account)
 	if err != nil {
 		return GroupResponse{}, err
 	}
@@ -755,7 +752,7 @@ func (s *Service) RegenerateGroup(ctx context.Context, id, account, role string)
 	if err != nil {
 		return GroupResponse{}, "", err
 	}
-	out, err := groupResponse(ctx, tx, g, "a")
+	out, err := groupResponse(ctx, tx, g, "a", account)
 	if err != nil {
 		return GroupResponse{}, "", err
 	}
@@ -836,7 +833,7 @@ func (s *Service) EnsureGroupCurrency(ctx context.Context, id, account, role str
 		return GroupResponse{}, err
 	}
 	if exists {
-		return groupResponse(ctx, tx, g, p.Role)
+		return groupResponse(ctx, tx, g, p.Role, account)
 	}
 	if c.Opening != nil || g.BJoined == nil || g.AAccount == nil || g.AVault == nil || g.ARel == nil || g.BAccount == nil || g.BVault == nil || g.BRel == nil {
 		return GroupResponse{}, ErrGroupCurrencyHistory
@@ -859,7 +856,7 @@ func (s *Service) EnsureGroupCurrency(ctx context.Context, id, account, role str
 			return GroupResponse{}, ErrGroupCurrencyHistory
 		}
 	}
-	current, err := groupResponse(ctx, tx, g, p.Role)
+	current, err := groupResponse(ctx, tx, g, p.Role, account)
 	if err != nil {
 		return GroupResponse{}, err
 	}
@@ -884,7 +881,7 @@ func (s *Service) EnsureGroupCurrency(ctx context.Context, id, account, role str
 	if err != nil {
 		return GroupResponse{}, err
 	}
-	if _, err = s.joinTx(ctx, tx, invited, JoinInput{Label: labelB, VaultID: g.BVault, RelationshipID: g.BRel, AccountID: g.BAccount, LinkedAtMS: c.LinkedAtMS}); err != nil {
+	if _, err = s.joinTx(ctx, tx, invited, JoinInput{Label: labelB, VaultID: g.BVault, RelationshipID: g.BRel, AccountID: g.BAccount, LinkedAtMS: c.LinkedAtMS}, false); err != nil {
 		return GroupResponse{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE tab_parties SET joined_at=$2 WHERE tab_id=$1::uuid AND role='b'`, made.Tab.ID, g.BJoined); err != nil {
@@ -897,7 +894,7 @@ func (s *Service) EnsureGroupCurrency(ctx context.Context, id, account, role str
 	if err != nil {
 		return GroupResponse{}, err
 	}
-	out, err := groupResponse(ctx, tx, g, p.Role)
+	out, err := groupResponse(ctx, tx, g, p.Role, account)
 	if err != nil {
 		return GroupResponse{}, err
 	}

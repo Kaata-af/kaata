@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
+import { migrateSharedTabBindings } from "../shared-tab-bindings-migration";
 import ts from "typescript";
 import { Mutex } from "../util/mutex";
 import { balanceContribution, recordTotals } from "../export/shared-record";
@@ -169,7 +170,7 @@ const pdfEvidence = compile<{ recordDetailHtml(entry: Entry, locale: string): st
   ["recordDetailHtml"],
 );
 
-function reset(
+async function reset(
   options: {
     joined?: boolean;
     opening?: "pending" | "accepted" | "voided";
@@ -209,6 +210,7 @@ function reset(
     assert.ok(ddl, `shipped schema: ${marker}`);
     store.exec(ddl);
   }
+  await migrateSharedTabBindings(sqlite as never);
   store
     .prepare(
       `INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,other_joined_at,rev,closed_at,linked_at,last_synced_at,history_order,unjoined_invitation)
@@ -247,7 +249,7 @@ const privateEntries = (rows: Entry[]) => rows.filter((row) => !row.tab);
 let passed = 0;
 let failed = 0;
 async function test(name: string, run: () => Promise<void>) {
-  reset();
+  await reset();
   try {
     await run();
     console.log(`PASS ${++passed}: ${name}`);
@@ -358,7 +360,7 @@ async function main() {
     await expectPrivateBook();
   });
   await test("already-cancelled unjoined opening recovers from intact original entries without writing", async () => {
-    reset({ opening: "voided", closed: true });
+    await reset({ opening: "voided", closed: true });
     await expectPrivateBook();
   });
   await test("one invited currency never removes or duplicates the person's other currencies", async () => {
@@ -380,7 +382,7 @@ async function main() {
     );
   });
   await test("repeated unjoined invitations cannot hide or multiply the same original book", async () => {
-    reset({ opening: "voided", closed: true });
+    await reset({ opening: "voided", closed: true });
     store.exec(`INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,rev,closed_at,linked_at,last_synced_at,history_order,unjoined_invitation)
       VALUES('second-invite','vault','relationship','a','AFN',1,NULL,700,700,'2',1);
       INSERT INTO tab_entries(id,tab_id,seq,rev,created_by,direction,amount_minor,kind,occurred_at,created_at,status)
@@ -400,7 +402,7 @@ async function main() {
   });
   await test("external private corrections retain the unmatched opening claim in either direction", async () => {
     for (const sign of [1, -1]) {
-      reset();
+      await reset();
       store
         .prepare("UPDATE entries SET amount_afn=80,type=? WHERE id='private-loan'")
         .run(sign === 1 ? "debt" : "payment");
@@ -453,7 +455,7 @@ async function main() {
   });
   await test("deleted private source leaves its full opening claim pending despite zero-net settled history", async () => {
     for (const sign of [1, -1]) {
-      reset();
+      await reset();
       store
         .prepare("UPDATE entries SET deleted_at=700,type=? WHERE id='private-loan'")
         .run(sign === 1 ? "debt" : "payment");
@@ -540,7 +542,7 @@ async function main() {
     assert.equal(await credit.creditBalanceInTx(sqlite as any, "vault", "relationship", "AFN"), 0);
   });
   await test("an unjoined replacement retains earlier accepted history plus private tallies since that period", async () => {
-    reset({ joined: true, opening: "accepted", closed: true });
+    await reset({ joined: true, opening: "accepted", closed: true });
     store.exec(`INSERT INTO entries VALUES('between-periods','vault','relationship','payment',20,'AFN','Backdated private receipt',300,700,NULL,'{"recorded_at_ms":{"pms":700,"l":0,"did":"fixture"}}',NULL,NULL,NULL,NULL,NULL);
       INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,rev,closed_at,linked_at,last_synced_at,history_order,unjoined_invitation)
       VALUES('second-invite','vault','relationship','a','AFN',1,NULL,800,800,'2',1);
@@ -579,7 +581,7 @@ async function main() {
     assert.deepEqual(after[3], before[3]);
   });
   await test("joined pending opening keeps the existing shared review contract", async () => {
-    reset({ joined: true });
+    await reset({ joined: true });
     const person = (await db.getPerson("person", "AFN"))!;
     assert.equal(person.balance, 0);
     assert.equal(person.tab_pending_balance, 120);
@@ -596,7 +598,7 @@ async function main() {
   });
   await test("legacy bound or unknown invitations do not infer private ownership from a missing joined date", async () => {
     for (const unjoined of [0, null] as const) {
-      reset({ unjoined });
+      await reset({ unjoined });
       const person = (await db.getPerson("person", "AFN"))!;
       assert.equal(person.balance, 0);
       assert.equal(person.tab_pending_balance, 120);
@@ -607,7 +609,7 @@ async function main() {
   });
   await test("peer acknowledgements and participation override a stale unused-invitation flag", async () => {
     for (const proof of ["accepted", "disputed", "peer-entry", "joined"] as const) {
-      reset();
+      await reset();
       if (proof === "accepted" || proof === "disputed")
         store.prepare("UPDATE tab_entries SET status=? WHERE id='opening'").run(proof);
       else if (proof === "joined")
@@ -639,7 +641,7 @@ async function main() {
     }
   });
   await test("refreshing unknown legacy metadata restores private originals without financial writes", async () => {
-    reset({ unjoined: null, closed: true, opening: "voided" });
+    await reset({ unjoined: null, closed: true, opening: "voided" });
     store.exec(
       "ALTER TABLE tab_links DROP COLUMN unjoined_invitation; UPDATE tab_links SET rev=9;",
     );
@@ -734,7 +736,7 @@ async function main() {
     assert.deepEqual(snapshot(), before);
   });
   await test("accepted opening replaces the private baseline exactly once, even if joined metadata is absent", async () => {
-    reset({ opening: "accepted", closed: true });
+    await reset({ opening: "accepted", closed: true });
     assert.equal((await db.getPerson("person", "AFN"))!.balance, 120);
     const rows = await db.listEntries("person", "AFN");
     assert.equal(privateEntries(rows).length, 0);
@@ -787,7 +789,7 @@ async function main() {
       "shared cache rows remain append-only",
     );
     for (const kind of ["joined", "accepted", "unknown", "bound", "stale-accepted"] as const) {
-      reset({
+      await reset({
         closed: true,
         joined: kind === "joined",
         opening: kind === "accepted" ? "accepted" : "pending",
@@ -812,7 +814,7 @@ async function main() {
     }
   });
   await test("shipped edit guard preserves earlier real ownership while releasing private tallies after its cutoff", async () => {
-    reset({ joined: true, opening: "accepted", closed: true });
+    await reset({ joined: true, opening: "accepted", closed: true });
     store.exec(`INSERT INTO entries VALUES('between-periods','vault','relationship','payment',20,'AFN','Backdated private receipt',300,700,NULL,'{"recorded_at_ms":{"pms":700,"l":0,"did":"fixture"}}',NULL,NULL,NULL,NULL,NULL);
       INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,rev,closed_at,linked_at,last_synced_at,history_order,unjoined_invitation)
       VALUES('second-invite','vault','relationship','a','AFN',1,900,800,800,'2',1);
@@ -835,7 +837,7 @@ async function main() {
     );
     assert.deepEqual(snapshot(), before);
     for (const kind of ["joined", "accepted", "unknown", "ordinary", "peer"] as const) {
-      reset({
+      await reset({
         closed: true,
         joined: kind === "joined",
         opening: kind === "accepted" ? "accepted" : "pending",
@@ -969,7 +971,7 @@ async function main() {
   });
   await test("notification-only joined openings count once without claiming peer acceptance", async () => {
     for (const sign of [1, -1]) {
-      reset({ joined: true });
+      await reset({ joined: true });
       store.prepare("UPDATE tab_links SET recording_mode='notify' WHERE tab_id='invite'").run();
       store
         .prepare("UPDATE tab_entries SET status='recorded',direction=? WHERE id='opening'")
@@ -1061,7 +1063,7 @@ async function main() {
     });
   });
   await test("recorded notification rows stay unconfirmed while sending and never become review decisions", async () => {
-    reset({ joined: true });
+    await reset({ joined: true });
     store.exec(
       "UPDATE tab_links SET recording_mode='notify'; UPDATE tab_entries SET status='recorded',local_pending=1 WHERE id='opening'",
     );

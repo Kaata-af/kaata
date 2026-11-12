@@ -162,7 +162,7 @@ func (s *Service) Removal(ctx context.Context, p Party, entryID string, in Remov
 		return EntryResponse{}, err
 	}
 	respond := func() (EntryResponse, error) {
-		tab, e2 := loadTab(ctx, tx, p.TabID, p.Role)
+		tab, e2 := loadTabForParty(ctx, tx, p)
 		return EntryResponse{Entry: e, Tab: tab}, e2
 	}
 	if prior != nil {

@@ -78,10 +78,18 @@ func TestOwnerReadmissionPublishesOnlyTheConsentingDeviceAtomically(t *testing.T
 		t.Fatalf("new invite: %+v, %v", returnInvite, err)
 	}
 	consent := vaults.AcceptInviteInput{Token: returnInvite.InviteToken, AccountID: guest, InstallID: guestDevice, MemberReadmission: true}
+	checkNotices := func(want int) {
+		t.Helper()
+		var got int
+		if err := f.pool.QueryRow(ctx, `SELECT COUNT(*) FROM account_connection_notifications WHERE event_kind='vault_invite_accepted' AND source_id=$1::uuid`, returnInvite.InviteID).Scan(&got); err != nil || got != want {
+			t.Fatalf("completed readmission notifications = %d, want %d: %v", got, want, err)
+		}
+	}
 	result, err := books.AcceptInvite(ctx, consent)
 	if err != nil || !result.ReadmissionPending || f.memberRow(t, guest) != "" {
 		t.Fatalf("consent granted access prematurely: %+v, %v", result, err)
 	}
+	checkNotices(0)
 	ready, err := books.ListMemberReadmissions(ctx, f.vaultID, f.ownerAcct)
 	if err != nil || len(ready) != 1 || ready[0].DeviceID != guestDevice {
 		t.Fatalf("owner requests: %+v, %v", ready, err)
@@ -111,12 +119,14 @@ func TestOwnerReadmissionPublishesOnlyTheConsentingDeviceAtomically(t *testing.T
 	if f.memberRow(t, guest) != "" || f.deviceRow(t, guestDevice).removedAtMS == nil {
 		t.Fatal("failed pair restored access")
 	}
+	checkNotices(0)
 	approval.Events[1] = device
 	response, err := f.svc.PushEvents(ctx, approval)
 	if err != nil {
 		t.Fatal(err)
 	}
 	requireAccepted(t, response, 2)
+	checkNotices(1)
 	if f.memberRow(t, guest) != "clerk" || f.deviceRow(t, guestDevice).removedAtMS != nil || f.deviceRow(t, otherDevice).removedAtMS == nil {
 		t.Fatal("approval restored the wrong role or device")
 	}
@@ -136,6 +146,7 @@ func TestOwnerReadmissionPublishesOnlyTheConsentingDeviceAtomically(t *testing.T
 	if err != nil || result.ReadmissionPending || result.ReadmissionMemberEventID != member.EventID || result.ReadmissionDeviceEventID != device.EventID {
 		t.Fatalf("completed retry did not report the committed pair: %+v, %v", result, err)
 	}
+	checkNotices(1)
 	if _, err := books.AcceptInvite(ctx, vaults.AcceptInviteInput{Token: oldInvite.InviteToken, AccountID: guest, InstallID: guestDevice}); !errors.Is(err, vaults.ErrInviteNotFound) {
 		t.Fatalf("old token resumed after removal: %v", err)
 	}

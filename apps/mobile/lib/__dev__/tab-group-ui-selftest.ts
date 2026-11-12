@@ -174,6 +174,7 @@ function fixture(
     "../../lib/tabs/db": {
       getPersonIdForRelationship: async () => "person",
       getTabLink: async () => null,
+      listTabLinksForId: async () => [],
       listVaultContactsForJoin: async () => [candidate],
       listVaultContactsForGroupJoin: async () => [candidate],
     },

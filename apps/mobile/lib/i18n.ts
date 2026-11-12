@@ -54,7 +54,8 @@ const en = {
   "backups.backUpNow": "Back up now",
   "backups.backupSaved": "Backup saved",
   "backups.uploadQueued": "Waiting for upload",
-  "backups.ownedScope": "Personal backups include the Kaatas you own. Joined Kaatas sync through Kaata Cloud while you have access.",
+  "backups.ownedScope":
+    "Personal backups include the Kaatas you own. Joined Kaatas sync through Kaata Cloud while you have access.",
   "backups.coverage": "Kaatas in this backup: {included} included, {skipped} skipped",
   "backups.skippedPending": "Skipped Kaatas had unsynced changes when this backup was made.",
   "backups.noOwnedVaults": "There are no Kaatas you own on this phone to back up.",
@@ -90,7 +91,8 @@ const en = {
     "Kaata keeps a recovery copy on this phone. It does not protect against losing or resetting the phone.",
   "backups.error.ownership":
     "This phone contains data that cannot be included in a personal backup for this account.",
-  "backups.error.ownershipUnavailable": "Kaata Cloud couldn’t verify ownership. Try again in a moment.",
+  "backups.error.ownershipUnavailable":
+    "Kaata Cloud couldn’t verify ownership. Try again in a moment.",
   "backups.error.differentAccount":
     "Use the same Kaata account as this backup. A Ninja backup must be restored in Ninja mode.",
   "backups.error.notEmpty":
@@ -1757,6 +1759,7 @@ const en = {
   "peopleProfile.inviteMemberHint": "Choose their role in {kaata}.",
   "peopleProfile.memberPending": "Kaata invitation pending",
   "peopleProfile.memberPendingHint": "Waiting for them to accept the {role} role in {kaata}.",
+  "peopleProfile.memberActiveHint": "{role} in {kaata}. You can also share a tally separately.",
   "peopleProfile.memberManageHint":
     "The {role} invitation for {kaata} is pending. Tap to review or update it.",
   "peopleProfile.noKaata": "Choose a Kaata to share a tally or invite a member.",
@@ -2661,6 +2664,7 @@ const en = {
   "tab.chip.linked": "Linked · {name}",
   "tab.chip.waiting": "Waiting to join",
   "tab.chip.declined": "Invite declined",
+  "tab.chip.expired": "Invite expired",
   "tab.invite.declinedHint": "Open the contact’s sharing options to clear this invitation.",
   "tab.invite.cancel": "Cancel invitation",
   "tab.invite.cancelBody":
@@ -2902,9 +2906,11 @@ const fa: Partial<Record<Key, string>> = {
   "backups.backUpNow": "همین حالا پشتیبان بگیرید",
   "backups.backupSaved": "نسخۀ پشتیبان ذخیره شد",
   "backups.uploadQueued": "در انتظار بارگذاری",
-  "backups.ownedScope": "نسخۀ پشتیبان شخصی شامل کاته‌هایی است که مالک آن‌ها هستید. کاته‌هایی که به آن‌ها پیوسته‌اید، تا زمانی که دسترسی دارید با فضای ابری کاته همگام می‌شوند.",
+  "backups.ownedScope":
+    "نسخۀ پشتیبان شخصی شامل کاته‌هایی است که مالک آن‌ها هستید. کاته‌هایی که به آن‌ها پیوسته‌اید، تا زمانی که دسترسی دارید با فضای ابری کاته همگام می‌شوند.",
   "backups.coverage": "کاته‌ها در این نسخه: {included} شامل شد، {skipped} کنار گذاشته شد",
-  "backups.skippedPending": "هنگام ساخت این نسخه، تغییرات کاته‌های کنار گذاشته‌شده هنوز همگام نشده بود.",
+  "backups.skippedPending":
+    "هنگام ساخت این نسخه، تغییرات کاته‌های کنار گذاشته‌شده هنوز همگام نشده بود.",
   "backups.noOwnedVaults": "در این گوشی کاته‌ای که مالک آن باشید برای پشتیبان‌گیری وجود ندارد.",
   "backups.turnOff": "خاموش کردن پشتیبان‌گیری خودکار",
   "backups.restoreLatest": "بازیابی آخرین نسخۀ پشتیبان",
@@ -2938,7 +2944,8 @@ const fa: Partial<Record<Key, string>> = {
     "کاته یک کاپی بازیابی در همین گوشی نگه می‌دارد. این کاپی در برابر گم‌شدن یا بازنشانی گوشی محافظت نمی‌کند.",
   "backups.error.ownership":
     "این گوشی اطلاعاتی دارد که نمی‌توان در نسخۀ پشتیبان شخصی این حساب گنجاند.",
-  "backups.error.ownershipUnavailable": "فضای ابری کاته نتوانست مالکیت را تأیید کند. کمی بعد دوباره امتحان کنید.",
+  "backups.error.ownershipUnavailable":
+    "فضای ابری کاته نتوانست مالکیت را تأیید کند. کمی بعد دوباره امتحان کنید.",
   "backups.error.differentAccount":
     "از همان حساب کاته که این نسخه به آن تعلق دارد استفاده کنید. نسخۀ نینجا باید در حالت نینجا بازیابی شود.",
   "backups.error.notEmpty":
@@ -4456,6 +4463,8 @@ const fa: Partial<Record<Key, string>> = {
   "peopleProfile.inviteMemberHint": "نقش این شخص را در {kaata} انتخاب کنید.",
   "peopleProfile.memberPending": "دعوت عضویت کاتا در انتظار است",
   "peopleProfile.memberPendingHint": "منتظر پذیرش نقش {role} در {kaata} هستید.",
+  "peopleProfile.memberActiveHint":
+    "{role} در {kaata}. می‌توانید یک حساب مشترک جداگانه هم داشته باشید.",
   "peopleProfile.memberManageHint":
     "دعوت برای نقش {role} در {kaata} در انتظار پاسخ است. برای بررسی یا تغییر آن بزنید.",
   "peopleProfile.noKaata": "برای اشتراک حساب یا دعوت عضو، یک کاتا را انتخاب کنید.",
@@ -5278,6 +5287,7 @@ const fa: Partial<Record<Key, string>> = {
   "tab.chip.linked": "پیوند شده · {name}",
   "tab.chip.waiting": "در انتظار پیوستن",
   "tab.chip.declined": "دعوت رد شد",
+  "tab.chip.expired": "دعوت منقضی شد",
   "tab.invite.declinedHint": "برای پاک کردن این دعوت، گزینه‌های اشتراک مخاطب را باز کنید.",
   "tab.invite.cancel": "لغو دعوت",
   "tab.invite.cancelBody": "این دعوت بسته می‌شود. ثبت‌ها و مانده‌های شما در کاتای خودتان می‌مانند.",
@@ -5467,7 +5477,8 @@ const ps: Record<Key, string> = {
   "backups.backUpNow": "اوس شاتړ واخلئ",
   "backups.backupSaved": "شاتړ خوندي شو",
   "backups.uploadQueued": "پورته کېدو ته په تمه دی",
-  "backups.ownedScope": "شخصي شاتړ هغه کاتې رانغاړي چې تاسو یې مالک یاست. د نورو کاتې تر هغه د کاته له کلاوډ سره همغږي کېږي چې لاسرسی ورته لرئ.",
+  "backups.ownedScope":
+    "شخصي شاتړ هغه کاتې رانغاړي چې تاسو یې مالک یاست. د نورو کاتې تر هغه د کاته له کلاوډ سره همغږي کېږي چې لاسرسی ورته لرئ.",
   "backups.coverage": "په دې شاتړ کې: {included} کاتې شاملې دي، {skipped} پرېښودل شوې دي",
   "backups.skippedPending": "د دې شاتړ پر وخت د پرېښودل شوو کاتو بدلونونه لا نه وو همغږي شوي.",
   "backups.noOwnedVaults": "په دې موبایل کې د شاتړ لپاره ستاسو په ملکیت کې کومه کاته نشته.",
@@ -5500,7 +5511,8 @@ const ps: Record<Key, string> = {
     "کاته په همدې موبایل کې د بېرته راوستلو کاپي ساتي. دا کاپي د موبایل د ورکېدو یا بیا تنظیمېدو پر وړاندې ساتنه نه کوي.",
   "backups.error.ownership":
     "په دې موبایل کې داسې معلومات شته چې د دې حساب په شخصي شاتړ کې نه شي شاملېدای.",
-  "backups.error.ownershipUnavailable": "د کاته کلاوډ مالکیت تایید نه کړای شو. لږ وروسته بیا هڅه وکړئ.",
+  "backups.error.ownershipUnavailable":
+    "د کاته کلاوډ مالکیت تایید نه کړای شو. لږ وروسته بیا هڅه وکړئ.",
   "backups.error.differentAccount":
     "د دې شاتړ هماغه کاته حساب وکاروئ. د نینجا شاتړ باید په نینجا حالت کې بېرته راوستل شي.",
   "backups.error.notEmpty":
@@ -6154,6 +6166,7 @@ const ps: Record<Key, string> = {
   "peopleProfile.inviteMemberHint": "په {kaata} کې د دې کس رول غوره کړئ.",
   "peopleProfile.memberPending": "د کاټې بلنه د منلو په تمه ده",
   "peopleProfile.memberPendingHint": "په {kaata} کې د {role} رول منلو ته یې انتظار دی.",
+  "peopleProfile.memberActiveHint": "په {kaata} کې {role}. جلا ګډ حساب هم ورسره لرلای شئ.",
   "peopleProfile.memberManageHint":
     "په {kaata} کې د {role} بلنه د ځواب په تمه ده. د کتلو یا بدلولو لپاره کېکاږئ.",
   "peopleProfile.noKaata": "د حساب شریکولو یا غړي بللو لپاره یوه کاټه غوره کړئ.",
@@ -7178,6 +7191,7 @@ const ps: Record<Key, string> = {
   "tab.chip.linked": "نښلول شوی · {name}",
   "tab.chip.waiting": "د یوځای کېدو په تمه",
   "tab.chip.declined": "بلنه رد شوه",
+  "tab.chip.expired": "بلنه پای ته ورسېده",
   "tab.invite.declinedHint": "د دې بلنې د لرې کولو لپاره د اړیکې د شریکولو غوراوي پرانیزئ.",
   "tab.invite.cancel": "بلنه لغوه کړئ",
   "tab.invite.cancelBody":

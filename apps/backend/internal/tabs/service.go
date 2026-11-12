@@ -261,9 +261,11 @@ type Tab struct {
 	RecordedBalance map[string]string `json:"recorded_balance"`
 	PendingBalance  map[string]string `json:"pending_balance"`
 	PendingForYou   int               `json:"pending_for_you"`
-	// InvitationDeclinedAtMS exposes the account-targeted invitation's
-	// decision to its creator side without changing the financial revision.
+	// Invitation results are separate from the approval of individual entries.
 	InvitationDeclinedAtMS *int64 `json:"invitation_declined_at_ms,omitempty"`
+	// Only a still-unjoined direct invitation has an expiry. Public links
+	// without a recipient-specific request have no automatic expiry.
+	InvitationExpiresAtMS *int64 `json:"invitation_expires_at_ms,omitempty"`
 }
 
 type TabAccess struct {
@@ -277,7 +279,7 @@ type TabAccess struct {
 func callerTabAccess(p Party, tab Tab) *TabAccess {
 	open := tab.ClosedAtMS == nil
 	writes := open && tallyWriterAllowed(tab.RecordingMode, p.Role)
-	joined := !notificationOnlyMode(tab.RecordingMode) || p.Role != "b" || p.JoinedAt != nil
+	joined := !notificationOnlyMode(tab.RecordingMode) || p.Role != "b" || tab.Parties[p.Role].JoinedAtMS != nil
 	editor := p.allows(rankEditor)
 	// Closing stops new collaboration while finite pending proposals can
 	// still be reviewed or withdrawn. Entry-specific finality checks remain
@@ -745,6 +747,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		createdAt                                 time.Time
 		closedAt                                  *time.Time
 		invitationDeclinedAt                      *time.Time
+		invitationExpiresAt                       *time.Time
 		aLabel, bLabel                            string
 		aName, bName                              string
 		aPhone, bPhone                            string
@@ -757,7 +760,9 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		closedBy                                  *string
 	)
 	err := q.QueryRow(ctx, `
-		SELECT t.group_id::text, `+tabstate.UnjoinedInvitationSQL+`, invite.declined_at, t.recording_mode, t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
+		SELECT t.group_id::text, `+tabstate.UnjoinedInvitationSQL+`, invite.declined_at,
+		       CASE WHEN invite.declined_at IS NULL AND pb.joined_at IS NULL AND NOT pb.account_bound_once AND t.closed_at IS NULL THEN invite.expires_at END,
+		       t.recording_mode, t.currency, t.rev, t.created_at, t.closed_at, t.closed_by, t.closed_reason,
 		       pa.label, pa.joined_at, pa.linked_at_ms,pa.history_order::text, pa.account_id IS NOT NULL, COALESCE(aa.display_name, aa.name, ''), COALESCE(aa.phone_e164, ''),
 		       pb.label, pb.joined_at,pb.linked_at_ms, pb.history_order::text, pb.account_id IS NOT NULL, COALESCE(ab.display_name, ab.name, ''), COALESCE(ab.phone_e164, ''),
 		       COALESCE((SELECT SUM(CASE WHEN e.direction = 'a_to_b' THEN e.amount_minor ELSE -e.amount_minor END)
@@ -782,7 +787,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 		  LEFT JOIN accounts ab ON ab.id=pb.account_id
 		  LEFT JOIN people_requests invite ON invite.group_id=t.group_id AND $2='a'
 		 WHERE t.id = $1::uuid
-	`, tabID, you).Scan(&t.GroupID, &t.UnjoinedInvitation, &invitationDeclinedAt, &t.RecordingMode, &t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
+	`, tabID, you).Scan(&t.GroupID, &t.UnjoinedInvitation, &invitationDeclinedAt, &invitationExpiresAt, &t.RecordingMode, &t.Currency, &t.Rev, &createdAt, &closedAt, &closedBy, &t.ClosedReason,
 		&aLabel, &aJoined, &aLinked, &aHistoryOrder, &aBound, &aName, &aPhone, &bLabel, &bJoined, &bLinked, &bHistoryOrder, &bBound, &bName, &bPhone, &balanceA, &confirmedA, &recordedA, &pendingA, &pending)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -793,6 +798,7 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	t.ID = tabID
 	t.CreatedAtMS = createdAt.UnixMilli()
 	t.InvitationDeclinedAtMS = msPtr(invitationDeclinedAt)
+	t.InvitationExpiresAtMS = msPtr(invitationExpiresAt)
 	t.ClosedAtMS = msPtr(closedAt)
 	t.ClosedBy = closedBy
 	t.You = you
@@ -811,18 +817,37 @@ func loadTab(ctx context.Context, q querier, tabID, you string) (Tab, error) {
 	return t, nil
 }
 
+// loadTabForParty keeps permissions consistent across reads, mutations and
+// discovery. Re-resolve signed-in callers after a binding or role change;
+// merely knowing a party's account must never copy its rights to a member.
+func loadTabForParty(ctx context.Context, q querier, p Party) (Tab, error) {
+	if account := p.actorAccount(); account != nil {
+		fresh, err := partyByAccountRoleQuery(ctx, q, p.TabID, *account, p.Role)
+		if err != nil {
+			return Tab{}, err
+		}
+		p = fresh
+	}
+	tab, err := loadTab(ctx, q, p.TabID, p.Role)
+	if err != nil {
+		return Tab{}, err
+	}
+	tab.Access = callerTabAccess(p, tab)
+	return tab, nil
+}
+
 // fullResponse is the TabResponse the write routes return: every entry,
 // full=true, so the client may replace its cache outright.
-func fullResponse(ctx context.Context, q querier, tabID, you string) (TabResponse, error) {
-	tab, err := loadTab(ctx, q, tabID, you)
+func fullResponse(ctx context.Context, q querier, p Party) (TabResponse, error) {
+	tab, err := loadTabForParty(ctx, q, p)
 	if err != nil {
 		return TabResponse{}, err
 	}
-	entries, err := loadEntries(ctx, q, tabID, 0)
+	entries, err := loadEntries(ctx, q, p.TabID, 0)
 	if err != nil {
 		return TabResponse{}, err
 	}
-	settlements, err := loadSettlements(ctx, q, tabID, 0)
+	settlements, err := loadSettlements(ctx, q, p.TabID, 0)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -866,7 +891,7 @@ func checkVaultBinding(ctx context.Context, q querier, vaultID, accountID *strin
 		return ErrNotVaultMember
 	}
 	var role string
-	if err := q.QueryRow(ctx, `SELECT role FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid`, *vaultID, *accountID).Scan(&role); err != nil {
+	if err := q.QueryRow(ctx, `SELECT role FROM vault_members WHERE vault_id=$1::uuid AND account_id=$2::uuid AND accepted_at IS NOT NULL AND revoked_at IS NULL`, *vaultID, *accountID).Scan(&role); err != nil {
 		return err
 	}
 	if roleRank[role] < rankEditor {
@@ -895,31 +920,15 @@ func checkSameKaata(ctx context.Context, tx pgx.Tx, tabID, role string, vaultID 
 	return nil
 }
 
-// checkSameAccount refuses a binding through which one account would see BOTH
-// sides: the joiner (or an accepted member of the joining kaata) is also the
-// other side's account or an accepted member of its kaata, e.g. linking two of
-// your own kaatas. A phone holds one side of a tab and GET /v1/tabs/mine
-// returns one side per tab, so such an account restores only one side and the
-// other contact stays on its stale pre-link book (Matee, 2026-10-12: block it).
-// Membership granted after the link is not re-checked here.
+// A shared account connects two different people. Kaata membership is
+// independent: either person may also work in the other person's Kaata.
+// Explicit party selection and vault-scoped discovery retain that context.
 func checkSameAccount(ctx context.Context, tx pgx.Tx, tabID, role string, accountID, vaultID *string) error {
 	var overlap bool
 	if err := tx.QueryRow(ctx, `
-		WITH other AS (
-		  SELECT account_id, vault_id FROM tab_parties WHERE tab_id = $1::uuid AND role = $2
-		), other_side AS (
-		  SELECT account_id FROM other WHERE account_id IS NOT NULL
-		  UNION
-		  SELECT vm.account_id FROM vault_members vm JOIN other o ON vm.vault_id = o.vault_id
-		   WHERE vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
-		), this_side AS (
-		  SELECT $3::uuid AS account_id WHERE $3::uuid IS NOT NULL
-		  UNION
-		  SELECT vm.account_id FROM vault_members vm
-		   WHERE vm.vault_id = $4::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
-		)
-		SELECT EXISTS (SELECT 1 FROM other_side o JOIN this_side t ON t.account_id = o.account_id)
-	`, tabID, otherRole(role), accountID, vaultID).Scan(&overlap); err != nil {
+		SELECT EXISTS(SELECT 1 FROM tab_parties
+		 WHERE tab_id=$1::uuid AND role=$2 AND account_id=$3::uuid)
+	`, tabID, otherRole(role), accountID).Scan(&overlap); err != nil {
 		return fmt.Errorf("check both-sides account: %w", err)
 	}
 	if overlap {
@@ -1256,8 +1265,10 @@ func insertEntry(ctx context.Context, tx pgx.Tx, tabID string, id string, seq, r
 func (s *Service) recipients(ctx context.Context, tabID string) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT acct::text FROM (
-			SELECT account_id AS acct FROM tab_parties
-			 WHERE tab_id = $1::uuid AND account_id IS NOT NULL
+			SELECT p.account_id AS acct FROM tab_parties p
+			 WHERE p.tab_id = $1::uuid AND p.account_id IS NOT NULL
+			   AND NOT EXISTS(SELECT 1 FROM vault_members removed WHERE removed.vault_id=p.vault_id
+			     AND removed.account_id=p.account_id AND removed.revoked_at IS NOT NULL)
 			UNION
 			SELECT vm.account_id FROM tab_parties p
 			  JOIN vault_members vm ON vm.vault_id = p.vault_id
@@ -1431,7 +1442,7 @@ func (s *Service) createTx(ctx context.Context, tx pgx.Tx, in CreateInput) (Crea
 	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
 		return CreateResult{}, err
 	}
-	tab, err := loadTab(ctx, tx, tabID, "a")
+	tab, err := loadTabForParty(ctx, tx, Party{TabID: tabID, Role: "a", AccountID: in.AccountID})
 	if err != nil {
 		return CreateResult{}, err
 	}
@@ -1441,7 +1452,16 @@ func (s *Service) createTx(ctx context.Context, tx pgx.Tx, in CreateInput) (Crea
 // Mine lists every tab (open or closed) where a party has account_id = the
 // caller, or vault_id in the caller's active memberships — the reinstall
 // recovery path (D10). Newest first.
-func (s *Service) Mine(ctx context.Context, accountID string) (MineResponse, error) {
+func (s *Service) Mine(ctx context.Context, accountID string, vaultScope ...string) (MineResponse, error) {
+	vaultID := ""
+	if len(vaultScope) > 0 {
+		vaultID = vaultScope[0]
+	}
+	if vaultID != "" {
+		if _, err := uuid.Parse(vaultID); err != nil {
+			return MineResponse{}, ErrNotFound
+		}
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT ON (t.id) t.id::text, p.role, p.vault_id::text, p.relationship_id::text, t.created_at, p.linked_at_ms, p.history_order::text
 		  FROM tabs t
@@ -1449,9 +1469,12 @@ func (s *Service) Mine(ctx context.Context, accountID string) (MineResponse, err
 		  LEFT JOIN vault_members vm
 		         ON vm.vault_id = p.vault_id AND vm.account_id = $1::uuid
 		        AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
-		 WHERE p.account_id = $1::uuid OR vm.id IS NOT NULL
+		 WHERE (p.account_id = $1::uuid OR vm.id IS NOT NULL)
+		   AND (vm.id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM vault_members removed WHERE removed.vault_id=p.vault_id
+		     AND removed.account_id=$1::uuid AND removed.revoked_at IS NOT NULL))
+		   AND ($2='' OR p.vault_id=NULLIF($2,'')::uuid)
 		 ORDER BY t.id, COALESCE(p.account_id = $1::uuid, FALSE) DESC, p.role
-	`, accountID)
+	`, accountID, vaultID)
 	if err != nil {
 		return MineResponse{}, fmt.Errorf("list mine: %w", err)
 	}
@@ -1480,7 +1503,7 @@ func (s *Service) Mine(ctx context.Context, accountID string) (MineResponse, err
 
 	out := MineResponse{Tabs: make([]MineItem, 0, len(hits))}
 	for _, h := range hits {
-		tab, err := loadTab(ctx, s.pool, h.tabID, h.role)
+		tab, err := loadTabForParty(ctx, s.pool, Party{TabID: h.tabID, Role: h.role, ActorAccountID: accountID})
 		if err != nil {
 			return MineResponse{}, err
 		}
@@ -1526,11 +1549,10 @@ func (s *Service) Get(ctx context.Context, p Party, afterRev int64) (TabResponse
 		return TabResponse{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	tab, err := loadTab(ctx, tx, p.TabID, p.Role)
+	tab, err := loadTabForParty(ctx, tx, p)
 	if err != nil {
 		return TabResponse{}, err
 	}
-	tab.Access = callerTabAccess(p, tab)
 	entries, err := loadEntries(ctx, tx, p.TabID, afterRev)
 	if err != nil {
 		return TabResponse{}, err
@@ -1568,7 +1590,7 @@ func (s *Service) Join(ctx context.Context, p Party, in JoinInput) (TabResponse,
 	return result, nil
 }
 
-func (s *Service) joinTx(ctx context.Context, tx pgx.Tx, p Party, in JoinInput) (TabResponse, error) {
+func (s *Service) joinTx(ctx context.Context, tx pgx.Tx, p Party, in JoinInput, notifyJoin ...bool) (TabResponse, error) {
 	label, err := validLabel(in.Label)
 	if err != nil {
 		return TabResponse{}, err
@@ -1652,7 +1674,14 @@ func (s *Service) joinTx(ctx context.Context, tx pgx.Tx, p Party, in JoinInput) 
 	if err := s.finishLinkCredit(ctx, tx, linkCredit); err != nil {
 		return TabResponse{}, err
 	}
-	joinRev, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", ""))
+	// Notify only the first actual acceptance. Retrying a join or adding a
+	// currency to an already joined group must not announce another acceptance.
+	if in.AccountID != nil {
+		p.ActorAccountID = *in.AccountID
+	}
+	event := p.pushEvent("invitation_accepted", "")
+	event.Suppress = p.Role != "b" || p.JoinedAt != nil || (len(notifyJoin) > 0 && !notifyJoin[0])
+	joinRev, err := bumpRev(ctx, tx, p.TabID, p.Role, event)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -1665,7 +1694,7 @@ func (s *Service) joinTx(ctx context.Context, tx pgx.Tx, p Party, in JoinInput) 
 			return TabResponse{}, fmt.Errorf("record joined opening: %w", err)
 		}
 	}
-	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
+	resp, err := fullResponse(ctx, tx, p)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -1763,7 +1792,8 @@ func (s *Service) Bind(ctx context.Context, p Party, in BindInput) (TabResponse,
 			return TabResponse{}, err
 		}
 	}
-	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
+	p.ActorAccountID = in.AccountID
+	resp, err := fullResponse(ctx, tx, p)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -1805,7 +1835,7 @@ func (s *Service) SetLabel(ctx context.Context, p Party, label string) (TabRespo
 	if _, err := bumpRev(ctx, tx, p.TabID, p.Role, p.pushEvent("updated", "")); err != nil {
 		return TabResponse{}, err
 	}
-	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
+	resp, err := fullResponse(ctx, tx, p)
 	if err != nil {
 		return TabResponse{}, err
 	}
@@ -1888,7 +1918,7 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 		if err != nil {
 			return AppendResult{}, err
 		}
-		tab, err := loadTab(ctx, tx, p.TabID, p.Role)
+		tab, err := loadTabForParty(ctx, tx, p)
 		if err != nil {
 			return AppendResult{}, err
 		}
@@ -1962,7 +1992,7 @@ func (s *Service) Append(ctx context.Context, p Party, in AppendInput) (AppendRe
 	if err != nil {
 		return AppendResult{}, err
 	}
-	tab, err := loadTab(ctx, tx, p.TabID, p.Role)
+	tab, err := loadTabForParty(ctx, tx, p)
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -2219,7 +2249,7 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	}
 	// Lost acknowledgements and duplicate OS callbacks must not emit another alert.
 	if e.Status == status && (reason == nil || (e.DisputeReason != nil && *e.DisputeReason == *reason)) {
-		tab, err := loadTab(ctx, tx, p.TabID, p.Role)
+		tab, err := loadTabForParty(ctx, tx, p)
 		return EntryResponse{Entry: e, Tab: tab}, err
 	}
 	// The row is locked: concurrent phones/notification actions can only make
@@ -2263,7 +2293,7 @@ func (s *Service) setStatus(ctx context.Context, p Party, entryID, status string
 	if err := s.finishLinkCredit(ctx, tx, admission); err != nil {
 		return EntryResponse{}, err
 	}
-	tab, err := loadTab(ctx, tx, p.TabID, p.Role)
+	tab, err := loadTabForParty(ctx, tx, p)
 	if err != nil {
 		return EntryResponse{}, err
 	}
@@ -2469,7 +2499,7 @@ func (s *Service) closeTx(ctx context.Context, tx pgx.Tx, p Party, withdrawUnjoi
 	}
 	changed := false
 	if p.Role == "a" && len(withdrawUnjoinedOpening) > 0 && withdrawUnjoinedOpening[0] {
-		current, err := loadTab(ctx, tx, p.TabID, p.Role)
+		current, err := loadTabForParty(ctx, tx, p)
 		if err != nil {
 			return TabResponse{}, false, err
 		}
@@ -2501,7 +2531,7 @@ func (s *Service) closeTx(ctx context.Context, tx pgx.Tx, p Party, withdrawUnjoi
 		}
 		changed = true
 	}
-	resp, err := fullResponse(ctx, tx, p.TabID, p.Role)
+	resp, err := fullResponse(ctx, tx, p)
 	if err != nil {
 		return TabResponse{}, false, err
 	}

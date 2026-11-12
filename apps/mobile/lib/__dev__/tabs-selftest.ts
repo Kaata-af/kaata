@@ -29,6 +29,7 @@ import Database from "better-sqlite3";
 import type { SQLiteTx } from "../db-tx";
 import type { Entry } from "../types";
 import { entryRecordedAt } from "../entry-date";
+import { migrateSharedTabBindings } from "../shared-tab-bindings-migration";
 import type {
   TabLink,
   TabResponse,
@@ -261,12 +262,13 @@ const CONTACT = "fixture-contact";
 const REL = "fixture-rel";
 const TAB = "fixture-tab";
 
-function openFixture(): void {
+async function openFixture(): Promise<void> {
   fixture = new Database(":memory:");
   fixture.pragma("foreign_keys = ON");
   fixture.exec(`
     CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE vaults (id TEXT PRIMARY KEY, currency TEXT NOT NULL DEFAULT 'AFN');
+    CREATE TABLE vault_members_mirror(vault_id TEXT,account_id TEXT,accepted_at INTEGER,revoked_at INTEGER,PRIMARY KEY(vault_id,account_id));
     CREATE TABLE users (
       id TEXT PRIMARY KEY, phone_e164 TEXT, display_name TEXT NOT NULL,
       is_local_self INTEGER NOT NULL, google_sub TEXT, account_id TEXT,
@@ -334,6 +336,7 @@ function openFixture(): void {
     ALTER TABLE kaata_credit_defaults ADD COLUMN currency TEXT NOT NULL DEFAULT 'AFN';
     DROP INDEX idx_tab_links_open_rel;
     CREATE UNIQUE INDEX idx_tab_links_open_rel ON tab_links(relationship_id,currency) WHERE closed_at IS NULL;`);
+  await migrateSharedTabBindings(sqlite as never);
   dbTx._resetDbHandleForReset();
   dbTx.setInstallIdCache("fixture-device");
   dbTx.setLocalSelfUserIdCache(SELF);
@@ -370,6 +373,8 @@ const server = {
   tokens: { a: "tok-a", b: "tok-b" },
   /** Which party a Bearer JWT resolves to; null = the account is not bound. */
   jwtRole: null as TabRole | null,
+  bothRoles: false,
+  revokedMineVaults: new Set<string>(),
   calls: [] as string[],
   failNext: null as FailNext,
   mine: [] as Array<{
@@ -390,6 +395,8 @@ const server = {
       b: { label: "", joined_at_ms: null, bound: false },
     };
     this.jwtRole = "a";
+    this.bothRoles = false;
+    this.revokedMineVaults.clear();
     this.calls = [];
     this.failNext = null;
     this.mine = [];
@@ -490,11 +497,24 @@ const fakeFetch = async (
   if (authz === `Tab ${server.tokens.a}`) role = "a";
   else if (authz === `Tab ${server.tokens.b}`) role = "b";
   else if (authz === "Bearer jwt-1") role = server.jwtRole;
+  if (
+    authz === "Bearer jwt-1" &&
+    server.bothRoles &&
+    ["a", "b"].includes(init.headers?.["X-Kaata-Party"] ?? "")
+  )
+    role = init.headers!["X-Kaata-Party"] as TabRole;
   const body = init.body ? (JSON.parse(init.body) as Record<string, unknown>) : {};
 
   if (u.pathname === "/v1/tabs/mine") {
     if (!authz.startsWith("Bearer ")) return errorReply(401, "unauthorized");
-    return reply(200, { tabs: server.mine });
+    if (server.revokedMineVaults.has(u.searchParams.get("vault_id") ?? ""))
+      return errorReply(403, "membership_revoked");
+    return reply(200, {
+      tabs:
+        server.bothRoles && u.searchParams.has("vault_id")
+          ? server.mine.filter((item) => item.vault_id === u.searchParams.get("vault_id"))
+          : server.mine,
+    });
   }
   if (u.pathname.endsWith("/bind") && authz === "Bearer jwt-1" && body.token === server.tokens.a) {
     server.jwtRole = "a";
@@ -682,7 +702,7 @@ function tabCacheSnapshot() {
 let passed = 0;
 let failed = 0;
 async function test(name: string, run: () => Promise<void> | void): Promise<void> {
-  openFixture();
+  await openFixture();
   try {
     await run();
     console.log(`PASS ${++passed}: ${name}`);
@@ -1353,6 +1373,7 @@ async function main(): Promise<void> {
       "other_account_name",
       "closed_reason",
       "history_order",
+      "invitation_expires_at",
     ]);
     assert.deepEqual(cols("tab_entries"), [
       "id",
@@ -1394,6 +1415,7 @@ async function main(): Promise<void> {
       "attempts",
       "next_at",
       "last_error",
+      "vault_id",
     ]);
     const ins = fixture.prepare(
       `INSERT INTO tab_links (tab_id, vault_id, relationship_id, role, currency, linked_at, closed_at) VALUES (?, ?, ?, 'a', 'AFN', 1, ?)`,
@@ -1417,7 +1439,7 @@ async function main(): Promise<void> {
       () =>
         fixture
           .prepare(
-            "INSERT INTO tab_outbox VALUES ('o', 't-open', 'append', 'not json', 1, 0, NULL, NULL)",
+            "INSERT INTO tab_outbox(id,tab_id,op,payload,created_at,attempts,next_at,last_error) VALUES ('o', 't-open', 'append', 'not json', 1, 0, NULL, NULL)",
           )
           .run(),
       /CHECK/,
@@ -1425,7 +1447,9 @@ async function main(): Promise<void> {
     assert.throws(
       () =>
         fixture
-          .prepare("INSERT INTO tab_outbox VALUES ('o', 't-open', 'edit', '{}', 1, 0, NULL, NULL)")
+          .prepare(
+            "INSERT INTO tab_outbox(id,tab_id,op,payload,created_at,attempts,next_at,last_error) VALUES ('o', 't-open', 'edit', '{}', 1, 0, NULL, NULL)",
+          )
           .run(),
       /CHECK/,
     );
@@ -2283,7 +2307,7 @@ async function main(): Promise<void> {
       (await tabsDb.listDueTabOps()).map((o) => o.id),
       [],
     );
-    assert.deepEqual(await tabsDb.listTabIdsWithQueuedOps(), [TAB]);
+    assert.deepEqual(await tabsDb.listTabIdsWithQueuedOps(), [{ tab_id: TAB, vault_id: VAULT }]);
     assert.deepEqual(
       [1, 2, 3, 4, 5, 6, 7, 8, 9, 40].map(sync.tabOpBackoffMs),
       [
@@ -2942,7 +2966,7 @@ async function main(): Promise<void> {
     assert.equal(count("tab_links"), 1);
     assert.equal(count("tab_entries"), 1);
     assert.equal((await db.listEntries(CONTACT))[0].accepted_at, 22_000);
-    assert.equal(server.calls.filter((call) => call === "GET /v1/tabs/mine").length, 1);
+    assert.equal(server.calls.filter((call) => call.startsWith("GET /v1/tabs/mine")).length, 1);
     assert.equal(count("event_log"), 0);
   });
 
@@ -2957,14 +2981,14 @@ async function main(): Promise<void> {
       assert.equal(sync.reconcileTabsFromServer(), running);
       assert.equal(sync.reconcileTabsFromServer(), running);
       assert.equal(
-        server.calls.filter((call) => call === "GET /v1/tabs/mine").length,
+        server.calls.filter((call) => call.startsWith("GET /v1/tabs/mine")).length,
         1,
         "no overlapping discovery request",
       );
       held.release();
       await running;
       assert.equal(
-        server.calls.filter((call) => call === "GET /v1/tabs/mine").length,
+        server.calls.filter((call) => call.startsWith("GET /v1/tabs/mine")).length,
         2,
         "one trailing discovery fetches the new binding",
       );
@@ -3032,6 +3056,81 @@ async function main(): Promise<void> {
     assert.equal(ledgerListeners.size, 0);
   });
 
+  await test("readmission immediately refreshes a retained revoked side while its other perspective is already current", async () => {
+    const secondVault = "readmission-own-vault",
+      secondRel = "readmission-own-rel";
+    dbTx.setAccountIdCache("readmitted-account");
+    fixture.prepare("INSERT INTO vaults(id,currency) VALUES(?,'AFN')").run(secondVault);
+    fixture
+      .prepare(
+        "INSERT INTO relationships(id,user_a_id,user_b_id,context,vault_id,created_at,updated_at) VALUES(?,?,?,?,?,1,1)",
+      )
+      .run(secondRel, SELF, CONTACT, "peer", secondVault);
+    fixture
+      .prepare("INSERT INTO vault_members_mirror VALUES(?,?,1,2)")
+      .run(VAULT, "readmitted-account");
+    await tabsDb.upsertTabLink(
+      link({
+        rev: 1,
+        last_synced_at: 1,
+        last_error: "404 tab_not_found",
+        other_joined_at: null,
+        party_token: null,
+      }),
+    );
+    server.rev = 1;
+    server.bothRoles = true;
+    server.parties.b.joined_at_ms = 2_000;
+    server.seed({
+      id: "kept-on-readmission",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "500",
+      status: "accepted",
+      status_at_ms: 3_000,
+    });
+    server.mine = [
+      { tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL },
+      { tab: server.view("b"), role: "b", vault_id: secondVault, relationship_id: secondRel },
+    ];
+    const stop = sync.startTabSyncLoop();
+    try {
+      await sync.syncAllTabs();
+      assert.equal((await tabsDb.getTabLink(TAB, VAULT))?.rev, 1);
+      assert.equal((await tabsDb.getTabLink(TAB, secondVault))?.rev, 2);
+      const before = server.calls.length;
+      fixture
+        .prepare("UPDATE vault_members_mirror SET accepted_at=3,revoked_at=NULL WHERE vault_id=?")
+        .run(VAULT);
+      for (const listener of ledgerListeners) listener(VAULT, "remote");
+      await sleep(80);
+      const recovered = await tabsDb.getTabLink(TAB, VAULT);
+      assert.equal(
+        recovered?.rev,
+        2,
+        "readmission refreshes metadata without a timer tick, navigation or another invite",
+      );
+      assert.equal(recovered?.other_joined_at, 2_000);
+      assert.equal(recovered?.last_error, null);
+      assert.ok(server.calls.length > before);
+      assert.equal(
+        count("tab_entries"),
+        1,
+        "both perspectives retain one unchanged financial record",
+      );
+      const settledCalls = server.calls.length;
+      for (const listener of ledgerListeners) listener(VAULT, "remote");
+      await sleep(30);
+      assert.equal(
+        server.calls.length,
+        settledCalls,
+        "ordinary ledger updates stop forcing discovery after readmission is consumed",
+      );
+    } finally {
+      stop();
+    }
+  });
+
   await test("foreground fallback pulls a watched tab every 5s; idle links wait for the minute sweep", async () => {
     sync._resetTabSyncPacingForTests();
     await tabsDb.upsertTabLink(link());
@@ -3046,7 +3145,7 @@ async function main(): Promise<void> {
       intervalMs = delay;
       return realInterval(callback, delay);
     }) as typeof setInterval;
-    const mine = () => server.calls.filter((call) => call === "GET /v1/tabs/mine").length;
+    const mine = () => server.calls.filter((call) => call.startsWith("GET /v1/tabs/mine")).length;
     const pulls = () =>
       server.calls.filter((call) => call.startsWith(`GET /v1/tabs/${TAB}?`)).length;
     const stop = sync.startTabSyncLoop();
@@ -3088,7 +3187,7 @@ async function main(): Promise<void> {
     const realNow = Date.now;
     let offset = 0;
     Date.now = () => realNow() + offset;
-    const mine = () => server.calls.filter((call) => call === "GET /v1/tabs/mine").length;
+    const mine = () => server.calls.filter((call) => call.startsWith("GET /v1/tabs/mine")).length;
     try {
       server.failNext = { status: 503, code: "http_503" };
       await sync.syncAllTabs();
@@ -3188,6 +3287,282 @@ async function main(): Promise<void> {
       count("tab_outbox", "WHERE id = 'cl'"),
       0,
       "the fake 404s the unknown tab id: a verdict, dropped",
+    );
+  });
+
+  await test("one account discovers both Kaata perspectives without duplicating financial records", async () => {
+    const secondVault = "counterparty-vault",
+      secondRel = "counterparty-rel";
+    fixture.prepare("INSERT INTO vaults(id,currency) VALUES(?, 'AFN')").run(secondVault);
+    fixture
+      .prepare(
+        "INSERT INTO relationships(id,user_a_id,user_b_id,context,vault_id,created_at,updated_at) VALUES(?,?,?,?,?,1,1)",
+      )
+      .run(secondRel, SELF, CONTACT, "peer", secondVault);
+    server.bothRoles = true;
+    server.parties.b.joined_at_ms = 2_000;
+    server.seed({
+      id: "same-transfer",
+      created_by: "a",
+      direction: "a_to_b",
+      amount: "500",
+      status: "accepted",
+      status_at_ms: 3_000,
+    });
+    server.mine = [
+      { tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL },
+      { tab: server.view("b"), role: "b", vault_id: secondVault, relationship_id: secondRel },
+    ];
+    await sync.reconcileTabsFromServer();
+    const a = await tabsDb.getTabLink(TAB, VAULT),
+      b = await tabsDb.getTabLink(TAB, secondVault);
+    assert.equal(a?.role, "a");
+    assert.equal(b?.role, "b");
+    assert.equal(count("tab_links"), 2);
+    assert.equal(count("tab_entries"), 1, "one shared financial book, two local bindings");
+    assert.equal((await db.getPerson(CONTACT))?.balance, 500);
+    dbTx.setActiveVaultIdCache(secondVault);
+    assert.equal(
+      (await db.getPerson(CONTACT))?.balance,
+      -500,
+      "same transfer reverses perspective in the other Kaata",
+    );
+    assert.equal(
+      (await tabsDb.getTabLink(TAB))?.role,
+      "b",
+      "default lookups follow selected Kaata",
+    );
+    const exportedA = await db.listEntriesForExport(VAULT);
+    const exportedB = await db.listEntriesForExport(secondVault);
+    assert.deepEqual(
+      exportedA.map((entry) => [entry.id, entry.type, entry.amount_afn, entry.tab?.by]),
+      [["same-transfer", "debt", 500, "me"]],
+      "exporting A while B is selected keeps A's money direction and attribution without duplicate rows",
+    );
+    assert.deepEqual(
+      exportedB.map((entry) => [entry.id, entry.type, entry.amount_afn, entry.tab?.by]),
+      [["same-transfer", "payment", 500, "them"]],
+      "the same shared record exports from B's own perspective",
+    );
+    await assert.rejects(
+      tabsDb.upsertTabFromWire(b!, { tab: server.view("a"), entries: [], full: false }),
+      /other Kaata/,
+    );
+    fixture.prepare("DELETE FROM tab_links WHERE tab_id=? AND vault_id=?").run(TAB, VAULT);
+    assert.equal(count("tab_entries"), 1, "leaving one Kaata preserves the other binding's ledger");
+    fixture.prepare("DELETE FROM tab_links WHERE tab_id=? AND vault_id=?").run(TAB, secondVault);
+    assert.equal(count("tab_entries"), 0, "last binding cleanup removes the shared cache");
+  });
+
+  await test("an old member-side cache cannot block recovery of an accepted counterparty binding", async () => {
+    const joinedVault = "joined-vault",
+      joinedRel = "joined-rel";
+    fixture.prepare("INSERT INTO vaults(id,currency) VALUES(?,'AFN')").run(joinedVault);
+    fixture
+      .prepare(
+        "INSERT INTO relationships(id,user_a_id,user_b_id,context,vault_id,created_at,updated_at) VALUES(?,?,?,?,?,1,1)",
+      )
+      .run(joinedRel, SELF, CONTACT, "peer", joinedVault);
+    await tabsDb.upsertTabLink(link({ last_error: "404 tab_not_found", party_token: null }));
+    server.jwtRole = "b";
+    server.revokedMineVaults.add(VAULT);
+    server.parties.b.joined_at_ms = 2_000;
+    server.seed({ id: "host-pending", created_by: "a", direction: "a_to_b", amount: "500" });
+    server.mine = [
+      { tab: server.view("b"), role: "b", vault_id: joinedVault, relationship_id: joinedRel },
+    ];
+    dbTx.setActiveVaultIdCache(joinedVault);
+    sync.requestTabSync(TAB);
+    await sleep(450);
+    const recovered = await tabsDb.getTabLink(TAB, joinedVault);
+    assert.equal(recovered?.role, "b");
+    assert.equal(recovered?.last_error, null);
+    assert.equal(
+      (await tabsDb.getTabLink(TAB, VAULT))?.role,
+      "a",
+      "retained old membership cache is independent",
+    );
+    assert.equal((await db.getPerson(CONTACT))?.tab_id, TAB);
+    assert.equal((await db.getPerson(CONTACT))?.tab_pending_count, 1);
+    assert.equal(
+      (await db.listEntries(CONTACT))[0]?.id,
+      "host-pending",
+      "the already accepted invite downloads without resending",
+    );
+    assert.equal(
+      (await sync.syncTab(TAB, VAULT)).ok,
+      false,
+      "the revoked perspective remains refused",
+    );
+    assert.equal(
+      (await tabsDb.getTabLink(TAB, joinedVault))?.last_error,
+      null,
+      "a refused old-side pull cannot overwrite the new binding's state",
+    );
+    assert.equal(
+      (await db.listEntries(CONTACT))[0]?.id,
+      "host-pending",
+      "a failed old-side pull cannot erase the recovered record",
+    );
+  });
+
+  await test("verified revoked views stop polling, preserve queued intent, and resume on readmission", async () => {
+    const { isTabVaultRevoked } =
+      require("../tabs/binding-access") as typeof import("../tabs/binding-access");
+    dbTx.setAccountIdCache("member-account");
+    const cached = link({ party_token: null });
+    await tabsDb.upsertTabLink(cached);
+    server.seed({ id: "kept-record", created_by: "a", direction: "a_to_b", amount: "12" });
+    await tabsDb.upsertTabFromWire(cached, {
+      tab: server.view("a"),
+      entries: server.entries,
+      full: true,
+    });
+    assert.equal(await isTabVaultRevoked(VAULT), false, "missing proof never blocks cache repair");
+    fixture
+      .prepare("INSERT INTO vault_members_mirror VALUES(?,?,1,2)")
+      .run(VAULT, "member-account");
+    assert.equal(await isTabVaultRevoked(VAULT), true);
+    const before = server.calls.length;
+    assert.equal((await sync.syncTab(TAB, VAULT)).error, "membership_revoked");
+    await sync.reconcileTabsFromServer();
+    assert.equal(
+      server.calls.length,
+      before,
+      "known revoked views make neither history nor discovery requests",
+    );
+    assert.equal(count("tab_entries"), 1, "the cached record remains available for recovery");
+
+    await tabsDb.enqueueTabOp({
+      id: "removed-member-intent",
+      tab_id: TAB,
+      vault_id: VAULT,
+      op: "append",
+      payload: JSON.stringify({
+        id: "removed-member-intent",
+        direction: "a_to_b",
+        amount: "5",
+        note: null,
+        occurred_at_ms: 2_000,
+      }),
+      created_at: 2_000,
+      attempts: 0,
+      next_at: null,
+      last_error: null,
+    });
+    server.jwtRole = "b";
+    await sync.syncTab(TAB, VAULT);
+    assert.equal(
+      count("tab_outbox"),
+      0,
+      "the server, not the local mirror, resolves the pending write",
+    );
+    assert.equal(count("tab_failed_ops"), 1, "the refused intent remains a visible receipt");
+    assert.equal(count("tab_entries"), 1);
+
+    fixture.prepare("UPDATE vault_members_mirror SET revoked_at=NULL WHERE vault_id=?").run(VAULT);
+    server.jwtRole = "a";
+    assert.equal(
+      await isTabVaultRevoked(VAULT),
+      false,
+      "membership changes invalidate the skip immediately",
+    );
+    assert.equal((await sync.syncTab(TAB, VAULT)).ok, true);
+    assert.equal((await tabsDb.getTabLink(TAB, VAULT))?.last_error, null);
+  });
+
+  await test("offline intents retain their Kaata role through a switch and concurrent sync", async () => {
+    const secondVault = "counterparty-vault",
+      secondRel = "counterparty-rel";
+    fixture.prepare("INSERT INTO vaults(id,currency) VALUES(?,'AFN')").run(secondVault);
+    fixture
+      .prepare(
+        "INSERT INTO relationships(id,user_a_id,user_b_id,context,vault_id,created_at,updated_at) VALUES(?,?,?,?,?,1,1)",
+      )
+      .run(secondRel, SELF, CONTACT, "peer", secondVault);
+    const a = link(),
+      b = link({ vault_id: secondVault, relationship_id: secondRel, role: "b", party_token: null });
+    await tabsDb.upsertTabLink(a);
+    await tabsDb.upsertTabLink(b);
+    server.bothRoles = true;
+    const op = (id: string, direction: string) => ({
+      id,
+      tab_id: TAB,
+      op: "append" as const,
+      payload: JSON.stringify({ id, direction, amount: "25", note: null, occurred_at_ms: 2_000 }),
+      created_at: 2_000,
+      attempts: 0,
+      next_at: null,
+      last_error: null,
+    });
+    await tabsDb.queueTabMutation(a, op("from-a", "a_to_b"));
+    await tabsDb.queueTabMutation(b, op("from-b", "b_to_a"));
+    dbTx.setActiveVaultIdCache(secondVault);
+    const result = await Promise.all([sync.syncTab(TAB, VAULT), sync.syncTab(TAB, secondVault)]);
+    assert(result.every((r) => r.ok));
+    assert.equal(count("tab_outbox"), 0);
+    assert.equal(server.entries.find((e) => e.id === "from-a")?.created_by, "a");
+    assert.equal(server.entries.find((e) => e.id === "from-b")?.created_by, "b");
+    assert.equal(count("tab_entries"), 2);
+    const latest = server.view("b");
+    await tabsDb.upsertTabFromWire(a, {
+      tab: { ...server.view("a"), rev: 0 },
+      entries: [],
+      full: true,
+    });
+    assert.equal(
+      count("tab_entries"),
+      2,
+      "older full snapshot from another perspective cannot erase the newer book",
+    );
+    assert.equal((await tabsDb.getTabLink(TAB, secondVault))?.rev, latest.rev);
+  });
+
+  await test("a refused optimistic close restores every cached Kaata perspective", async () => {
+    const a = link(),
+      b = link({
+        vault_id: "other-vault",
+        relationship_id: "other-rel",
+        role: "b",
+        party_token: null,
+      });
+    await tabsDb.upsertTabLink(a);
+    await tabsDb.upsertTabLink(b);
+    await tabsDb.queueTabMutation(a, {
+      id: "denied-close",
+      tab_id: TAB,
+      op: "close",
+      payload: "{}",
+      created_at: 10,
+      attempts: 0,
+      next_at: null,
+      last_error: null,
+    });
+    assert((await tabsDb.listTabLinksForId(TAB)).every((row) => row.closed_at === 10));
+    server.failNext = { status: 403, code: "role_insufficient" };
+    const result = await sync.syncTab(TAB, VAULT);
+    assert.equal(result.failed, 1);
+    assert(
+      (await tabsDb.listTabLinksForId(TAB)).every((row) => row.closed_at === null),
+      "refusing one side's close cannot leave the other Kaata falsely unlinked",
+    );
+    assert.equal(count("tab_failed_ops"), 1, "refused intent remains diagnostic evidence");
+  });
+
+  await test("discovery notices same-revision acceptance and stale metadata cannot undo it", async () => {
+    const a = link({ unjoined_invitation: 0 });
+    await tabsDb.upsertTabLink(a);
+    await sync.syncTab(TAB);
+    const before = server.view("a");
+    server.parties.b.joined_at_ms = 7_000;
+    server.mine = [{ tab: server.view("a"), role: "a", vault_id: VAULT, relationship_id: REL }];
+    await sync.reconcileTabsFromServer();
+    assert.equal((await tabsDb.getTabLink(TAB))?.other_joined_at, 7_000);
+    await tabsDb.upsertTabFromWire(a, { tab: before, entries: [], full: false });
+    assert.equal(
+      (await tabsDb.getTabLink(TAB))?.other_joined_at,
+      7_000,
+      "same financial revision cannot undo a confirmed join",
     );
   });
 

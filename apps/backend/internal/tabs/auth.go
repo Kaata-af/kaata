@@ -133,29 +133,42 @@ func partyByAccountRoleQuery(ctx context.Context, q querier, tabID, accountID, r
 		p          Party
 		direct     bool
 		memberRole string
+		matches    int
 	)
 	// COALESCE on the boolean: `p.account_id = $2` is NULL for an unbound
 	// party and DESC ordering puts NULLs FIRST in Postgres, which would rank
 	// an unbound party above the caller's own.
+	// A directly bound account may be the editor who originally linked this
+	// Kaata. Explicit removal from this side overrides that recovery binding;
+	// a missing legacy membership row remains compatible with older links.
+	// Readmission creates a new active seat and retains the revoked historical
+	// seat, so current membership must win over that history.
 	err := q.QueryRow(ctx, `
 		SELECT `+partyCols+`,
 		       COALESCE(p.account_id = $2::uuid, FALSE),
-		       COALESCE(vm.role, '')
+		       COALESCE(vm.role, ''), COUNT(*) OVER ()
 		  FROM tab_parties p
 		  LEFT JOIN vault_members vm
 		         ON vm.vault_id = p.vault_id AND vm.account_id = $2::uuid
 		        AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
 		 WHERE p.tab_id = $1::uuid AND (p.account_id = $2::uuid OR vm.id IS NOT NULL)
+		   AND (vm.id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM vault_members removed WHERE removed.vault_id=p.vault_id
+		     AND removed.account_id=$2::uuid AND removed.revoked_at IS NOT NULL))
 		   AND ($3 = '' OR p.role = $3)
 		 ORDER BY COALESCE(p.account_id = $2::uuid, FALSE) DESC, p.role ASC
 		 LIMIT 1
 	`, tabID, accountID, role).Scan(&p.TabID, &p.Role, &p.Label, &p.AccountID, &p.VaultID, &p.RelationshipID, &p.JoinedAt, &p.AccountBoundOnce,
-		&direct, &memberRole)
+		&direct, &memberRole, &matches)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return Party{}, ErrNotFound
 	case err != nil:
 		return Party{}, fmt.Errorf("party by account: %w", err)
+	}
+	// A member of both books must choose the visible side. A directly bound
+	// participant remains the deterministic default for older clients.
+	if role == "" && !direct && matches > 1 {
+		return Party{}, ErrNotFound
 	}
 	p.ActorAccountID = accountID
 	if !direct {
@@ -187,7 +200,9 @@ func (s *Service) touchParty(ctx context.Context, p Party, installID *string) {
 		UPDATE tab_parties p
 		   SET last_seen_at = NOW(), install_id = COALESCE($3::uuid, install_id)
 		 WHERE p.tab_id = $1::uuid AND p.role = $2
-		   AND (p.account_id = $4::uuid OR EXISTS (
+		   AND ((p.account_id = $4::uuid AND NOT EXISTS(
+		     SELECT 1 FROM vault_members removed WHERE removed.vault_id=p.vault_id
+		       AND removed.account_id=$4::uuid AND removed.revoked_at IS NOT NULL)) OR EXISTS (
 		     SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id
 		       AND vm.account_id=$4::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL))
 	`, p.TabID, p.Role, installID, p.ActorAccountID); err != nil {

@@ -80,6 +80,7 @@ const changeLocale = (value: string) => {
 };
 let registrationResult: () => Promise<{ enabled: boolean }> = async () => ({ enabled: true });
 const queued = new Set<string>();
+const reviewScopes: string[] = [];
 // The OS tray, and what left it; the read marks that reached the server stub.
 let presented: any[] = [];
 const dismissed: string[] = [];
@@ -174,10 +175,13 @@ stub("../i18n", {
   tIn: (_: string, key: string) => key,
 });
 stub("../tabs/db", {
-  getTabLink: async (id: string) => links.find((l) => l.tab_id === id) ?? null,
+  getTabLink: async (id: string, vaultId?: string) =>
+    links.find((l) => l.tab_id === id && (!vaultId || l.vault_id === vaultId)) ?? null,
+  listTabLinksForId: async (id: string) => links.filter((l) => l.tab_id === id),
   listTabLinks: async () => links,
-  queueNotificationReview: async (_: TabLink, entry: string, rev: number, action: string) => {
+  queueNotificationReview: async (link: TabLink, entry: string, rev: number, action: string) => {
     calls.push("queue");
+    reviewScopes.push(`${link.vault_id}:${link.role}`);
     queued.add(`${entry}:${rev}:${action}`);
   },
 });
@@ -213,6 +217,7 @@ stub("../tabs/events", {
   },
 });
 stub("../tabs/link", { setTabNotifyHook: () => {} });
+stub("../tabs/binding-access", { isTabVaultRevoked: async () => false });
 stub("../../modules/kaata-notification-actions", {
   notificationActions: {
     pending: async () => nativePending,
@@ -315,6 +320,7 @@ function reset() {
   platform.OS = "android";
   links = [link];
   queued.clear();
+  reviewScopes.length = 0;
   nativePending = [];
   presented = [];
   dismissed.length = 0;
@@ -419,7 +425,7 @@ async function main() {
     await notify.ensureTabNotificationPermission();
     assert.equal(asks, 1);
     assert.equal(registrations[0].options.token, "synthetic-push-token");
-    assert.equal(meta.get(`tab_push_active:${TAB}`) !== "0", true);
+    assert.ok(Number(meta.get(`tab_push_active:account:vault:${TAB}`)) > 0);
     await notify.ensureTabNotificationPermission();
     assert.equal(asks, 1);
   });
@@ -429,6 +435,76 @@ async function main() {
     assert.equal(asks, 0);
     assert.equal(registrations[0].options.token, "");
     assert.equal(meta.has("tab_notify_asked"), false);
+  });
+  await test("one party's push subscription cannot suppress the other party's fallback", async () => {
+    const a = { ...link, role: "a", vault_id: "other-vault" } as TabLink;
+    links = [a, link];
+    registrationResult = async () => ({ enabled: registrations.length === 1 });
+    await notify.ensureTabNotificationPermission();
+    assert.ok(Number(meta.get(`tab_push_active:account:other-vault:${TAB}`)) > 0);
+    assert.equal(meta.get(`tab_push_active:account:vault:${TAB}`), "0");
+    state.currentState = "background";
+    currentEntry = {
+      created_by: "a",
+      status: "pending",
+      amount_minor: 500,
+      direction: "a_to_b",
+      author_account_id: "peer",
+    };
+    emitApplied({
+      tabId: TAB,
+      vaultId: "vault",
+      origin: "pull",
+      changes: [{ entryId: ENTRY, rev: 2, kind: "entry_created" }],
+    });
+    await settled();
+    assert.equal(
+      scheduled.length,
+      1,
+      "B still gets its fallback when only A registered successfully",
+    );
+    currentEntry.created_by = "b";
+    emitApplied({
+      tabId: TAB,
+      vaultId: "other-vault",
+      origin: "pull",
+      changes: [{ entryId: ENTRY2, rev: 3, kind: "entry_created" }],
+    });
+    await settled();
+    assert.equal(scheduled.length, 1, "A relies on its own active push subscription");
+    accountId = "replacement";
+    emitApplied({
+      tabId: TAB,
+      vaultId: "other-vault",
+      origin: "pull",
+      changes: [{ entryId: ENTRY2, rev: 4, kind: "entry_created" }],
+    });
+    await settled();
+    assert.equal(
+      scheduled.length,
+      2,
+      "a replacement account does not inherit the prior account's registration",
+    );
+  });
+  await test("discovering a second party binding refreshes push without waiting for the hourly timer", async () => {
+    await notify.ensureTabNotificationPermission();
+    assert.equal(registrations.length, 1);
+    await notify.syncTabPushSubscriptions();
+    assert.equal(registrations.length, 1, "unchanged bindings keep the network throttle");
+    links = [...links, { ...link, vault_id: "recovered-vault", role: "a" }];
+    await notify.syncTabPushSubscriptions();
+    assert.equal(
+      registrations.length,
+      3,
+      "the recovered perspective registers immediately in the same foreground session",
+    );
+    assert.ok(Number(meta.get(`tab_push_active:account:recovered-vault:${TAB}`)) > 0);
+    await notify.syncTabPushSubscriptions();
+    assert.equal(
+      registrations.length,
+      3,
+      "the new successful signature becomes the throttle owner",
+    );
   });
   await test("denial is remembered; settings revocation unregisters", async () => {
     grantOnRequest = false;
@@ -458,6 +534,17 @@ async function main() {
       [{ tab_id: TAB, rev: 1 }],
       "review must read exactly the notice the push announced",
     );
+  });
+  await test("a review notification selects its party when the account can see both Kaata sides", async () => {
+    links = [{ ...link, role: "a", vault_id: "other-vault" }, link];
+    await task({ data: response("tab-accept") });
+    assert.deepEqual(
+      reviewScopes,
+      ["vault:b"],
+      "the active/first binding cannot replace the push's recipient party",
+    );
+    await task({ data: response("tab-reject", { ...payload, entry_id: ENTRY2, role: "a" }) });
+    assert.deepEqual(reviewScopes, ["vault:b", "other-vault:a"]);
   });
   await test("removal notices never dispatch the original tally review action", async () => {
     for (const kind of [
@@ -880,7 +967,7 @@ async function main() {
     assert.equal(registrations.at(-1).options.token, "");
     assert.equal(registrations.at(-1).options.preferences, undefined);
     assert.equal(meta.get("tab_push_error"), "settings_unsupported");
-    assert.equal(meta.get("tab_push_active:" + TAB), "0");
+    assert.equal(meta.get(`tab_push_active:account:vault:${TAB}`), "0");
   });
   await test("a policy read from an old preference generation cannot start an HTTP registration", async () => {
     granted = true;

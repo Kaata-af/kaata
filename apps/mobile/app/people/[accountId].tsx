@@ -1,7 +1,15 @@
 import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import * as Network from "expo-network";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  AppState,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Button } from "../../components/Button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { InitialAvatar } from "../../components/InitialAvatar";
@@ -74,6 +82,8 @@ export default function PeopleProfileScreen() {
   const [stored, setStored] = useState<ProfileView | null>(null);
   const [busy, setBusy] = useState<Action | null>(null);
   const busyRef = useRef(false);
+  const busyScope = useRef<string | null>(null);
+  const profileRead = useRef(0);
   const [failureScope, setFailureScope] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<{
     scope: string;
@@ -105,24 +115,55 @@ export default function PeopleProfileScreen() {
   }, []);
   useEffect(() => {
     let alive = true;
+    let running = false;
     if (!focused || offline || !viewer || !accountId) return;
     setStored({ scope });
-    void (async () => {
-      const session = await captureCurrentSession();
-      if (!alive || !current()) return;
-      const data = await getPersonProfile(accountId, session, undefined, assertCurrent);
-      await applyForCurrentSession(session, async () => {
-        if (alive && current()) setStored({ scope, data, session });
-      });
-    })().catch((error) => {
-      if (!alive || !current()) return;
-      setStored({
-        scope,
-        error: error instanceof TabApiError && error.status === 404 ? "unavailable" : "failed",
-      });
+    const mutating = () => busyRef.current && busyScope.current === scope;
+    const load = async () => {
+      if (!alive || !current() || running || mutating() || AppState.currentState !== "active")
+        return;
+      running = true;
+      const request = ++profileRead.current;
+      const stillCurrent = () =>
+        alive && current() && !mutating() && request === profileRead.current;
+      try {
+        const session = await captureCurrentSession();
+        if (!stillCurrent()) return;
+        const data = await getPersonProfile(accountId, session, undefined, () => {
+          if (!stillCurrent()) throw new SessionChangedError();
+        });
+        await applyForCurrentSession(session, async () => {
+          if (!stillCurrent()) return;
+          setStored({ scope, data, session });
+          if (data.friendship.state !== "friends") setRemoveScope(null);
+        });
+      } catch (error) {
+        if (!stillCurrent()) return;
+        const accessChanged =
+          error instanceof SessionChangedError ||
+          (error instanceof TabApiError && [401, 403, 404].includes(error.status));
+        setStored((previous) => {
+          // A transient poll failure must not replace a usable profile with a
+          // spinner/error. A refused profile, however, is no longer ours to show.
+          if (!accessChanged && previous?.scope === scope && previous.data) return previous;
+          return {
+            scope,
+            error: error instanceof TabApiError && error.status === 404 ? "unavailable" : "failed",
+          };
+        });
+      } finally {
+        running = false;
+      }
+    };
+    void load();
+    const timer = setInterval(() => void load(), 15_000);
+    const app = AppState.addEventListener("change", (state) => {
+      if (state === "active") void load();
     });
     return () => {
       alive = false;
+      clearInterval(timer);
+      app.remove();
     };
   }, [scope]);
 
@@ -151,6 +192,8 @@ export default function PeopleProfileScreen() {
     )
       return;
     busyRef.current = true;
+    busyScope.current = scope;
+    ++profileRead.current;
     setBusy(action);
     setActionNotice(null);
     setRemoveScope(null);
@@ -192,6 +235,7 @@ export default function PeopleProfileScreen() {
       else setFailureScope(scope);
     } finally {
       busyRef.current = false;
+      busyScope.current = null;
       if (mounted.current) setBusy(null);
     }
   }

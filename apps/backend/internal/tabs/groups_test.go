@@ -320,6 +320,10 @@ func TestSharedGroupFreshCurrencyNeedsNoSourceHistory(t *testing.T) {
 			if err != nil || len(out.Tabs) != 3 {
 				t.Fatalf("activation not idempotent %v", err)
 			}
+			var acceptances int
+			if err := f.pool.QueryRow(t.Context(), `SELECT COUNT(*) FROM tab_notifications n JOIN tabs t ON t.id=n.tab_id WHERE t.group_id=$1::uuid AND n.event_kind='invitation_accepted'`, created.Group.ID).Scan(&acceptances); err != nil || acceptances != 1 {
+				t.Fatalf("currency activation announced another acceptance: %d, %v", acceptances, err)
+			}
 			f.svc.SetGroupCurrencyHistoryReader(func(context.Context, pgx.Tx, string, string, string) (bool, error) { return true, nil })
 			if _, err = f.svc.EnsureGroupCurrency(t.Context(), created.Group.ID, f.acctA, "a", GroupCurrencyInput{Currency: "GBP"}); !errors.Is(err, ErrGroupCurrencyHistory) {
 				t.Fatalf("history absorbed: %v", err)

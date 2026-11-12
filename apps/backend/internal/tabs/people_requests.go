@@ -213,7 +213,27 @@ func (s *Service) SendPeopleRequest(ctx context.Context, account, groupID, recip
 		return out, err
 	}
 	out.GroupID, out.Token, out.CreatedAtMS = groupID, "r_"+out.ID, created.UnixMilli()
-	return out, tx.Commit(ctx)
+	// Turning a public link into a targeted invitation adds an expiry and a
+	// recipient restriction. Publish that metadata to all sender-side devices.
+	ids, err := groupTabIDs(ctx, tx, groupID)
+	if err != nil {
+		return out, err
+	}
+	for _, tabID := range ids {
+		if _, err = bumpRev(ctx, tx, tabID, "a", pushEvent{Suppress: true}); err != nil {
+			return out, err
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE tab_groups SET rev=rev+1 WHERE id=$1::uuid`, groupID); err != nil {
+		return out, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return out, err
+	}
+	for _, tabID := range ids {
+		s.poke(ctx, tabID)
+	}
+	return out, nil
 }
 
 func (s *Service) ListPeopleRequests(ctx context.Context, account string) ([]PeopleRequest, error) {
@@ -263,16 +283,40 @@ func (s *Service) DeclinePeopleRequest(ctx context.Context, account, id string) 
 	if g.BJoined != nil || g.BClaimed {
 		return ErrGroupChanged
 	}
+	var changed bool
 	if g.Closed == nil {
 		// A late inbox tap can dismiss an already ended request without
 		// penalizing the sender. Retries keep the original decision time.
-		_, err = tx.Exec(ctx, `UPDATE people_requests SET declined_at=NOW()
+		result, updateErr := tx.Exec(ctx, `UPDATE people_requests SET declined_at=NOW()
  WHERE id=$1::uuid AND declined_at IS NULL AND expires_at>NOW()`, id)
+		if updateErr != nil {
+			return updateErr
+		}
+		changed = result.RowsAffected() > 0
+	}
+	var ids []string
+	if changed {
+		ids, err = groupTabIDs(ctx, tx, group)
 		if err != nil {
 			return err
 		}
+		for i, tabID := range ids {
+			event := pushEvent{Kind: "invitation_declined", ActorAccountID: &account, Suppress: i > 0}
+			if _, err = bumpRev(ctx, tx, tabID, "b", event); err != nil {
+				return err
+			}
+		}
+		if _, err = tx.Exec(ctx, `UPDATE tab_groups SET rev=rev+1 WHERE id=$1::uuid`, group); err != nil {
+			return err
+		}
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	for _, tabID := range ids {
+		s.poke(ctx, tabID)
+	}
+	return nil
 }
 
 func (h *Handler) SendPeopleRequest(w http.ResponseWriter, r *http.Request) {

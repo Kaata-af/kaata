@@ -53,6 +53,26 @@ func TestPersonProfileActivityScopesAndSeparatesRequests(t *testing.T) {
 	exec(`UPDATE tab_groups SET b_account_id=$2,b_vault_id=$3,b_relationship_id=$4,b_joined_at=NOW() WHERE id=$1`, group, peer, peerBook, relB)
 	check(viewer, peer, book, &PersonProfileActivity{SharedTally: "active", KaataInvitationRole: "clerk", ExistingRelationshipID: relA})
 	check(peer, viewer, peerBook, &PersonProfileActivity{SharedTally: "active", ExistingRelationshipID: relB})
+	exec(`UPDATE vault_members SET account_id=invite_account_id,accepted_at=NOW() WHERE vault_id=$1 AND invite_account_id=$2`, book, peer)
+	check(viewer, peer, book, &PersonProfileActivity{SharedTally: "active", KaataMemberRole: "clerk", ExistingRelationshipID: relA})
+	check(manager, peer, book, &PersonProfileActivity{SharedTally: "active", KaataMemberRole: "clerk", ExistingRelationshipID: relA})
+	exec(`UPDATE vault_members SET revoked_at=NOW() WHERE vault_id=$1 AND account_id=$2`, book, peer)
+	check(peer, viewer, book, nil)
+	check(peer, viewer, peerBook, &PersonProfileActivity{SharedTally: "active", ExistingRelationshipID: relB})
+	// A direct group account binding does not override a revoked Kaata seat.
+	exec(`UPDATE vault_members SET revoked_at=NOW() WHERE vault_id=$1 AND account_id=$2`, book, viewer)
+	check(viewer, peer, book, nil)
+	check(peer, viewer, peerBook, &PersonProfileActivity{SharedTally: "active", ExistingRelationshipID: relB})
+	exec(`UPDATE vault_members SET revoked_at=NULL WHERE vault_id=$1 AND account_id=$2`, book, viewer)
+	exec(`INSERT INTO vault_members(vault_id,role,invited_by,invite_account_id,invite_request_id,invite_expires_at,
+ readmission_from_id,readmission_owner_member_id,readmission_owner_change_ms)
+ SELECT $1,'viewer',$2,$3,$4,NOW()+INTERVAL '1 day',source.id,owner.id,COALESCE(owner.last_change_hlc_ms,0)
+ FROM vault_members source JOIN vault_members owner ON owner.vault_id=source.vault_id AND owner.account_id=$2
+ WHERE source.vault_id=$1 AND source.account_id=$3 AND source.revoked_at IS NOT NULL`, book, viewer, peer, uuid.NewString())
+	check(viewer, peer, book, &PersonProfileActivity{SharedTally: "active", KaataInvitationRole: "viewer", ExistingRelationshipID: relA})
+	// Changing the owner seat invalidates consent; don't advertise a stale request.
+	exec(`UPDATE vault_members SET last_change_hlc_ms=1 WHERE vault_id=$1 AND account_id=$2`, book, viewer)
+	check(viewer, peer, book, &PersonProfileActivity{SharedTally: "active", ExistingRelationshipID: relA})
 	exec(`UPDATE tab_groups SET closed_at=NOW() WHERE id=$1`, group)
 	exec(`UPDATE vault_members SET invite_expires_at=NOW()-INTERVAL '1 second' WHERE vault_id=$1 AND invite_account_id=$2`, book, peer)
 	check(viewer, peer, book, &PersonProfileActivity{ExistingRelationshipID: relA})

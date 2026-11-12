@@ -1,5 +1,6 @@
 import * as Crypto from "expo-crypto";
 import * as SQLite from "expo-sqlite";
+import { migrateSharedTabBindings } from "./shared-tab-bindings-migration";
 import {
   _resetAccountIdCacheForReset,
   _resetActiveVaultIdCacheForReset,
@@ -154,6 +155,7 @@ const MIGRATION_051 = "051_tally_removal_requests";
 const MIGRATION_052 = "052_tally_notes";
 const MIGRATION_053 = "053_tally_note_number";
 const MIGRATION_054 = "054_shared_invitation_decline";
+const MIGRATION_055 = "055_shared_tab_bindings";
 
 // Phase 5 mesh: app_meta keys used by the lib/mesh package. They are NOT
 // referenced from db.ts directly — the table itself is the generic key/value
@@ -602,6 +604,7 @@ export async function initDb(opts: { installId?: string } = {}): Promise<void> {
   if (!(await hasRunMigration(db, MIGRATION_052))) await runMigration052(db);
   if (!(await hasRunMigration(db, MIGRATION_053))) await runMigration053(db);
   if (!(await hasRunMigration(db, MIGRATION_054))) await runMigration054(db);
+  if (!(await hasRunMigration(db, MIGRATION_055))) await runMigration055(db);
 }
 
 async function hasRunMigration(db: SQLite.SQLiteDatabase, name: string): Promise<boolean> {
@@ -3943,6 +3946,17 @@ async function runMigration054(db: SQLite.SQLiteDatabase): Promise<void> {
   });
 }
 
+async function runMigration055(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await migrateSharedTabBindings(db);
+    await db.runAsync(
+      "INSERT INTO schema_migrations(name,applied_at) VALUES (?,?)",
+      MIGRATION_055,
+      Date.now(),
+    );
+  });
+}
+
 async function getLocalSelfUserId(db: SQLite.SQLiteDatabase): Promise<string | null> {
   const row = await db.getFirstAsync<{ id: string }>(
     "SELECT id FROM users WHERE is_local_self = 1 LIMIT 1",
@@ -4041,6 +4055,7 @@ export async function resetAllLocalData(opts: { keepLocalBackups?: boolean } = {
     DROP TABLE IF EXISTS tab_outbox;
     DROP TABLE IF EXISTS tab_failed_ops;
     DROP TABLE IF EXISTS tab_links;
+    DROP TABLE IF EXISTS tab_books;
     -- settlements (migration 025) was never added here when it shipped
     -- (2026-07-27), so a wipe kept the previous identity's ruled-off chapter
     -- markers and re-attached them to any relationship id that matched.
@@ -4636,7 +4651,7 @@ type RawPersonRow = PersonWithBalance & {
 /** The tab-aware SELECT columns shared by selectAllPeopleRaw and getPerson. */
 const TAB_PERSON_COLUMNS = `
             tl.tab_id AS tab_id,
-            EXISTS(SELECT 1 FROM tab_outbox co WHERE co.tab_id=tl.tab_id AND co.op='close') AS tab_close_pending,
+            EXISTS(SELECT 1 FROM tab_outbox co WHERE co.tab_id=tl.tab_id AND co.vault_id=tl.vault_id AND co.op='close') AS tab_close_pending,
             tl.other_account_name AS tab_account_name,
             CASE WHEN tl.tab_id IS NULL THEN 0 ELSE
               (SELECT COUNT(*) FROM tab_entries tp
@@ -4657,6 +4672,7 @@ const TAB_PERSON_COLUMNS = `
             tl.closed_at AS tab_closed_at,
             CASE WHEN tl.other_joined_at IS NOT NULL THEN 1 ELSE 0 END AS tab_other_joined,
             tl.invitation_declined_at AS tab_invitation_declined_at,
+             tl.invitation_expires_at AS tab_invitation_expires_at,
             CASE WHEN tl.tab_id IS NOT NULL AND ((${unknownHistorySql()}) OR EXISTS (
               SELECT 1 FROM tab_links history WHERE history.vault_id=tl.vault_id
                 AND history.relationship_id=tl.relationship_id AND history.currency=tl.currency
@@ -4691,13 +4707,17 @@ const PERSON_BALANCE_SQL = `
  * index guarantees at most one), else the most recently linked closed one.
  * `(x IS NULL)` is 1/0 in SQLite, so DESC sorts the open link first.
  */
-const tabLinkJoin = (currencyCode: string) => `LEFT JOIN tab_links tl ON tl.tab_id = (
+const tabLinkJoin = (
+  currencyCode: string,
+) => `LEFT JOIN tab_links tl ON tl.vault_id=r.vault_id AND tl.tab_id = (
        SELECT t2.tab_id FROM tab_links t2
         WHERE t2.relationship_id = r.id AND t2.vault_id = r.vault_id AND t2.currency=${currencySqlLiteral(currencyCode)}
         ORDER BY (t2.closed_at IS NULL) DESC, CAST(t2.history_order AS INTEGER) DESC, t2.linked_at DESC
         LIMIT 1)`;
 
-const financialTabLinkJoin = (currencyCode: string) => `LEFT JOIN tab_links ftl ON ftl.tab_id = (
+const financialTabLinkJoin = (
+  currencyCode: string,
+) => `LEFT JOIN tab_links ftl ON ftl.vault_id=r.vault_id AND ftl.tab_id = (
        SELECT f.tab_id FROM tab_links f WHERE f.relationship_id=r.id AND f.vault_id=r.vault_id
          AND f.currency=${currencySqlLiteral(currencyCode)} AND NOT ${unjoinedInvitationSql("f")}
        ORDER BY CAST(f.history_order AS INTEGER) DESC,f.linked_at DESC,f.tab_id DESC LIMIT 1)`;
@@ -4748,7 +4768,7 @@ const personSettledSql = (currencyCode: string) => `CASE
    AND NOT EXISTS (SELECT 1 FROM tab_entries te WHERE te.tab_id = ftl.tab_id
         AND (te.seq IS NULL OR te.seq <= 0 OR te.local_pending <> 0 OR te.local_action_pending <> 0
              OR (te.kind <> 'void' AND te.voided_by_entry_id IS NULL AND te.status = 'pending')))
-   AND NOT EXISTS (SELECT 1 FROM tab_outbox o JOIN tab_links ol ON ol.tab_id=o.tab_id
+   AND NOT EXISTS (SELECT 1 FROM tab_outbox o JOIN tab_links ol ON ol.tab_id=o.tab_id AND ol.vault_id=o.vault_id
         WHERE ol.vault_id=r.vault_id AND ol.relationship_id=r.id AND ol.currency=${currencySqlLiteral(currencyCode)})
    AND NOT EXISTS (SELECT 1 FROM entries le WHERE le.relationship_id = r.id
         AND le.vault_id = r.vault_id AND le.deleted_at IS NULL AND ${entryCurrencyMatchesSql("le", currencyCode)} AND ${privateEntryCurrentSql("le")})
@@ -4965,7 +4985,10 @@ export async function getPerson(
     if (!base) return null;
     const { mergeCurrencyPeople } =
       require("./multi-currency-view") as typeof import("./multi-currency-view");
-    const combined = mergeCurrencyPeople(rows.map((row) => [row]), currencyCode)[0];
+    const combined = mergeCurrencyPeople(
+      rows.map((row) => [row]),
+      currencyCode,
+    )[0];
     return {
       ...base,
       last_entry_at: combined.last_entry_at,
@@ -5519,7 +5542,7 @@ export async function listEntriesForExport(
      FROM tab_entries te
      INNER JOIN tab_links tl ON tl.tab_id = te.tab_id
        AND tl.tab_id = (SELECT t2.tab_id FROM tab_links t2
-                         WHERE t2.relationship_id = tl.relationship_id
+                         WHERE t2.relationship_id = tl.relationship_id AND t2.vault_id=tl.vault_id
                            AND t2.currency=tl.currency
                          ORDER BY (t2.closed_at IS NULL) DESC, CAST(t2.history_order AS INTEGER) DESC, t2.linked_at DESC
                          LIMIT 1)
@@ -5542,7 +5565,7 @@ export async function listEntriesForExport(
   // private CSV/PDF columns remain unchanged.
   const sharedEntries = new Map<string, Entry>();
   for (const tabId of new Set(rows.flatMap((r) => (r.tab_id ? [r.tab_id] : [])))) {
-    const link = await getTabLink(tabId);
+    const link = await getTabLink(tabId, vaultId);
     if (link) for (const e of await listTabEntriesAsEntries(link)) sharedEntries.set(e.id, e);
   }
   const mapped = rows.map(({ tab_id, ...row }) => {
@@ -5574,7 +5597,7 @@ export async function listEntriesForExport(
   );
   const seen = new Set(mapped.map((entry) => entry.id));
   for (const contact of contacts) {
-    const link = await getTabLink(contact.tab_id);
+    const link = await getTabLink(contact.tab_id, vaultId);
     if (!link) continue;
     for (const entry of await listEffectiveSharedEntries(link)) {
       if (seen.has(entry.id)) {

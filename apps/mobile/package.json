@@ -49,6 +49,7 @@
     "selftest:person-currency": "tsx lib/__dev__/person-currency-selftest.ts && tsx lib/__dev__/person-currency-ui-selftest.ts",
     "selftest:initial-route": "tsx lib/__dev__/initial-route-selftest.ts",
     "selftest:tabs": "tsx lib/__dev__/tabs-selftest.ts",
+    "selftest:shared-tab-bindings": "tsx lib/__dev__/shared-tab-bindings-migration-selftest.ts && tsx lib/__dev__/shared-account-status-selftest.ts && tsx lib/__dev__/invitation-time-selftest.ts",
     "selftest:tab-settlement": "tsx lib/__dev__/tab-settlement-selftest.ts",
     "selftest:shared-history-link": "tsx lib/__dev__/shared-history-link-selftest.ts",
     "selftest:shared-closure-sync": "tsx lib/__dev__/shared-closure-sync-selftest.ts",

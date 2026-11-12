@@ -8,6 +8,7 @@ export type FriendState = { state: "none" | "incoming" | "outgoing" | "friends";
 export type PersonProfileActivity = {
   shared_tally?: "pending" | "active" | "declined";
   kaata_invitation_role?: "editor" | "clerk" | "viewer";
+  kaata_member_role?: "owner" | "manager" | "editor" | "clerk" | "viewer";
   existing_relationship_id?: string;
 };
 export type PersonProfile = {
@@ -70,12 +71,16 @@ function parseActivity(value: unknown): PersonProfileActivity | undefined {
   if (!a) return undefined;
   const tally = a.shared_tally;
   const role = a.kaata_invitation_role;
+  const memberRole = a.kaata_member_role;
   return {
     ...(tally === "active" || tally === "pending" || tally === "declined"
       ? { shared_tally: tally }
       : {}),
     ...(role === "editor" || role === "clerk" || role === "viewer"
       ? { kaata_invitation_role: role }
+      : {}),
+    ...(["owner", "manager", "editor", "clerk", "viewer"].includes(String(memberRole))
+      ? { kaata_member_role: memberRole as PersonProfileActivity["kaata_member_role"] }
       : {}),
     ...(isID(a.existing_relationship_id)
       ? { existing_relationship_id: a.existing_relationship_id }

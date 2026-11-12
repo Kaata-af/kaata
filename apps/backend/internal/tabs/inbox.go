@@ -19,7 +19,9 @@ import (
 
 // Re-evaluate access for EVERY read/mark-read. A previously subscribed device,
 // forwarded link, removed member or unrelated account cannot read this inbox.
-const inboxAccess = `(p.account_id=$1::uuid OR EXISTS (
+const inboxAccess = `((p.account_id=$1::uuid AND NOT EXISTS(
+ SELECT 1 FROM vault_members removed WHERE removed.vault_id=p.vault_id
+ AND removed.account_id=$1::uuid AND removed.revoked_at IS NOT NULL)) OR EXISTS (
  SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id
  AND vm.account_id=$1::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL))
  AND n.actor_account_id IS DISTINCT FROM $1::uuid`
@@ -72,10 +74,14 @@ func inboxConnectionKinds(r *http.Request) []string {
 	if query.Get("include_connections") != "1" {
 		return nil
 	}
+	kinds := []string{"friend_accepted"}
 	if query.Get("include_vault_invite_results") == "1" {
-		return []string{"friend_accepted", "vault_invite_rejected"}
+		kinds = append(kinds, "vault_invite_rejected")
 	}
-	return []string{"friend_accepted"}
+	if query.Get("include_vault_invite_acceptances") == "1" {
+		kinds = append(kinds, "vault_invite_accepted")
+	}
+	return kinds
 }
 
 func (s *Service) listInbox(ctx context.Context, accountID, locale string, before int64, connectionKinds []string) (InboxPage, error) {
@@ -102,9 +108,9 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
  SELECT n.id,n.tab_id::text,n.recipient_role,n.rev,n.event_kind,
  COALESCE(n.entry_id::text,''),n.actor_label,n.created_at,nr.notification_id IS NOT NULL,
  COALESCE(e.amount_minor,0),COALESCE(e.direction,''),t.currency,
- (p.account_id=$1::uuid OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id
-   AND vm.account_id=$1::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL
-   AND vm.role IN ('owner','manager','editor'))) AND t.recording_mode='review' AND COALESCE(e.status='pending',FALSE),
+ COALESCE((SELECT vm.role IN ('owner','manager','editor') FROM vault_members vm WHERE vm.vault_id=p.vault_id
+   AND vm.account_id=$1::uuid AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL),p.account_id=$1::uuid,FALSE)
+   AND t.recording_mode='review' AND COALESCE(e.status='pending',FALSE),
  ''::text,''::text
  FROM tab_notifications n JOIN tab_parties p ON p.tab_id=n.tab_id AND p.role=n.recipient_role
  JOIN tabs t ON t.id=n.tab_id LEFT JOIN tab_entries e ON e.id=n.entry_id AND e.tab_id=n.tab_id
@@ -138,6 +144,8 @@ func (s *Service) listInbox(ctx context.Context, accountID, locale string, befor
 			item.Body = friendAcceptedBody(locale, actor)
 		case "vault_invite_rejected":
 			item.Body = vaultInviteRejectedBody(locale, actor, vault)
+		case "vault_invite_accepted":
+			item.Body = vaultInviteAcceptedBody(locale, actor, vault)
 		default:
 			item.Body = detailedPushBody(item.Kind, locale, actor, amount, direction, currency, item.Role, canReview)
 		}
@@ -333,6 +341,34 @@ func vaultInviteRejectedBody(locale, actor, vault string) string {
 			return "Your invitation to " + vault + " was declined."
 		}
 		return actor + " declined your invitation to " + vault + "."
+	}
+}
+
+func vaultInviteAcceptedBody(locale, actor, vault string) string {
+	actor, vault = notificationLabel(actor), notificationLabel(vault)
+	if actor != "" {
+		actor = "\u2068" + actor + "\u2069"
+	}
+	if vault == "" {
+		vault = "Kaata"
+	}
+	vault = "\u2068" + vault + "\u2069"
+	switch applocale.Normalize(locale) {
+	case "fa":
+		if actor == "" {
+			return "دعوت شما برای پیوستن به " + vault + " پذیرفته شد."
+		}
+		return actor + " دعوت شما برای پیوستن به " + vault + " را پذیرفت."
+	case "ps":
+		if actor == "" {
+			return vault + " ته ستاسو بلنه ومنل شوه."
+		}
+		return actor + " " + vault + " ته ستاسو بلنه ومنله."
+	default:
+		if actor == "" {
+			return "Your invitation to " + vault + " was accepted."
+		}
+		return actor + " accepted your invitation to " + vault + "."
 	}
 }
 

@@ -616,31 +616,34 @@ async function main() {
     created_at_ms: 1,
     read: false,
   };
-  for (const [full, current] of [
-    [false, true],
-    [true, true],
-    [false, false],
-  ]) {
-    const confirmations = fixture(full);
-    confirmations.inbox.page.items = [accepted];
-    confirmations.render();
-    if (!full) {
-      confirmations.open();
-      confirmations.measure();
+  for (const kind of ["friend_accepted", "vault_invite_accepted"]) {
+    accepted.kind = kind;
+    for (const [full, current] of [
+      [false, true],
+      [true, true],
+      [false, false],
+    ]) {
+      const confirmations = fixture(full);
+      confirmations.inbox.page.items = [accepted];
+      confirmations.render();
+      if (!full) {
+        confirmations.open();
+        confirmations.measure();
+      }
+      const row = nodes(confirmations.hooks.tree).find((node) => node.props.item === accepted)!;
+      assert.ok(row, "friend acceptance is shown in the notification list");
+      row.props.onPress();
+      if (!current) confirmations.invalidateInbox();
+      confirmations.flushTimers();
+      await settleUI();
+      assert.deepEqual(confirmations.opens, [], "a friend notice never opens a tally");
+      assert.deepEqual(
+        confirmations.routes,
+        current ? [{ pathname: "/people/[accountId]", params: { accountId: "peer-account" } }] : [],
+      );
+      assert.deepEqual(confirmations.reads, current ? ["42"] : []);
+      confirmations.hooks.unmount();
     }
-    const row = nodes(confirmations.hooks.tree).find((node) => node.props.item === accepted)!;
-    assert.ok(row, "friend acceptance is shown in the notification list");
-    row.props.onPress();
-    if (!current) confirmations.invalidateInbox();
-    confirmations.flushTimers();
-    await settleUI();
-    assert.deepEqual(confirmations.opens, [], "a friend notice never opens a tally");
-    assert.deepEqual(
-      confirmations.routes,
-      current ? [{ pathname: "/people/[accountId]", params: { accountId: "peer-account" } }] : [],
-    );
-    assert.deepEqual(confirmations.reads, current ? ["42"] : []);
-    confirmations.hooks.unmount();
   }
   const rejected = {
     ...accepted,

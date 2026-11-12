@@ -146,6 +146,10 @@ func TestPeopleRequestDeclineExpiryAndPublication(t *testing.T) {
 	if err := f.svc.DeclinePeopleRequest(t.Context(), f.acctA, request.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("sender declined recipient request: %v", err)
 	}
+	created, err = f.svc.GetGroup(t.Context(), created.Group.ID, f.acctA, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.pool.Exec(t.Context(), `UPDATE accounts SET pending_delete_at=NOW() WHERE id=$1::uuid`, f.acctA); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +214,7 @@ func TestPeopleRequestDeclineExpiryAndPublication(t *testing.T) {
 	for i, item := range sender.Tabs {
 		before := created.Tabs[i].Tab
 		if item.Tab.InvitationDeclinedAtMS == nil || *item.Tab.InvitationDeclinedAtMS != declinedAtMS ||
-			item.Tab.ClosedAtMS != nil || !item.Tab.UnjoinedInvitation || item.Tab.Rev != before.Rev {
+			item.Tab.ClosedAtMS != nil || !item.Tab.UnjoinedInvitation || item.Tab.Rev != before.Rev+1 {
 			t.Fatalf("decline changed financial state or was omitted: before=%+v after=%+v", before, item.Tab)
 		}
 		p, err := partyByAccountRoleQuery(t.Context(), f.pool, before.ID, f.acctA, "a")
@@ -219,7 +223,7 @@ func TestPeopleRequestDeclineExpiryAndPublication(t *testing.T) {
 		}
 		pull, err := f.svc.Get(t.Context(), p, before.Rev)
 		if err != nil || len(pull.Entries) != 0 || pull.Tab.InvitationDeclinedAtMS == nil || *pull.Tab.InvitationDeclinedAtMS != declinedAtMS {
-			t.Fatalf("delta pull at an unchanged revision omitted decline: %+v %v", pull, err)
+			t.Fatalf("delta pull omitted decline: %+v %v", pull, err)
 		}
 	}
 	if mine, err := f.svc.Mine(t.Context(), f.acctB); err != nil || len(mine.Tabs) != 0 {

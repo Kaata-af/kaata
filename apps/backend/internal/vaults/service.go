@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 	"github.com/matee/kaata-backend/internal/rolepolicy"
 )
 
@@ -1502,7 +1503,20 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 	if direct {
 		lockedInviter, err = lockAccountInviteForAccept(ctx, tx, requestID, in.AccountID)
 	} else {
-		err = lockActiveAccounts(ctx, tx, in.AccountID)
+		// The acceptance notice references the inviter as well as the recipient.
+		// Lock both before the vault, matching account deletion's lock order.
+		var inviter *string
+		err = tx.QueryRow(ctx, `SELECT invited_by::text FROM vault_members WHERE invite_token_hash=$1`, tokenHash).Scan(&inviter)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return AcceptInviteResult{}, ErrInviteNotFound
+		}
+		if err == nil {
+			if inviter != nil {
+				err = lockActiveAccounts(ctx, tx, in.AccountID, *inviter)
+			} else {
+				err = lockActiveAccounts(ctx, tx, in.AccountID)
+			}
+		}
 	}
 	if err != nil {
 		return AcceptInviteResult{}, err
@@ -1751,6 +1765,9 @@ func (s *Service) AcceptInvite(ctx context.Context, in AcceptInviteInput) (Accep
 		"role": role, "install_id": in.InstallID,
 	}); err != nil {
 		return AcceptInviteResult{}, err
+	}
+	if err := connectionnotice.VaultInviteAccepted(ctx, tx, memberID); err != nil {
+		return AcceptInviteResult{}, fmt.Errorf("notify accepted invitation: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

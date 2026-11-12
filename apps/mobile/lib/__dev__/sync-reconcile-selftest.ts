@@ -1,6 +1,7 @@
 // Real reconciliation SQL and control flow against synthetic in-memory SQLite.
 // Never opens a phone database, a real network endpoint or a user backup.
 import assert from "node:assert/strict";
+import { migrateSharedTabBindings } from "../shared-tab-bindings-migration";
 import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { buildLocalAccountId } from "../trust/account-id";
@@ -50,7 +51,9 @@ stub("../auth", {
   applyForCurrentSession: async (_: unknown, work: () => Promise<unknown>) => work(),
   SessionChangedError: class extends Error {},
 });
-stub("../db-backup", { PERSONAL_BACKUP_JOINED_RECOVERY_KEY: "personal_backup_joined_recovery_account" });
+stub("../db-backup", {
+  PERSONAL_BACKUP_JOINED_RECOVERY_KEY: "personal_backup_joined_recovery_account",
+});
 stub("../db-tx", {
   getDb: async () => sqlite,
   getAccountIdSync: () => "synthetic-account",
@@ -117,7 +120,7 @@ async function tabParticipationReconcileTests(): Promise<void> {
   const store = new Database(":memory:");
   try {
     const source = readFileSync(require.resolve("../db"), "utf8");
-    for (const migration of ["028", "030", "031", "041"]) {
+    for (const migration of ["028", "029", "030", "031", "032", "041"]) {
       const ddl = source.match(
         new RegExp(
           "async function runMigration" +
@@ -129,6 +132,7 @@ async function tabParticipationReconcileTests(): Promise<void> {
       store.exec(ddl);
     }
     const tx = {
+      execAsync: async (sql: string) => store.exec(sql),
       getFirstAsync: async (sql: string, ...args: unknown[]) =>
         store.prepare(sql).get(...args) ?? null,
       getAllAsync: async (sql: string, ...args: unknown[]) => store.prepare(sql).all(...args),
@@ -144,6 +148,8 @@ async function tabParticipationReconcileTests(): Promise<void> {
         }
       },
     };
+    store.exec("CREATE TABLE vaults(id TEXT PRIMARY KEY); INSERT INTO vaults VALUES('vault');");
+    await migrateSharedTabBindings(tx as never);
     const dbTx = {
       getDb: async () => tx,
       getAccountIdSync: () => "account",
@@ -181,6 +187,7 @@ async function tabParticipationReconcileTests(): Promise<void> {
       "./direction": require("../tabs/direction"),
       "./errors": require("../tabs/errors"),
       "./inbox-reads": { flushInboxReads: async () => {} },
+      "./binding-access": { isTabVaultRevoked: async () => false },
       "./events": { onTabApplied: () => () => {} },
       "./api": {
         resolveTabAuth: async () => ({ jwt: "tab-session" }),

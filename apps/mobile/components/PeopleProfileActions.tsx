@@ -166,12 +166,14 @@ export function PeopleProfileActions(props: {
   const declined = shown?.activity?.shared_tally === "declined";
   const opensLedger = active || declined;
   const memberRole = shown?.activity?.kaata_invitation_role;
+  const activeMemberRole = shown?.activity?.kaata_member_role;
   const ready = !!shown && !!vaultId && current() && !acting && dialog !== scope;
   const canShare =
     ready &&
     !pending &&
     (opensLedger ? !!shown.localPersonId : permissions.current.share && shown.canReceiveRequests);
-  const canAddMember = ready && permissions.current.invite && shown.canReceiveRequests;
+  const canAddMember =
+    ready && !activeMemberRole && permissions.current.invite && shown.canReceiveRequests;
 
   async function act(kind: "share" | "member") {
     if (
@@ -278,27 +280,38 @@ export function PeopleProfileActions(props: {
       />
       <NavRow
         icon="person-add-outline"
-        label={t(memberRole ? "peopleProfile.memberPending" : "peopleProfile.inviteMember")}
+        label={t(
+          activeMemberRole
+            ? "invite.people.alreadyMember"
+            : memberRole
+              ? "peopleProfile.memberPending"
+              : "peopleProfile.inviteMember",
+        )}
         hint={
           shown
-            ? memberRole
-              ? t(
-                  canAddMember
-                    ? "peopleProfile.memberManageHint"
-                    : "peopleProfile.memberPendingHint",
-                  {
-                    role: t(`invite.role.${memberRole}`),
-                    kaata: shown.vaultName,
-                  },
-                )
-              : !shown.canReceiveRequests
-                ? t("peopleProfile.friendRequired")
-                : t(
-                    permissions.current.invite
-                      ? "peopleProfile.inviteMemberHint"
-                      : "peopleProfile.actionUnavailable",
-                    { kaata: shown.vaultName },
+            ? activeMemberRole
+              ? t("peopleProfile.memberActiveHint", {
+                  role: t(`vaultSettings.role.${activeMemberRole}`),
+                  kaata: shown.vaultName,
+                })
+              : memberRole
+                ? t(
+                    canAddMember
+                      ? "peopleProfile.memberManageHint"
+                      : "peopleProfile.memberPendingHint",
+                    {
+                      role: t(`invite.role.${memberRole}`),
+                      kaata: shown.vaultName,
+                    },
                   )
+                : !shown.canReceiveRequests
+                  ? t("peopleProfile.friendRequired")
+                  : t(
+                      permissions.current.invite
+                        ? "peopleProfile.inviteMemberHint"
+                        : "peopleProfile.actionUnavailable",
+                      { kaata: shown.vaultName },
+                    )
             : undefined
         }
         onPress={() => void act("member")}

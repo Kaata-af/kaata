@@ -321,6 +321,7 @@ async function buildPersonStatementSnapshot(
   if (financialTab) {
     for (const { tab_id: source, ...settlement } of await listScopedTabSettlements(
       financialTab.tab_id,
+      financialTab.vault_id,
     )) {
       const markers = settlementsByTab.get(source) ?? [];
       markers.push(settlement);
@@ -334,7 +335,9 @@ async function buildPersonStatementSnapshot(
       (source) =>
         source !== financialTab.tab_id && (retainedIds.has(source) || !archivedIds.has(source)),
     );
-    const links = await Promise.all(sources.map((source) => getTabLink(source)));
+    const links = await Promise.all(
+      sources.map((source) => getTabLink(source, financialTab.vault_id)),
+    );
     if (
       links.some(
         (link) =>

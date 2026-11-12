@@ -206,9 +206,9 @@ async function knownRecordingLink(link: TabLink, session: SessionSnapshot): Prom
     throw new TabApiError(426, "recording_upgrade_required", "Unknown shared tally recording mode");
   if (link.recording_mode_known !== 0) return link;
   await applyForCurrentSession(session, async () => {});
-  await syncTab(link.tab_id);
+  await syncTab(link.tab_id, link.vault_id);
   return applyForCurrentSession(session, async () => {
-    const fresh = await getTabLink(link.tab_id);
+    const fresh = await getTabLink(link.tab_id, link.vault_id);
     if (
       !fresh ||
       fresh.vault_id !== link.vault_id ||
@@ -253,12 +253,12 @@ export async function prepareSharedHistory(
     (link) => link.relationship_id === relationshipId && link.currency === currency,
   );
   for (const link of history) {
-    const result = await syncTab(link.tab_id);
+    const result = await syncTab(link.tab_id, link.vault_id);
     if (!result.ok || result.error) throw new TabAuthUnavailableError();
     // Older clients closed unused invites without withdrawing the duplicate
     // opening. Ask the server to verify participation and retire it before
     // collecting a relink receipt. Genuine unresolved tallies still block it.
-    const refreshed = await getTabLink(link.tab_id);
+    const refreshed = await getTabLink(link.tab_id, link.vault_id);
     if (refreshed?.closed_at != null && isUnjoinedInvitation(refreshed)) {
       const db = await getDb();
       const pendingOpening = await db.getFirstAsync<{ one: number }>(
@@ -270,7 +270,7 @@ export async function prepareSharedHistory(
         await newOp(refreshed, "close", { withdraw_unjoined_opening: true }, undefined, {
           session,
         });
-        const cleanup = await syncTab(refreshed.tab_id);
+        const cleanup = await syncTab(refreshed.tab_id, refreshed.vault_id);
         if (!cleanup.ok || cleanup.error) throw new TabAuthUnavailableError();
       }
     }
@@ -283,7 +283,7 @@ export async function prepareSharedHistory(
           AND e.voided_by_entry_id IS NULL
           AND (e.status='pending' OR e.local_pending=1 OR e.local_action_pending=1)
      ) OR EXISTS (
-       SELECT 1 FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id
+       SELECT 1 FROM tab_outbox o JOIN tab_links l ON l.tab_id=o.tab_id AND l.vault_id=o.vault_id
         WHERE l.vault_id=? AND l.relationship_id=? AND l.currency=?
      ) AS pending`,
     vaultId,
@@ -572,7 +572,7 @@ export async function linkContact(
       await reconcileTabsFromServer();
       const recovered = await getTabLinkForRelationship(relId);
       if (recovered) {
-        await syncTab(recovered.tab_id);
+        await syncTab(recovered.tab_id, recovered.vault_id);
         throw new TabAlreadyLinkedError(recovered.tab_id);
       }
     }
@@ -615,7 +615,10 @@ export async function linkContact(
     );
   });
   askNotifyPermission();
-  return { link: (await getTabLink(link.tab_id)) ?? link, inviteUrl: resp.invite_url };
+  return {
+    link: (await getTabLink(link.tab_id, link.vault_id)) ?? link,
+    inviteUrl: resp.invite_url,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -849,7 +852,7 @@ export async function joinTabAsContact(
     await upsertTabFromWire(link, resp, { origin: "local" });
   });
   askNotifyPermission();
-  return (await getTabLink(link.tab_id)) ?? link;
+  return (await getTabLink(link.tab_id, link.vault_id)) ?? link;
 }
 
 // ---------------------------------------------------------------------------
@@ -931,11 +934,11 @@ export async function addTabEntry(
     /* probe failed — try anyway */
   }
   if (!online) {
-    void syncTab(link.tab_id);
+    void syncTab(link.tab_id, link.vault_id);
     return { entryId: id, duplicateHint: null, pendingAdmission: admission };
   }
   const flushed = await Promise.race([
-    syncTab(link.tab_id).then(() => true),
+    syncTab(link.tab_id, link.vault_id).then(() => true),
     new Promise<false>((resolve) => setTimeout(() => resolve(false), FIRST_FLUSH_WAIT_MS)),
   ]);
   if (!flushed) return { entryId: id, duplicateHint: null, pendingAdmission: admission };
@@ -1001,7 +1004,7 @@ async function needsSharedCreditAdmission(link: TabLink): Promise<boolean> {
 
 async function finishSharedCreditMutation(link: TabLink, opId: string): Promise<void> {
   await Promise.race([
-    syncTab(link.tab_id),
+    syncTab(link.tab_id, link.vault_id),
     new Promise((resolve) => setTimeout(resolve, FIRST_FLUSH_WAIT_MS)),
   ]);
   const db = await getDb();
@@ -1031,7 +1034,7 @@ export async function acceptEntry(link: TabLink, entryId: string): Promise<void>
   });
   markReviewed(link, entryId, session);
   if (deferred) return finishSharedCreditMutation(link, opId);
-  void syncTab(link.tab_id);
+  void syncTab(link.tab_id, link.vault_id);
 }
 
 /** Reject the other party's tally, with an optional reason (≤ 300 chars). */
@@ -1053,7 +1056,7 @@ export async function disputeEntry(link: TabLink, entryId: string, reason: strin
   });
   markReviewed(link, entryId, session);
   if (deferred) return finishSharedCreditMutation(link, opId);
-  void syncTab(link.tab_id);
+  void syncTab(link.tab_id, link.vault_id);
 }
 
 /** Withdraw an own pending or ordinary recorded tally. Reviewed records,
@@ -1097,7 +1100,7 @@ export async function voidEntry(link: TabLink, entryId: string): Promise<void> {
   // here — the server's void path marks nothing for the same reason, and the
   // counterparty's entry_voided notice is theirs to handle.
   if (deferred) return finishSharedCreditMutation(link, opId);
-  void syncTab(link.tab_id);
+  void syncTab(link.tab_id, link.vault_id);
 }
 
 /** A removal request leaves the accepted tally intact until the other party
@@ -1122,7 +1125,7 @@ export async function changeTallyRemoval(
   const session = await captureCurrentSession();
   if (!session.jwt || session.accountId !== intendedAccount) throw new TabAuthUnavailableError();
   const readCurrentLink = async () => {
-    const fresh = await getTabLink(link.tab_id);
+    const fresh = await getTabLink(link.tab_id, link.vault_id);
     if (
       getActiveVaultIdSyncMaybe() !== link.vault_id ||
       !fresh ||
@@ -1211,9 +1214,9 @@ export async function settleSharedTab(link: TabLink, requestId: string): Promise
   link = await knownRecordingLink(link, session);
   requireSharedWrite(link);
   await assertVaultAction(link.vault_id, "entry.amend");
-  const synced = await syncTab(link.tab_id);
+  const synced = await syncTab(link.tab_id, link.vault_id);
   if (!synced.ok || synced.error) throw new TabAuthUnavailableError();
-  const fresh = await getTabLink(link.tab_id);
+  const fresh = await getTabLink(link.tab_id, link.vault_id);
   if (!fresh) throw new TabClosedError();
   requireOpen(fresh);
   requireSharedWrite(fresh);
@@ -1239,7 +1242,7 @@ export async function settleSharedTab(link: TabLink, requestId: string): Promise
       { advanceCursor: false },
     ),
   );
-  void syncTab(fresh.tab_id);
+  void syncTab(fresh.tab_id, fresh.vault_id);
 }
 
 /** Rename how I appear to the other party. */
@@ -1249,7 +1252,7 @@ export async function setMyLabel(link: TabLink, label: string): Promise<void> {
   const clean = cleanLabel(label);
   await assertVaultAction(link.vault_id, "entry.amend");
   await newOp(link, "label", { label: clean }, undefined, { session });
-  void syncTab(link.tab_id);
+  void syncTab(link.tab_id, link.vault_id);
 }
 
 /**
@@ -1263,7 +1266,7 @@ export async function unlinkContact(link: TabLink): Promise<void> {
   const session = await captureCurrentSession();
   await assertVaultAction(link.vault_id, "entry.amend");
   await newOp(link, "close", { withdraw_unjoined_opening: true }, undefined, { session });
-  void syncTab(link.tab_id);
+  void syncTab(link.tab_id, link.vault_id);
 }
 
 /**
@@ -1280,7 +1283,7 @@ export async function regenerateInviteLink(link: TabLink): Promise<string> {
   await assertVaultAction(link.vault_id, "entry.amend");
   const auth = await resolveTabAuth(link);
   const { invite_url } = await regenerateTabLink(auth, link.tab_id);
-  await setTabInviteUrl(link.tab_id, invite_url);
+  await setTabInviteUrl(link.tab_id, invite_url, link.vault_id);
   return invite_url;
 }
 

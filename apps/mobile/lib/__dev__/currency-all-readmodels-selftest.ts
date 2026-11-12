@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import Database from "better-sqlite3";
 import { Mutex } from "../util/mutex";
+import { migrateSharedTabBindings } from "../shared-tab-bindings-migration";
 import * as scope from "../currency-scope";
 import {
   currencyBalances,
@@ -41,6 +42,8 @@ store.exec(
 );
 let active: string | null = "v";
 const tx: any = {
+  execAsync: async (sql: string) => store.exec(sql),
+  runAsync: async (sql: string, ...args: any[]) => store.prepare(sql).run(...args),
   getFirstAsync: async (sql: string, ...args: any[]) => store.prepare(sql).get(...args) ?? null,
   getAllAsync: async (sql: string, ...args: any[]) => store.prepare(sql).all(...args),
 };
@@ -104,6 +107,7 @@ function entry(id: string, who: string, code: string, type: string, amount: numb
     .run(id, "r-" + who, type, amount, code, at, at);
 }
 async function main() {
+  await migrateSharedTabBindings(tx);
   for (const id of ["usd-only", "mixed", "decimal", "zero", "neutral", "shared"]) person(id);
   entry("usd-only-40", "usd-only", "USD", "debt", 40, 400);
   entry("mixed-afn", "mixed", "AFN", "debt", 100, 200);
@@ -314,7 +318,7 @@ async function main() {
     ('gbp-intent','v','never-created','entry_created','{"currency":"GBP","type":"debt","amount_afn":9,"occurred_at_ms":900}',900,NULL),
     ('legacy-intent','v','never-created-2','entry_created','{"type":"debt","amount_afn":1,"occurred_at_ms":850}',850,NULL);
     INSERT INTO credit_admission_intents VALUES('gbp-intent','v','r-shared','pending',NULL),('legacy-intent','v','r-shared','refused','credit_limit_exceeded');
-    INSERT INTO tab_outbox(id,tab_id,op,payload,created_at) VALUES('usd-intent','new-usd','append','{"direction":"a_to_b","amount":"2.00","occurred_at_ms":875}',875);`);
+    INSERT INTO tab_outbox(id,tab_id,vault_id,op,payload,created_at) VALUES('usd-intent','new-usd','v','append','{"direction":"a_to_b","amount":"2.00","occurred_at_ms":875}',875);`);
   assert.ok(
     !(await db.listLedgerCurrencies("v")).includes("GBP"),
     "a deferred tally has no GBP financial history yet",
@@ -642,11 +646,11 @@ async function main() {
       ["UPDATE tab_links SET last_synced_at=NULL WHERE tab_id='old-notify'", 0],
       ["UPDATE tab_links SET history_order=NULL WHERE tab_id='old-notify'", 0],
       [
-        "INSERT INTO tab_outbox(id,tab_id,op,payload,created_at) VALUES('old-outbox','old-notify','close','{}',1000)",
+        "INSERT INTO tab_outbox(id,tab_id,vault_id,op,payload,created_at) VALUES('old-outbox','old-notify','v','close','{}',1000)",
         0,
       ],
       [
-        "INSERT INTO tab_outbox(id,tab_id,op,payload,created_at) VALUES('new-outbox','new-review','close','{}',1000)",
+        "INSERT INTO tab_outbox(id,tab_id,vault_id,op,payload,created_at) VALUES('new-outbox','new-review','v','close','{}',1000)",
         0,
       ],
     ] as const)

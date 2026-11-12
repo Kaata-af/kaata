@@ -10,8 +10,8 @@ async function main() {
     CREATE TABLE sync_state (vault_id TEXT, last_push_at INTEGER, last_pull_at INTEGER);
     CREATE TABLE event_log (vault_id TEXT, server_acked_at INTEGER, tombstone_reason TEXT);
     CREATE TABLE tab_links (tab_id TEXT, vault_id TEXT, closed_at INTEGER);
-    CREATE TABLE tab_outbox (tab_id TEXT);
-    CREATE TABLE tab_failed_ops (tab_id TEXT);
+    CREATE TABLE tab_outbox (tab_id TEXT, vault_id TEXT);
+    CREATE TABLE tab_failed_ops (tab_id TEXT, vault_id TEXT);
     CREATE TABLE customer_credit_limits (vault_id TEXT, sync_pending INTEGER);
     CREATE TABLE credit_alert_policies (vault_id TEXT, sync_pending INTEGER);
     CREATE TABLE customer_credit_limit_notifications (vault_id TEXT, sync_pending INTEGER);
@@ -22,7 +22,7 @@ async function main() {
     INSERT INTO sync_state VALUES ('owned', 10, 20), ('joined', NULL, 30);
     INSERT INTO event_log VALUES ('owned', NULL, NULL);
     INSERT INTO tab_links VALUES ('tab', 'joined', NULL);
-    INSERT INTO tab_outbox VALUES ('tab');
+    INSERT INTO tab_outbox VALUES ('tab','joined');
   `);
   let account: string | null = "me";
   let online = true;
@@ -92,7 +92,7 @@ async function main() {
       (vault: { pending: boolean; lastPushAt: number }) => !vault.pending && vault.lastPushAt > 30,
     ),
   );
-  db.exec("INSERT INTO tab_outbox VALUES ('tab')");
+  db.exec("INSERT INTO tab_outbox VALUES ('tab','joined')");
   assert.equal((await status.readBackupStatus()).cloudUpToDate, false);
   account = null;
   assert.deepEqual(await status.readBackupStatus(), {

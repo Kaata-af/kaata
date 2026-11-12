@@ -381,7 +381,12 @@ async function main() {
 
   const connectionResult = (
     id: string,
-    kind: "friend_accepted" | "vault_invite_rejected",
+    kind:
+      | "friend_accepted"
+      | "vault_invite_rejected"
+      | "vault_invite_accepted"
+      | "invitation_accepted"
+      | "invitation_declined",
     read = false,
   ) => {
     const result = page(id, "Connection update", read);
@@ -421,19 +426,33 @@ async function main() {
   };
   await output.read("12");
   assert.equal(output.page.unread, 0);
+  for (const [id, kind] of [
+    ["13", "vault_invite_accepted"],
+    ["14", "invitation_accepted"],
+    ["15", "invitation_declined"],
+  ] as const) {
+    fetcher = async () => connectionResult(id, kind);
+    await output.reload();
+    await output.reload();
+    await settle();
+    expectedCues.push(`account:c:connection_result:${id}`);
+    assert.deepEqual(cues, expectedCues, `${kind} cues exactly once`);
+  }
   connectionsEnabled = false;
-  fetcher = async () => connectionResult("13", "vault_invite_rejected");
+  fetcher = async () => connectionResult("16", "vault_invite_rejected");
   await output.reload();
   await settle();
   assert.equal(output.page.unread, 1, "muting connections does not hide inbox history");
   connectionsEnabled = true;
   account = "d";
-  fetcher = async () => connectionResult("14", "friend_accepted");
+  fetcher = async () => connectionResult("17", "friend_accepted");
   render();
   await settle();
   assert.equal(output.page.unread, 1);
   assert.deepEqual(cues, expectedCues, "muted and first-load notices stay quiet");
-  console.log("PASS 14: new friend acceptances and member rejections cue and are read by id");
+  console.log(
+    "PASS 14: friend, member and shared invite outcomes cue once and respect mute/account scope",
+  );
 
   account = "legacy";
   cache.set("notification_inbox:legacy:fa", JSON.stringify(page("15", "old cache")));

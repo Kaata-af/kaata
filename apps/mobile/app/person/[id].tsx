@@ -50,6 +50,7 @@ import { SettledHistoryToggle } from "../../components/SettledHistoryToggle";
 import { personCurrencyRows, selectedEntriesByCurrency } from "../../lib/multi-currency-view";
 import { getPersonEnabledCurrencies } from "../../lib/person-currency";
 import { combinedSharedAccountStatus, sharedAccountLinkStatus } from "../../lib/tabs/link-status";
+import { useInvitationTime } from "../../lib/tabs/use-invitation-time";
 import { canWriteSharedTallies, isNotificationOnlyMode } from "../../lib/tabs/recording-mode";
 import { useCustomerGroups } from "../../lib/use-customer-groups";
 import { LinkAccountDialog } from "../../components/LinkAccountDialog";
@@ -707,8 +708,11 @@ export default function PersonDetailScreen() {
       ? (entryCurrencies.codes.find((code) => code === (person?.currency ?? selectedCurrency)) ??
         entryCurrencies.codes[0])
       : undefined;
-  const canCreate = currencyPeriods.find((period) => period.currency === writableEntryCurrency)
-    ?.financialTab?.closed_at === null ? canCreateShared : canCreatePrivate;
+  const canCreate =
+    currencyPeriods.find((period) => period.currency === writableEntryCurrency)?.financialTab
+      ?.closed_at === null
+      ? canCreateShared
+      : canCreatePrivate;
   const [settleCurrency, setSettleCurrency] = useState<string | null>(null);
   const settlementRequest = useRef<{ id: string; throughSeq: number; tabId: string } | null>(null);
   const [historyDisclosure, setHistoryDisclosure] = useState({ key: "", expanded: false });
@@ -858,11 +862,24 @@ export default function PersonDetailScreen() {
   const financialTabHistory =
     (currencyPeriods.find((period) => period.currency === selectedCurrency) ?? currencyPeriods[0])
       ?.financialTab ?? null;
+  const invitationNow = useInvitationTime(
+    currencyPeriods
+      .filter(
+        ({ tab }) =>
+          tab &&
+          tab.closed_at == null &&
+          tab.other_joined_at == null &&
+          tab.invitation_declined_at == null,
+      )
+      .map(({ tab }) => tab?.invitation_expires_at),
+  );
   const sharedAccountStatus = combinedSharedAccountStatus(
-    currencyPeriods.map((period) => sharedAccountLinkStatus(period.tab)),
+    currencyPeriods.map((period) => sharedAccountLinkStatus(period.tab, invitationNow)),
   );
   const showInvitationStatus =
-    sharedAccountStatus === "waiting" || sharedAccountStatus === "declined";
+    sharedAccountStatus === "waiting" ||
+    sharedAccountStatus === "declined" ||
+    sharedAccountStatus === "expired";
   const [preLink, setPreLink] = useState<Entry[]>([]);
   const [preLinkOpen, setPreLinkOpen] = useState(false);
   const [failedTallies, setFailedTallies] = useState<Entry[]>([]);
@@ -894,7 +911,7 @@ export default function PersonDetailScreen() {
     managementCurrency == null
       ? (openGroupLink ?? link)
       : (currencyPeriods.find((period) => period.currency === managementCurrency)?.tab ?? null);
-  const managementDeclined = sharedAccountLinkStatus(managementLink) === "declined";
+  const managementDeclined = sharedAccountLinkStatus(managementLink, invitationNow) === "declined";
   const managementCurrencies = managementLink?.group_id
     ? currencyPeriods
         .filter((period) => period.tab?.group_id === managementLink.group_id)
@@ -1408,7 +1425,10 @@ export default function PersonDetailScreen() {
   // Eligibility spans this contact's full history. Search filters only decide
   // which eligible rows Select all toggles; already selected rows stay selected.
   const selecting =
-    selectionScope === flowScope && flowHistory?.scope === flowScope && roleResolved && (canDelete || canAmendShared);
+    selectionScope === flowScope &&
+    flowHistory?.scope === flowScope &&
+    roleResolved &&
+    (canDelete || canAmendShared);
   const selectableEntries = useMemo(
     () =>
       flowHistory?.scope === flowScope && roleResolved
@@ -1419,7 +1439,8 @@ export default function PersonDetailScreen() {
             );
             return (
               (canAmendShared && selectableSharedTally(entry, period)) ||
-              (canDelete && !entry.tab &&
+              (canDelete &&
+                !entry.tab &&
                 !period?.financialTab &&
                 (!period?.tab || period.tab.closed_at != null) &&
                 period?.person.tab_close_pending !== 1 &&
@@ -2028,7 +2049,7 @@ export default function PersonDetailScreen() {
             const sourceLinks = (
               await Promise.all(
                 [...sourceIds].map(
-                  async (tabId) => knownLinks.get(tabId) ?? (await getTabLink(tabId)),
+                  async (tabId) => knownLinks.get(tabId) ?? (await getTabLink(tabId, vault)),
                 ),
               )
             ).filter(
@@ -2411,7 +2432,7 @@ export default function PersonDetailScreen() {
       (period) => period.currency === (entry.currency ?? person?.currency ?? selectedCurrency),
     );
     const target = entry.tab.tab_id
-      ? await getTabLink(entry.tab.tab_id)
+      ? await getTabLink(entry.tab.tab_id, activeVaultId)
       : (period?.financialTab ?? null);
     if (!screenIsCurrent()) return null;
     if (
@@ -2619,24 +2640,36 @@ export default function PersonDetailScreen() {
     const meta = target.tab;
     if (!meta) {
       return [
-        ...(selectableIds.has(target.id) ? [{
-          label: t("selection.start"),
-          icon: "checkmark-circle-outline" as const,
-          onPress: () => startSelection(target),
-        }] : []),
-        ...(canAmend ? [{
-          label: t("person.sheet.edit"),
-          icon: "create-outline" as const,
-          onPress: () => {
-            router.push({ pathname: "/entry/[id]/edit", params: { id: target.id } });
-          },
-        }] : []),
-        ...(canDelete ? [{
-          label: t("person.sheet.delete"),
-          icon: "trash-outline" as const,
-          destructive: true,
-          onPress: () => setConfirmDeleteFor(target),
-        }] : []),
+        ...(selectableIds.has(target.id)
+          ? [
+              {
+                label: t("selection.start"),
+                icon: "checkmark-circle-outline" as const,
+                onPress: () => startSelection(target),
+              },
+            ]
+          : []),
+        ...(canAmend
+          ? [
+              {
+                label: t("person.sheet.edit"),
+                icon: "create-outline" as const,
+                onPress: () => {
+                  router.push({ pathname: "/entry/[id]/edit", params: { id: target.id } });
+                },
+              },
+            ]
+          : []),
+        ...(canDelete
+          ? [
+              {
+                label: t("person.sheet.delete"),
+                icon: "trash-outline" as const,
+                destructive: true,
+                onPress: () => setConfirmDeleteFor(target),
+              },
+            ]
+          : []),
       ];
     }
     return [
@@ -2720,7 +2753,8 @@ export default function PersonDetailScreen() {
   };
   tallyRowActions.current.actions = {
     open: (entry) => {
-      if (searchIsCurrent() && (entry.tab ? canAmendShared : canAmend || canDelete)) setSheetFor(entry);
+      if (searchIsCurrent() && (entry.tab ? canAmendShared : canAmend || canDelete))
+        setSheetFor(entry);
     },
     select: toggleSelection,
     accept: guardedSearchAction(onAccept),
@@ -3157,8 +3191,10 @@ export default function PersonDetailScreen() {
                               params: { id: person.id },
                             }),
                         },
-                      ] : []),
-                  ...(canAmendShared ? [
+                      ]
+                    : []),
+                  ...(canAmendShared
+                    ? [
                         {
                           label:
                             openGroupLink || legacyLinkedPeriods.length > 0
@@ -3183,8 +3219,10 @@ export default function PersonDetailScreen() {
                             }
                           },
                         },
-                      ] : []),
-                  ...(canManageGroups ? [
+                      ]
+                    : []),
+                  ...(canManageGroups
+                    ? [
                         {
                           label: t("groups.personAction"),
                           icon: "pricetags-outline" as const,
@@ -3351,7 +3389,9 @@ export default function PersonDetailScreen() {
                             {t(
                               sharedAccountStatus === "declined"
                                 ? "tab.chip.declined"
-                                : "tab.chip.waiting",
+                                : sharedAccountStatus === "expired"
+                                  ? "tab.chip.expired"
+                                  : "tab.chip.waiting",
                             )}
                           </Text>
                         ) : null}
@@ -3414,9 +3454,11 @@ export default function PersonDetailScreen() {
                             const tabHistory = period?.tab;
                             const financialTabHistory = period?.financialTab;
                             const link = tabHistory?.closed_at == null ? tabHistory : null;
-                            const linkStatus = sharedAccountLinkStatus(link);
+                            const linkStatus = sharedAccountLinkStatus(link, invitationNow);
                             const showLinkStatus =
-                              linkStatus === "waiting" || linkStatus === "declined";
+                              linkStatus === "waiting" ||
+                              linkStatus === "declined" ||
+                              linkStatus === "expired";
                             const abs = Math.abs(person.balance);
                             const chipLabel =
                               person.balance > 0
@@ -3601,7 +3643,9 @@ export default function PersonDetailScreen() {
                                               {t(
                                                 linkStatus === "declined"
                                                   ? "tab.chip.declined"
-                                                  : "tab.chip.waiting",
+                                                  : linkStatus === "expired"
+                                                    ? "tab.chip.expired"
+                                                    : "tab.chip.waiting",
                                               )}
                                             </Text>
                                           </Pressable>

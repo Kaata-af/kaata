@@ -120,13 +120,17 @@ async function main() {
   const tab = "00000000-0000-4000-8000-000000000001";
   const notification = compileUI("../tabs/open-notification", {
     "expo-router": { router: { push: (route: any) => routed.push(route) } },
-    "../db-tx": { getAccountIdSync: () => "account", setActiveVaultId: async () => {} },
+    "../db-tx": {
+      getAccountIdSync: () => "account",
+      getActiveVaultIdSyncMaybe: () => "vault",
+      setActiveVaultId: async () => {},
+    },
     "../currency": {
       applyVaultCurrency: async () => {},
       selectLedgerCurrency: async (...args: any[]) => selected.push(args),
     },
     "./db": {
-      getTabLink: async () => ({ vault_id: "vault", relationship_id: "r", currency: "USD" }),
+      listTabLinksForId: async () => [{ vault_id: "vault", relationship_id: "r", currency: "USD" }],
       getPersonIdForRelationship: async () => "person",
     },
     "./inbox-reads": {},

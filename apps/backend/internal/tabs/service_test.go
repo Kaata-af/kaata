@@ -960,10 +960,7 @@ func TestWireShape(t *testing.T) {
 	}
 }
 
-// One account must never see both sides of a tab: a phone holds one side and
-// GET /v1/tabs/mine returns one side per tab, so a restore of that account
-// brought back one contact and left the other on its stale pre-link book.
-func TestSameAccountCannotSeeBothSides(t *testing.T) {
+func TestSameDirectAccountCannotClaimBothSides(t *testing.T) {
 	f := newTabFixture(t)
 	ctx := context.Background()
 	newTab := func() Party {
@@ -987,17 +984,17 @@ func TestSameAccountCannotSeeBothSides(t *testing.T) {
 		t.Fatalf("binding your own other kaata = %v, want ErrSameAccount", err)
 	}
 
-	// A is a member of the kaata B tries to join with: A would see both sides.
+	// Working in the other person's Kaata is independent of sharing a tally.
 	shared := seedVault(t, f.pool, f.acctB, "Ahmad Shop")
 	seedMember(t, f.pool, shared, f.acctA, "viewer")
 	pb2 := newTab()
 	rel2 := uuid.NewString()
-	if _, err := f.svc.Join(ctx, pb2, JoinInput{Label: "Ahmad", VaultID: &shared, RelationshipID: &rel2, AccountID: &f.acctB}); !errors.Is(err, ErrSameAccount) {
-		t.Fatalf("joining with a kaata the other side's owner belongs to = %v, want ErrSameAccount", err)
+	if _, err := f.svc.Join(ctx, pb2, JoinInput{Label: "Ahmad", VaultID: &shared, RelationshipID: &rel2, AccountID: &f.acctB}); err != nil {
+		t.Fatalf("joining with overlapping membership: %v", err)
 	}
 
 	// The ordinary case still links: no account on both sides.
-	if _, err := f.svc.Join(ctx, pb2, JoinInput{Label: "Ahmad", VaultID: &f.vaultB, RelationshipID: &rel2, AccountID: &f.acctB}); err != nil {
+	if _, err := f.svc.Join(ctx, newTab(), JoinInput{Label: "Ahmad", VaultID: &f.vaultB, RelationshipID: &rel2, AccountID: &f.acctB}); err != nil {
 		t.Fatalf("ordinary join: %v", err)
 	}
 }

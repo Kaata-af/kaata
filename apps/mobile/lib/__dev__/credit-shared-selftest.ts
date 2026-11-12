@@ -9,6 +9,7 @@ import type { SQLiteTx } from "../db-tx";
 import type { VaultRole } from "../events";
 import type { TabLink, TabOutboxRow } from "../tabs/types";
 import { Mutex } from "../util/mutex";
+import { migrateSharedTabBindings } from "../shared-tab-bindings-migration";
 
 (globalThis as { __DEV__?: boolean }).__DEV__ = false;
 const VAULT = "credit-test-vault",
@@ -25,6 +26,7 @@ let sentOps: TabOutboxRow[] = [];
 const session = { jwt: "fixture-jwt", accountId: ACCOUNT };
 const applyEventMutex = new Mutex();
 const db = {
+  execAsync: async (sql: string) => fixture.exec(sql),
   getFirstAsync: async (sql: string, ...args: unknown[]) =>
     fixture.prepare(sql).get(...args) ?? null,
   getAllAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).all(...args),
@@ -159,7 +161,7 @@ const link: TabLink = {
   last_error: null,
 };
 
-function reset(): void {
+async function reset(): Promise<void> {
   fixture?.close();
   fixture = new Database(":memory:");
   fixture.pragma("foreign_keys = ON");
@@ -175,6 +177,7 @@ function reset(): void {
     "CREATE TABLE IF NOT EXISTS tab_links",
     "ALTER TABLE tab_links ADD COLUMN history_order",
     "CREATE TABLE IF NOT EXISTS tab_failed_ops",
+    "CREATE TABLE IF NOT EXISTS tab_settlements",
     "ALTER TABLE tab_entries ADD COLUMN author_account_id",
     "ALTER TABLE tab_entries ADD COLUMN author_member_role",
     "CREATE TABLE IF NOT EXISTS customer_credit_limits",
@@ -182,6 +185,7 @@ function reset(): void {
     "CREATE TABLE IF NOT EXISTS vault_member_credit_permissions",
   ])
     fixture.exec(ddl(marker));
+  await migrateSharedTabBindings(db as never);
   fixture.exec(
     "ALTER TABLE customer_credit_limits ADD COLUMN restrict_editors INTEGER NOT NULL DEFAULT 0; ALTER TABLE kaata_credit_defaults ADD COLUMN restrict_editors INTEGER NOT NULL DEFAULT 0; ALTER TABLE customer_credit_limits ADD COLUMN currency TEXT DEFAULT 'AFN'; ALTER TABLE kaata_credit_defaults ADD COLUMN currency TEXT DEFAULT 'AFN';",
   );
@@ -245,7 +249,7 @@ async function main(): Promise<void> {
   // retry. Queue/authoring time stays current, so backdating cannot reorder
   // outbox work or make the optimistic tally look recorded in the past.
   for (const connected of [false, true]) {
-    reset();
+    await reset();
     online = connected;
     verdict = connected ? "accept" : "offline";
     const occurredAtMs = new Date(2024, 1, 29, 13, 25, 40, 123).getTime();
@@ -282,7 +286,7 @@ async function main(): Promise<void> {
     assert.ok(sentOps[0].created_at >= before && sentOps[0].created_at <= after);
   }
 
-  reset();
+  await reset();
   policy("clerk_block", true);
   const deferredDate = new Date(2023, 5, 7, 9, 30).getTime();
   const deferred = await flows.addTabEntry(PERSON, "debt", 20, null, {
@@ -299,7 +303,7 @@ async function main(): Promise<void> {
     "waiting date remains durable",
   );
 
-  reset();
+  await reset();
   for (const occurredAtMs of [NaN, Infinity, 0, -1, 1.5, 8_640_000_000_000_001]) {
     await assert.rejects(
       flows.addTabEntry(PERSON, "debt", 20, null, {
@@ -367,7 +371,7 @@ async function main(): Promise<void> {
       defer: false,
     },
   ] as const) {
-    reset();
+    await reset();
     role = scenario.role;
     if ("mode" in scenario && scenario.mode) policy(scenario.mode, scenario.editors ?? false);
     if ("override" in scenario && scenario.override) override(scenario.override);
@@ -385,7 +389,7 @@ async function main(): Promise<void> {
   // Rejections and cancellations that could increase exposure remain intent
   // only. Concurrent/repeated gestures cannot build contradictory operations.
   for (const operation of ["dispute", "void", "accept"] as const) {
-    reset();
+    await reset();
     policy("clerk_block", true);
     await seed("target", operation === "void" ? "a" : "b");
     const act = () =>
@@ -421,7 +425,7 @@ async function main(): Promise<void> {
     assert.equal(count("tab_failed_ops"), 1, `${operation}: refusal result idempotent`);
   }
 
-  reset();
+  await reset();
   policy("clerk_block", true);
   await seed("accepted-after-ack", "b");
   verdict = "accept";
@@ -429,7 +433,7 @@ async function main(): Promise<void> {
   assert.equal(entry("accepted-after-ack").status, "accepted", "authoritative ack applies review");
   assert.equal(count("tab_outbox"), 0, "ack clears durable op");
 
-  reset();
+  await reset();
   policy("warn", true);
   await seed("warning-only-review", "b");
   await flows.disputeEntry(link, "warning-only-review", "");

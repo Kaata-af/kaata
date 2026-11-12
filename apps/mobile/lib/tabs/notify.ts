@@ -9,7 +9,7 @@ import { getAccountIdSync, getInstallIdSync, getSessionAccountIdSync } from "../
 import { applyForCurrentSession, captureCurrentSession } from "../auth";
 import { getLocale, subscribeLocale, t, tIn, type LocaleCode } from "../i18n";
 import { playForegroundNotificationCue } from "../foreground-notification-cue";
-import { getTabLink, listTabLinks, queueNotificationReview } from "./db";
+import { getTabLink, listTabLinks, listTabLinksForId, queueNotificationReview } from "./db";
 import { registerTabNotifications, resolveTabAuth } from "./api";
 import { setTabPushRefreshHook, syncTab, requestTabSync } from "./sync";
 import { onTabApplied } from "./events";
@@ -17,7 +17,8 @@ import { markInboxHandled, onInboxReadsApplied, type InboxReadSpec } from "./inb
 import { setTabNotifyHook } from "./link";
 import { parseTabReview, TAB_ACCEPT, TAB_REJECT } from "./notification-data";
 import { notificationVars } from "./notification-text";
-import type { TabEntryRow } from "./types";
+import type { TabEntryRow, TabLink } from "./types";
+import { isTabVaultRevoked } from "./binding-access";
 import type { NotificationResponse, NotificationTaskPayload } from "expo-notifications";
 import {
   notificationAllowed,
@@ -42,6 +43,7 @@ let registrationAccount: string | null = null;
 let registrationLocale: LocaleCode | null = null;
 let registrationPreferences = -1;
 let registrationTimeZone: string | null = null;
+let registrationBindings = "";
 let registering: Promise<void> | null = null;
 let notificationsPromise: Promise<typeof import("expo-notifications")> | null = null;
 const processing = new Map<string, Promise<void>>();
@@ -50,11 +52,25 @@ function tabCueKey(owner: string, tabId: string, entryId: string, rev: number | 
   return `${owner}:tab:${tabId}:${entryId}:${rev}`;
 }
 
+function pushRegistrationKey(account: string | null, link: TabLink): string {
+  return `tab_push_active:${account ?? ""}:${link.vault_id}:${link.tab_id}`;
+}
+
+async function linkForNotification(data: unknown) {
+  const notice = data as { tab_id?: unknown; role?: unknown } | null;
+  if (typeof notice?.tab_id !== "string") return null;
+  const candidates = await listTabLinksForId(notice.tab_id);
+  const matches = candidates.filter((link) =>
+    notice.role === "a" || notice.role === "b" ? link.role === notice.role : true,
+  );
+  // A role-less legacy push can only pick a unique binding. New pushes name
+  // their perspective even when the phone currently shows the other Kaata.
+  return matches.length === 1 ? matches[0] : null;
+}
+
 /** Closing sharing mutes alerts, independently of the remaining review rights. */
 async function isClosedTabNotice(data: unknown): Promise<boolean> {
-  const tabId = (data as { tab_id?: unknown } | null)?.tab_id;
-  if (typeof tabId !== "string") return false;
-  return (await getTabLink(tabId))?.closed_at != null;
+  return (await linkForNotification(data))?.closed_at != null;
 }
 
 async function notifications() {
@@ -112,12 +128,12 @@ async function configure(n: typeof import("expo-notifications")) {
 async function review(action: string, data: unknown, notificationId: string) {
   const parsed = parseTabReview(action, data);
   if (!parsed) return;
-  const key = parsed.tabId + ":" + parsed.entryId + ":" + parsed.rev;
+  const key = `${getAccountIdSync() ?? ""}:${parsed.role}:${parsed.tabId}:${parsed.entryId}:${parsed.rev}`;
   const existing = processing.get(key);
   if (existing) return existing;
   const work = (async () => {
     const session = await captureCurrentSession();
-    const link = await getTabLink(parsed.tabId);
+    const link = await linkForNotification({ tab_id: parsed.tabId, role: parsed.role });
     if (
       !link ||
       link.role !== parsed.role ||
@@ -139,7 +155,7 @@ async function review(action: string, data: unknown, notificationId: string) {
     // outbox; current server authority and the entry's first decision govern
     // this explicit action even after sharing has closed.
     await n?.dismissNotificationAsync(notificationId);
-    await syncTab(link.tab_id);
+    await syncTab(link.tab_id, link.vault_id);
   })().finally(() => processing.delete(key));
   processing.set(key, work);
   return work;
@@ -215,8 +231,7 @@ async function bootstrap() {
       }
       const owner = notificationOwnerScope(),
         revision = notificationPreferencesRevision();
-      const link =
-        typeof data?.tab_id === "string" ? await getTabLink(data.tab_id).catch(() => null) : null;
+      const link = await linkForNotification(data).catch(() => null);
       const policy =
         data?.kind === "customer_reminder" || data?.kind === "credit_alert"
           ? await notificationPolicyForContact(
@@ -292,13 +307,31 @@ async function bootstrap() {
 }
 if (!isRunningInExpoGo()) void bootstrap().catch(() => undefined);
 
-export function syncTabPushSubscriptions(): Promise<void> {
+export async function syncTabPushSubscriptions(): Promise<void> {
+  const account = getAccountIdSync();
+  if (!account) return;
+  let links: TabLink[];
+  try {
+    const candidates = await listTabLinks();
+    const revoked = await Promise.all(candidates.map((link) => isTabVaultRevoked(link.vault_id)));
+    links = candidates.filter((_, index) => !revoked[index]);
+  } catch {
+    // Storage may be opening or switching accounts. The next sweep retries;
+    // failed preflight must not consume the subscription refresh interval.
+    return;
+  }
+  if (account !== getAccountIdSync()) return syncTabPushSubscriptions();
+  const bindings = links
+    .map((link) => `${link.vault_id}:${link.tab_id}:${link.role}`)
+    .sort()
+    .join("|");
   // Serialize requests so an older response cannot overwrite a newer language
   // on the server. The follow-up always reads the latest account and locale.
   if (registering) {
     return registering.then(() => {
       if (
         getAccountIdSync() !== registrationAccount ||
+        bindings !== registrationBindings ||
         getLocale() !== registrationLocale ||
         notificationPreferencesRevision() !== registrationPreferences ||
         notificationTimeZone() !== registrationTimeZone
@@ -306,7 +339,6 @@ export function syncTabPushSubscriptions(): Promise<void> {
         return syncTabPushSubscriptions();
     });
   }
-  const account = getAccountIdSync();
   const locale = getLocale();
   const preferencesRevision = notificationPreferencesRevision();
   const timeZone = notificationTimeZone();
@@ -317,21 +349,21 @@ export function syncTabPushSubscriptions(): Promise<void> {
     timeZone === notificationTimeZone();
   if (
     account !== registrationAccount ||
+    bindings !== registrationBindings ||
     locale !== registrationLocale ||
     preferencesRevision !== registrationPreferences ||
     timeZone !== registrationTimeZone
   ) {
     nextRegistration = 0;
     registrationAccount = account;
+    registrationBindings = bindings;
     registrationLocale = locale;
     registrationPreferences = preferencesRevision;
     registrationTimeZone = timeZone;
   }
-  if (!account) return Promise.resolve();
   if (Date.now() < nextRegistration) return Promise.resolve();
   registering = (async () => {
     await drainNativeReviews();
-    const links = await listTabLinks();
     if (!current() || !links.length) return;
     const n = await notifications();
     if (!n) return;
@@ -365,6 +397,7 @@ export function syncTabPushSubscriptions(): Promise<void> {
     let supported: boolean | undefined;
     for (const link of links) {
       if (!current()) return;
+      if (await isTabVaultRevoked(link.vault_id)) continue;
       try {
         const auth = await resolveTabAuth(link);
         if (!current()) return;
@@ -379,7 +412,7 @@ export function syncTabPushSubscriptions(): Promise<void> {
             locale,
           });
           failed = true;
-          await setAppMeta("tab_push_active:" + link.tab_id, "0");
+          await setAppMeta(pushRegistrationKey(account, link), "0");
           continue;
         }
         const preferences = await notificationPolicyForTab(link);
@@ -393,7 +426,7 @@ export function syncTabPushSubscriptions(): Promise<void> {
         if (!current()) return;
         const active = result.enabled && !!token;
         enabled ||= active;
-        await setAppMeta("tab_push_active:" + link.tab_id, active ? String(Date.now()) : "0");
+        await setAppMeta(pushRegistrationKey(account, link), active ? String(Date.now()) : "0");
       } catch {
         failed = true;
       }
@@ -444,11 +477,11 @@ onTabApplied((ev) => {
   void (async () => {
     const session = await captureCurrentSession();
     if (!session.jwt || !stillCurrent()) return;
-    const registered = Number(await getAppMeta("tab_push_active:" + ev.tabId));
+    const link = await getTabLink(ev.tabId, ev.vaultId);
+    if (!link || link.closed_at != null || !stillCurrent()) return;
+    const registered = Number(await getAppMeta(pushRegistrationKey(account, link)));
     if (registered && !isRunningInExpoGo() && Date.now() - registered < 2 * 3600_000) return;
     const n = await notifications();
-    const link = await getTabLink(ev.tabId);
-    if (!link || link.closed_at != null || !stillCurrent()) return;
     const policy = await notificationPolicyForTab(link);
     const shouldCue = () => AppState.currentState === "active" && (!n || !policy.foreground);
     if (!n && !shouldCue()) return;
@@ -520,7 +553,7 @@ onTabApplied((ev) => {
           link.recording_mode_known !== 0;
       }
       // A local unlink can finish while the entry and native adapters load.
-      const current = await getTabLink(ev.tabId);
+      const current = await getTabLink(ev.tabId, ev.vaultId);
       if (!current || current.closed_at != null || !stillCurrent()) return;
       const latestPolicy = await notificationPolicyForTab(current);
       if (!stillCurrent() || JSON.stringify(latestPolicy) !== JSON.stringify(policy)) return;
@@ -631,10 +664,11 @@ async function sweepTray(): Promise<void> {
   for (const s of shown) {
     const data = s.request.content.data as Record<string, unknown> | undefined;
     if (typeof data?.tab_id !== "string" || data.kind === "customer_reminder") continue;
-    let link = links.get(data.tab_id);
+    const scope = `${data.tab_id}:${data.role ?? ""}`;
+    let link = links.get(scope);
     if (link === undefined) {
-      link = await getTabLink(data.tab_id);
-      links.set(data.tab_id, link);
+      link = await linkForNotification(data);
+      links.set(scope, link);
     }
     if (link?.closed_at != null) {
       await n.dismissNotificationAsync(s.request.identifier).catch(() => undefined);
@@ -662,7 +696,7 @@ AppState.addEventListener("change", (state) => {
 onTabApplied((ev) => {
   if (ev.origin === "pull") void sweepTray().catch(() => undefined);
   else
-    void getTabLink(ev.tabId)
+    void getTabLink(ev.tabId, ev.vaultId)
       .then((link) => (link?.closed_at != null ? sweepTray() : undefined))
       .catch(() => undefined);
 });

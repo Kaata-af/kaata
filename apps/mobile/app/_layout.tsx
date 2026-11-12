@@ -205,7 +205,7 @@ async function routeFromNotificationData(
   if (typeof tabId === "string" && /^[0-9a-f-]{36}$/i.test(tabId)) {
     const { openTabNotification } = await import("../lib/tabs/open-notification");
     if (!canOpen()) return;
-    const payload = data as { entry_id?: unknown; rev?: unknown };
+    const payload = data as { entry_id?: unknown; rev?: unknown; role?: unknown };
     const entryId = typeof payload.entry_id === "string" ? payload.entry_id : null;
     // The tab revision the push announced rides along, so landing on the
     // contact marks THAT notice read (lib/tabs/inbox-reads.ts, "handled
@@ -213,8 +213,10 @@ async function routeFromNotificationData(
     // change. Untyped JSON, and FCM may stringify numbers: only a safe
     // positive integer is a rev.
     const rev = typeof payload.rev === "string" ? Number(payload.rev) : payload.rev;
-    const opts =
-      typeof rev === "number" && Number.isSafeInteger(rev) && rev > 0 ? { rev } : undefined;
+    const opts = {
+      ...(typeof rev === "number" && Number.isSafeInteger(rev) && rev > 0 ? { rev } : {}),
+      ...(payload.role === "a" || payload.role === "b" ? { role: payload.role as "a" | "b" } : {}),
+    };
     await openTabNotification(tabId, entryId, opts, canOpen);
     return;
   }
@@ -632,9 +634,11 @@ function RootLayoutContent() {
     if (!appReady) return;
     let stopped = false;
     let stop: (() => void) | undefined;
-    void import("../lib/personal-cloud-schedule").then((service) => {
-      if (!stopped) stop = service.startPersonalCloudBackupSchedule();
-    }).catch(() => {});
+    void import("../lib/personal-cloud-schedule")
+      .then((service) => {
+        if (!stopped) stop = service.startPersonalCloudBackupSchedule();
+      })
+      .catch(() => {});
     return () => {
       stopped = true;
       stop?.();

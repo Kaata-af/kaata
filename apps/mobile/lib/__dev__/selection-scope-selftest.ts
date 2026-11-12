@@ -133,6 +133,7 @@ const db = compile("../db", {
   "./checkin-trigger": {},
   "./db-health": {},
   "./db-backup": {},
+  "./shared-tab-bindings-migration": {},
   "./trust/account-id": {},
   "./effective-account": {},
   "./phone": {},

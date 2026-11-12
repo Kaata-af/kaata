@@ -28,6 +28,7 @@ import { getLocale } from "./i18n";
 import { getSyncIndicator } from "./sync/cursor";
 import { getLastSyncError } from "./sync/last-error";
 import { getLastPersonSaveError } from "./person-save-error";
+import { isTabVaultRevoked } from "./tabs/binding-access";
 
 function mb(kb: number | null | undefined): string {
   if (kb == null) return "—";
@@ -161,6 +162,33 @@ async function membershipDiagnostics(vaultId: string): Promise<string[]> {
 
 export async function buildDiagnosticsReport(): Promise<string> {
   const lines: string[] = [];
+  type SharedView = {
+    tab_id: string;
+    vault_id: string;
+    role: string;
+    rev: number;
+    closed_at: number | null;
+    last_synced_at: number | null;
+    last_error: string | null;
+  };
+  let sharedViewsPromise: Promise<{ current: SharedView[]; revoked: number }> | null = null;
+  const sharedViews = () =>
+    (sharedViewsPromise ??= (async () => {
+      const all = await (
+        await getDb()
+      ).getAllAsync<SharedView>(
+        `SELECT tab_id,vault_id,role,rev,closed_at,last_synced_at,last_error FROM tab_links
+       ORDER BY (last_error IS NOT NULL) DESC,tab_id,vault_id`,
+      );
+      const vaults = [...new Set(all.map((view) => view.vault_id))];
+      const revoked = new Set(
+        (
+          await Promise.all(vaults.map(async (id) => ((await isTabVaultRevoked(id)) ? id : null)))
+        ).filter((id): id is string => id != null),
+      );
+      const current = all.filter((view) => !revoked.has(view.vault_id));
+      return { current, revoked: all.length - current.length };
+    })());
   const push = (s: string) => lines.push(s);
   const section = (title: string) => {
     push("");
@@ -285,19 +313,7 @@ export async function buildDiagnosticsReport(): Promise<string> {
   // Shared accounts: counts only. "N not downloaded" or failing discovery is
   // the fingerprint of a restore that did not bring shared ledgers back (#8).
   try {
-    const db = await getDb();
-    const links = await db.getFirstAsync<{
-      open: number | null;
-      closed: number | null;
-      unsynced: number | null;
-      errored: number | null;
-    }>(
-      `SELECT SUM(CASE WHEN closed_at IS NULL THEN 1 ELSE 0 END) AS open,
-              SUM(CASE WHEN closed_at IS NOT NULL THEN 1 ELSE 0 END) AS closed,
-              SUM(CASE WHEN last_synced_at IS NULL THEN 1 ELSE 0 END) AS unsynced,
-              SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END) AS errored
-         FROM tab_links`,
-    );
+    const { current: views, revoked } = await sharedViews();
     const { tabDiscoveryStatus } = await import("./tabs/sync");
     const discovery = tabDiscoveryStatus();
     const { unbound, waiting, conflicts } = discovery.skips;
@@ -307,11 +323,30 @@ export async function buildDiagnosticsReport(): Promise<string> {
           `${conflicts} refused locally`
         : "";
     push(
-      `Shared accounts: ${links?.open ?? 0} open, ${links?.closed ?? 0} closed; ` +
-        `${links?.unsynced ?? 0} not downloaded, ${links?.errored ?? 0} with errors; ` +
+      `Shared accounts: ${views.filter((view) => view.closed_at == null).length} open, ${views.filter((view) => view.closed_at != null).length} closed; ` +
+        `${views.filter((view) => view.last_synced_at == null).length} not downloaded, ${views.filter((view) => view.last_error != null).length} with errors; ` +
         `discovery ${discovery.failures > 0 ? `FAILING (${discovery.failures}x)` : "ok"}, ` +
         `last ${fmtMaybe(discovery.lastOkAt)}${skipped}`,
     );
+    if (revoked) push(`Retained revoked shared views: ${revoked}`);
+    if (views.length)
+      push(
+        "Shared views: " +
+          views
+            .slice(0, 10)
+            .map((view) => {
+              // Include short binding identifiers and API codes, never arbitrary error
+              // payloads, invite tokens, contact names or financial information.
+              const code =
+                view.last_error == null
+                  ? "ok"
+                  : /^(?:\d{3} )?[a-z][a-z0-9_]{2,80}$/.test(view.last_error)
+                    ? view.last_error
+                    : "local_or_network_error";
+              return `${view.tab_id.slice(0, 8)}@${view.vault_id.slice(0, 8)}:${view.role} rev=${view.rev} ${code}`;
+            })
+            .join("; "),
+      );
   } catch {
     push("Shared accounts: —");
   }
@@ -415,18 +450,17 @@ export async function buildDiagnosticsReport(): Promise<string> {
   try {
     const db = await getDb();
     const shared = await db.getFirstAsync<{
-      open: number;
       cached: number;
       queued: number;
       refused: number;
     }>(
-      `SELECT (SELECT COUNT(*) FROM tab_links WHERE closed_at IS NULL) AS open,
-       (SELECT COUNT(*) FROM tab_entries) AS cached,
+      `SELECT (SELECT COUNT(*) FROM tab_entries) AS cached,
        (SELECT COUNT(*) FROM tab_outbox) AS queued,
        (SELECT COUNT(*) FROM tab_failed_ops) AS refused`,
     );
+    const open = (await sharedViews()).current.filter((view) => view.closed_at == null).length;
     push(
-      `open=${shared?.open ?? 0} cached=${shared?.cached ?? 0} queued=${shared?.queued ?? 0} refused=${shared?.refused ?? 0}`,
+      `open=${open} cached=${shared?.cached ?? 0} queued=${shared?.queued ?? 0} refused=${shared?.refused ?? 0}`,
     );
     push(
       `Remote alerts: ${(await getAppMeta("tab_push_active")) === "1" ? "registered" : "not active"}`,

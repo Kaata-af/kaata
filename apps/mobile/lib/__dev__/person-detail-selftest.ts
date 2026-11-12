@@ -590,6 +590,7 @@ const mocks: Record<string, any> = {
   "../../lib/selection-summary": { summarizeSelectionEntries },
   "../../lib/multi-currency-view": multiCurrencyView,
   "../../lib/tabs/link-status": require("../tabs/link-status"),
+  "../../lib/tabs/use-invitation-time": { useInvitationTime: () => Date.now() },
   "../../lib/tabs/recording-mode": require("../tabs/recording-mode"),
   "../../lib/recent-entry": {
     takeSavedEntry: () => {

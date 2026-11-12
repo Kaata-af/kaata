@@ -6,6 +6,7 @@ import ts from "typescript";
 import Database from "better-sqlite3";
 import { applyCurrencyMigration } from "./currency-fixture";
 import * as scope from "../currency-scope";
+import { migrateSharedTabBindings } from "../shared-tab-bindings-migration";
 
 (globalThis as any).__DEV__ = false;
 const store = new Database(":memory:");
@@ -30,6 +31,7 @@ INSERT INTO customer_credit_limits VALUES('v','r',15000,0,'clerk_block',0,1,0);`
 const source = readFileSync(require.resolve("../db"), "utf8");
 for (const marker of [
   "CREATE TABLE IF NOT EXISTS tab_links",
+  "CREATE TABLE IF NOT EXISTS tab_failed_ops",
   "ALTER TABLE tab_entries ADD COLUMN author_account_id",
   "ALTER TABLE tab_entries ADD COLUMN author_member_role",
   "CREATE TABLE IF NOT EXISTS tab_settlements",
@@ -42,6 +44,7 @@ for (const marker of [
   store.exec(ddl);
 }
 const tx: any = {
+  execAsync: async (sql: string) => store.exec(sql),
   runAsync: async (sql: string, ...args: any[]) => store.prepare(sql).run(...args),
   getFirstAsync: async (sql: string, ...args: any[]) => store.prepare(sql).get(...args) ?? null,
   getAllAsync: async (sql: string, ...args: any[]) => store.prepare(sql).all(...args),
@@ -185,6 +188,7 @@ const make = (id: string, currency: string | undefined, type = "debt", amount = 
 });
 async function run() {
   await applyCurrencyMigration(store);
+  await migrateSharedTabBindings(tx);
   const alertDDL =
     /execAsync\(`([^`]*CREATE TABLE IF NOT EXISTS credit_alert_policies[^`]*)`\)/.exec(
       readFileSync(require.resolve("../db"), "utf8"),

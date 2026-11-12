@@ -255,6 +255,24 @@ async function main() {
       { pathname: "/vault/invite", params: { profileAccountId: "target" } },
     ]);
   }
+  for (const role of ["owner", "manager", "editor", "clerk", "viewer"]) {
+    const f = fixture({ activity: { kaata_member_role: role } });
+    await f.settle();
+    const member = f.row("invite.people.alreadyMember");
+    assert.equal(member.props.disabled, true, "An active member needs no duplicate invitation");
+    member.props.onPress();
+    await f.settle();
+    assert.deepEqual(f.navigations, []);
+    const share = f.row("peopleProfile.shareTally");
+    assert.equal(
+      share.props.disabled,
+      false,
+      "Membership must not prevent a separate shared tally",
+    );
+    share.props.onPress();
+    await f.settle();
+    assert.ok(f.all().some((n) => n.type === "TallyDialog"));
+  }
   for (const invalidate of ["scope", "session", "permissions", "disabled"] as const) {
     const f = fixture();
     await f.settle();

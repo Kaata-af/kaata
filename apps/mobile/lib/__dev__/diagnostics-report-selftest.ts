@@ -186,6 +186,11 @@ function fixture() {
     CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE vaults (id TEXT PRIMARY KEY, vault_trust_anchor_pubkey TEXT,
                          registered_with_server_at INTEGER, archived_at INTEGER);
+    CREATE TABLE vault_members_mirror(vault_id TEXT,account_id TEXT,accepted_at INTEGER,revoked_at INTEGER);
+    CREATE TABLE tab_links(tab_id TEXT,vault_id TEXT,role TEXT,rev INTEGER,closed_at INTEGER,last_synced_at INTEGER,last_error TEXT,PRIMARY KEY(tab_id,vault_id));
+    CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT);
+    CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,vault_id TEXT);
+    CREATE TABLE tab_failed_ops(id TEXT PRIMARY KEY,tab_id TEXT,vault_id TEXT);
     CREATE TABLE event_log (
       event_id TEXT PRIMARY KEY, event_type TEXT, vault_id TEXT, target_id TEXT,
       relationship_id TEXT, hlc_physical_ms INTEGER, hlc_logical INTEGER,
@@ -238,12 +243,20 @@ function fixture() {
       throw Error("diagnostics must not separately repair a key");
     },
   };
-  const dbTx = { getDb: async () => db, getActiveVaultIdSyncMaybe: () => activeVault };
+  const dbTx = {
+    getDb: async () => db,
+    getActiveVaultIdSyncMaybe: () => activeVault,
+    getAccountIdSync: () => account,
+  };
   const dbModule = { ...dbTx, getAppMeta: meta };
   const identity = compileUI("../effective-account", {
     "./db-tx": dbTx,
     "./mesh/device-key": device,
     "./trust/account-id": accountIds,
+  });
+  const bindingAccess = compileUI("../tabs/binding-access", {
+    "../db-tx": dbTx,
+    "../effective-account": identity,
   });
   const proof = compileUI("../trust/proof", {
     "../db": dbModule,
@@ -276,6 +289,7 @@ function fixture() {
     "./sync/cursor": { getSyncIndicator: async () => ({ lastPulledServerSeq: 4 }) },
     "./sync/last-error": { getLastSyncError: async () => null },
     "./person-save-error": { getLastPersonSaveError: async () => null },
+    "./tabs/binding-access": bindingAccess,
     "./mesh/device-key": device,
     "./effective-account": identity,
     "./trust/chain": chain,
@@ -417,6 +431,47 @@ async function test(name: string, run: (f: ReturnType<typeof fixture>) => Promis
 
 async function main() {
   smsChecks();
+  await test("revoked shared perspectives are retained without inflating current failures or hiding queued intent", async (f) => {
+    f.store.exec(`
+      INSERT INTO tab_links VALUES
+        ('same-tab','other-vault','a',0,NULL,NULL,'404 tab_not_found'),
+        ('same-tab','active-vault','b',2,NULL,200,NULL),
+        ('history','active-vault','b',3,300,300,NULL);
+      INSERT INTO vault_members_mirror VALUES('other-vault','current-account',100,150);
+      INSERT INTO tab_entries VALUES('kept-entry','same-tab');
+      INSERT INTO tab_outbox VALUES('held-intent','same-tab','other-vault');
+      INSERT INTO tab_failed_ops VALUES('refused-intent','same-tab','other-vault');
+    `);
+    let text = await f.report();
+    assert.ok(text.includes("Shared accounts: 1 open, 1 closed; 0 not downloaded, 0 with errors"));
+    assert.ok(text.includes("Retained revoked shared views: 1"));
+    const viewLine = text.split("\n").find((line) => line.startsWith("Shared views:"))!;
+    assert.ok(viewLine.includes("same-tab@active-v:b rev=2 ok"));
+    assert.equal(
+      viewLine.includes("other-va"),
+      false,
+      "old side does not mask the healthy direct-counterparty side",
+    );
+    assert.ok(
+      text.includes("open=1 cached=1 queued=1 refused=1"),
+      "removed-member pending intent and receipts remain visible",
+    );
+    assert.equal(
+      (f.store.prepare("SELECT COUNT(*) AS n FROM tab_links").get() as any).n,
+      3,
+      "diagnostics never deletes retained state",
+    );
+
+    f.store.exec("UPDATE vault_members_mirror SET revoked_at=NULL");
+    text = await f.report();
+    assert.ok(text.includes("Shared accounts: 2 open, 1 closed; 1 not downloaded, 1 with errors"));
+    assert.ok(text.includes("same-tab@other-va:a rev=0 404 tab_not_found"));
+    assert.equal(
+      text.includes("Retained revoked shared views:"),
+      false,
+      "readmission immediately makes its unresolved sync visible again",
+    );
+  });
   await test("real verified proof and active-kaata-only aggregate states without private content", async (f) => {
     f.populate();
     const installId = "abcdef12-3456-4789-8abc-1234567890ab";

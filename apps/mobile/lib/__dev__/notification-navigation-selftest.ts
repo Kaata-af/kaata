@@ -61,6 +61,9 @@ let markThrows = false;
 let tabReads = 0;
 let syncGate: Promise<void> | null = null;
 let duringCurrency: (() => void) | null = null;
+let extraLinks: any[] = [];
+let activeVault: string | null = "correct-vault";
+const syncedVaults: string[] = [];
 const mocks: Record<string, any> = {
   "./inbox-reads": {
     markInboxHandled: (spec: unknown) => {
@@ -79,6 +82,7 @@ const mocks: Record<string, any> = {
   },
   "../db-tx": {
     getAccountIdSync: () => account,
+    getActiveVaultIdSyncMaybe: () => activeVault,
     setActiveVaultId: async (id: string) => {
       calls.push(id);
     },
@@ -90,9 +94,11 @@ const mocks: Record<string, any> = {
     },
   },
   "./db": {
-    getTabLink: async () => {
+    listTabLinksForId: async () => {
       tabReads++;
-      return cached ? { relationship_id: "relationship", vault_id: "correct-vault" } : null;
+      return cached
+        ? [{ relationship_id: "relationship", vault_id: "correct-vault", role: "b" }, ...extraLinks]
+        : [];
     },
     getPersonIdForRelationship: async () => {
       if (switchAccount) account = "another-account";
@@ -104,7 +110,8 @@ const mocks: Record<string, any> = {
       cached = true;
       calls.push("recover");
     },
-    syncTab: async () => {
+    syncTab: async (_id: string, vaultId: string) => {
+      syncedVaults.push(vaultId);
       calls.push("sync");
       if (syncGate) await syncGate;
       return { ok: accessible };
@@ -877,6 +884,24 @@ async function main() {
   await assert.rejects(out.openTabNotification(TAB, ENTRY));
   assert.equal(routes.length, before, "revoked/signed-out/switched users never navigate");
   assert.equal(handled.length, 0, "a refused open must not read the notice either");
+  account = "account";
+  switchAccount = false;
+  extraLinks = [{ relationship_id: "member-contact", vault_id: "member-vault", role: "a" }];
+  await out.openTabNotification(TAB, ENTRY, { role: "a" });
+  assert.equal(
+    syncedVaults.at(-1),
+    "member-vault",
+    "notice side wins over active direct-party book",
+  );
+  await out.openTabNotification(TAB, ENTRY, { role: "b" });
+  assert.equal(syncedVaults.at(-1), "correct-vault");
+  activeVault = "unrelated-book";
+  const beforeAmbiguous = routes.length;
+  await assert.rejects(
+    out.openTabNotification(TAB, ENTRY),
+    "old ambiguous notice must not guess a side",
+  );
+  assert.equal(routes.length, beforeAmbiguous);
   console.log(
     "PASS: notification entry target, repeated taps, cold recovery, vault-before-route ordering, invalid payload, access checks and handled-means-read marks",
   );

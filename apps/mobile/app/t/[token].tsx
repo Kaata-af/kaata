@@ -91,7 +91,7 @@ import { fromMinorUnits } from "../../lib/money";
 import { getCountry, getCurrentDefaultCountryCode, inferCountryFromE164 } from "../../lib/phone";
 import {
   getPersonIdForRelationship,
-  getTabLink,
+  listTabLinksForId,
   listVaultContactsForJoin,
   listVaultContactsForGroupJoin,
   type TabJoinCandidate,
@@ -376,12 +376,22 @@ export default function TabJoinScreen() {
         // Already joined on THIS device: the link row is the proof (a join
         // from another device of a shared kaata would arrive via /mine). Go
         // straight to the contact rather than offering to join twice.
-        const existing = await getTabLink(preview.tab.id);
+        const existing = (await listTabLinksForId(preview.tab.id)).find(
+          (link) => link.role === preview.tab.you && link.closed_at == null,
+        );
         const completeGroup =
           invitation.kind !== "group" ||
           (invitation.tabs.length > 0 &&
-            (await Promise.all(invitation.tabs.map((item) => getTabLink(item.tab.id)))).every(
-              (item) => item?.group_id === invitation.group.id && item.closed_at == null,
+            (
+              await Promise.all(invitation.tabs.map((item) => listTabLinksForId(item.tab.id)))
+            ).every((links) =>
+              links.some(
+                (item) =>
+                  item.role === preview.tab.you &&
+                  item.vault_id === existing?.vault_id &&
+                  item.group_id === invitation.group.id &&
+                  item.closed_at == null,
+              ),
             ));
         if (cancelled) return;
         if (

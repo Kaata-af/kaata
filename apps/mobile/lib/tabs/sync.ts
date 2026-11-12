@@ -41,7 +41,7 @@ import {
   SessionChangedError,
   type SessionSnapshot,
 } from "../auth";
-import { getDb } from "../db-tx";
+import { getActiveVaultIdSyncMaybe, getDb } from "../db-tx";
 import { onLedgerApplied } from "../ledger-events";
 import {
   acceptTabEntry,
@@ -65,6 +65,7 @@ import {
   listDueTabOps,
   listTabIdsWithQueuedOps,
   listTabLinks,
+  listTabLinksForId,
   makeWaitingTabOpsDueNow,
   setTabLinkError,
   upsertTabFromWire,
@@ -73,6 +74,7 @@ import {
 import { otherRole } from "./direction";
 import { isRetryableTabError, TabApiError, TabAuthUnavailableError } from "./errors";
 import { flushInboxReads } from "./inbox-reads";
+import { isTabVaultRevoked } from "./binding-access";
 import type { AppendRequest, DuplicateHint, TabLink, TabOutboxRow, TabResponse } from "./types";
 
 export { onTabApplied } from "./events";
@@ -253,7 +255,11 @@ async function performOp(auth: TabAuth, link: TabLink, op: TabOutboxRow): Promis
   }
 }
 
-async function runSyncTab(tabId: string): Promise<SyncTabResult> {
+async function runSyncTab(
+  tabId: string,
+  vaultId: string | null,
+  requestedSession: Promise<SessionSnapshot>,
+): Promise<SyncTabResult> {
   const result: SyncTabResult = {
     ok: true,
     flushed: 0,
@@ -265,13 +271,27 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
   };
   let session: SessionSnapshot | null = null;
   try {
-    session = await captureCurrentSession();
-    const cachedLink = await getTabLink(tabId);
+    session = await requestedSession;
+    const cachedLink = await getTabLink(tabId, vaultId);
     if (!cachedLink) return { ...result, ok: false, error: "no_link" };
     let link: TabLink = cachedLink;
+    if (await rememberRevokedVault(link.vault_id)) {
+      const pending = await (
+        await getDb()
+      ).getFirstAsync<{ id: string }>(
+        "SELECT id FROM tab_outbox WHERE tab_id = ? AND vault_id = ? LIMIT 1",
+        tabId,
+        link.vault_id,
+      );
+      // Keep existing intent until the server explicitly accepts or refuses
+      // it. A removed member's otherwise idle cache needs no repeated pull.
+      if (!pending) return { ...result, ok: false, error: "membership_revoked" };
+    }
     // Offline is not an error worth recording — it is the normal state of a
     // shop with patchy data; the outbox waits and nothing is lost.
     if (!(await isOnline())) return { ...result, ok: false, error: "offline" };
+    if (!session.jwt) return { ...result, ok: false, error: "auth_unavailable" };
+    await applyForCurrentSession(session, async () => {});
 
     let auth: TabAuth;
     try {
@@ -279,9 +299,9 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
       await applyForCurrentSession(session, async () => {});
     } catch (err) {
       if (!(err instanceof TabAuthUnavailableError)) throw err;
-      await applyForCurrentSession(session, () => setTabLinkError(tabId, "auth_unavailable")).catch(
-        () => {},
-      );
+      await applyForCurrentSession(session, () =>
+        setTabLinkError(tabId, "auth_unavailable", vaultId),
+      ).catch(() => {});
       return { ...result, ok: false, error: "auth_unavailable" };
     }
 
@@ -292,7 +312,7 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
       await applyForCurrentSession(session, async () => {});
       const response = await fetchTab(auth, tabId, 0);
       await applyForCurrentSession(session, () => upsertTabFromWire(link!, response));
-      const refreshed = await getTabLink(tabId);
+      const refreshed = await getTabLink(tabId, vaultId);
       if (!refreshed || refreshed.recording_mode_known === 0)
         throw new TabApiError(
           503,
@@ -309,12 +329,13 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     const queuedClose = await (
       await getDb()
     ).getFirstAsync<TabOutboxRow>(
-      `SELECT * FROM tab_outbox WHERE tab_id = ? AND op = 'close' ORDER BY rowid LIMIT 1`,
+      `SELECT * FROM tab_outbox WHERE tab_id = ? AND vault_id = ? AND op = 'close' ORDER BY rowid LIMIT 1`,
       tabId,
+      vaultId,
     );
     const closeDue =
       queuedClose != null && (queuedClose.next_at == null || queuedClose.next_at <= Date.now());
-    const due = queuedClose && !closeDue ? [] : await listDueTabOps(tabId);
+    const due = queuedClose && !closeDue ? [] : await listDueTabOps(tabId, link.vault_id);
     const ops = closeDue ? [queuedClose, ...due.filter((op) => op.id !== queuedClose.id)] : due;
 
     // ---- flush; financial operations retain their relative order ---------
@@ -349,7 +370,7 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
           if (op.op === "append") {
             appendOutcomes.set(op.id, { hint: null, rejected: err.code });
           }
-          needFullPull.add(tabId);
+          needFullPull.add(bindingKey(tabId, vaultId));
           flushError = `${op.op}: ${describe(err)}`;
           if (__DEV__) console.warn("[tabs.sync] op dropped", op.op, err.code);
           // A refused close must first show the server's actual open state.
@@ -372,12 +393,12 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     // ---- pull ---------------------------------------------------------------
     // Re-read the link: the flush's applies advanced the cursor and may have
     // switched the credential; both must feed the pull.
-    const fresh = (await getTabLink(tabId)) ?? link;
-    const afterRev = needFullPull.has(tabId) ? 0 : fresh.rev;
+    const fresh = (await getTabLink(tabId, vaultId)) ?? link;
+    const afterRev = needFullPull.has(bindingKey(tabId, vaultId)) ? 0 : fresh.rev;
     await applyForCurrentSession(session, async () => {});
     const pulled = await withAuthFallback(fresh, auth, (a) => fetchTab(a, tabId, afterRev));
     const c = await applyForCurrentSession(session, () => upsertTabFromWire(fresh, pulled.value));
-    needFullPull.delete(tabId);
+    needFullPull.delete(bindingKey(tabId, vaultId));
     result.pulled = pulled.value.entries.length;
     result.newFromThem += c.newFromThem;
     result.statusChangedOnMine += c.statusChangedOnMine;
@@ -398,13 +419,14 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
         const db = await getDb();
         return db.getFirstAsync<{ one: number }>(
           `SELECT 1 AS one FROM tab_entries opening JOIN tab_links l ON l.tab_id=opening.tab_id
-            WHERE l.tab_id=? AND l.role='a' AND l.closed_at IS NOT NULL
+            WHERE l.tab_id=? AND l.vault_id=? AND l.role='a' AND l.closed_at IS NOT NULL
               AND l.unjoined_invitation=1 AND l.other_joined_at IS NULL
               AND opening.kind='opening' AND opening.created_by='a'
               AND opening.status='pending' AND opening.voided_by_entry_id IS NULL
               AND NOT EXISTS(SELECT 1 FROM tab_outbox o WHERE o.tab_id=l.tab_id AND o.op='close')
             LIMIT 1`,
           tabId,
+          vaultId,
         );
       });
       if (repairable) {
@@ -436,7 +458,7 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     // is still worth a line in App health until the next clean run.
     if (flushError) {
       result.error = flushError;
-      await applyForCurrentSession(session, () => setTabLinkError(tabId, flushError!));
+      await applyForCurrentSession(session, () => setTabLinkError(tabId, flushError!, vaultId));
     }
     // The link is up: notices handled offline (lib/tabs/inbox-reads.ts) go
     // out now rather than waiting for the bell to be looked at, so the
@@ -449,7 +471,9 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
     const msg = describe(err);
     if (__DEV__) console.warn("[tabs.sync] syncTab failed", tabId.slice(0, 8), msg);
     if (session && !(err instanceof SessionChangedError)) {
-      await applyForCurrentSession(session, () => setTabLinkError(tabId, msg)).catch(() => {});
+      await applyForCurrentSession(session, () => setTabLinkError(tabId, msg, vaultId)).catch(
+        () => {},
+      );
     }
     return { ...result, ok: false, error: msg };
   }
@@ -459,6 +483,29 @@ async function runSyncTab(tabId: string): Promise<SyncTabResult> {
 // queued follow-up that every request during the run collapses into.
 const current = new Map<string, Promise<SyncTabResult>>();
 const trailing = new Map<string, Promise<SyncTabResult>>();
+const booksRunning = new Map<string, Promise<SyncTabResult>>();
+function bindingKey(tabId: string, vaultId: string | null): string {
+  return `${tabId}:${vaultId ?? ""}`;
+}
+
+function runScopedSync(
+  tabId: string,
+  vaultId: string | null,
+  session: Promise<SessionSnapshot>,
+): Promise<SyncTabResult> {
+  // Both perspectives share entry rows. Serialize their pulls and financial
+  // outboxes so a slower full response cannot overwrite the other side's ack.
+  const previous = booksRunning.get(tabId);
+  const next = (
+    previous
+      ? previous.then(() => runSyncTab(tabId, vaultId, session))
+      : runSyncTab(tabId, vaultId, session)
+  ).finally(() => {
+    if (booksRunning.get(tabId) === next) booksRunning.delete(tabId);
+  });
+  booksRunning.set(tabId, next);
+  return next;
+}
 
 /**
  * Flush this tab's due outbox ops in order, then pull after its cursor.
@@ -466,27 +513,35 @@ const trailing = new Map<string, Promise<SyncTabResult>>();
  * settles when the run that includes the caller's request completes. Never
  * rejects.
  */
-export function syncTab(tabId: string): Promise<SyncTabResult> {
-  const running = current.get(tabId);
+export function syncTab(
+  tabId: string,
+  vaultId = getActiveVaultIdSyncMaybe(),
+): Promise<SyncTabResult> {
+  const key = bindingKey(tabId, vaultId);
+  const running = current.get(key);
   if (!running) {
-    const run = runSyncTab(tabId).finally(() => {
-      if (current.get(tabId) === run) current.delete(tabId);
+    const session = captureCurrentSession();
+    void session.catch(() => {});
+    const run = runScopedSync(tabId, vaultId, session).finally(() => {
+      if (current.get(key) === run) current.delete(key);
     });
-    current.set(tabId, run);
+    current.set(key, run);
     return run;
   }
-  const queued = trailing.get(tabId);
+  const queued = trailing.get(key);
   if (queued) return queued;
+  const session = captureCurrentSession();
+  void session.catch(() => {});
   const next: Promise<SyncTabResult> = running
     .then(() => {
-      trailing.delete(tabId);
-      current.set(tabId, next);
-      return runSyncTab(tabId);
+      trailing.delete(key);
+      current.set(key, next);
+      return runScopedSync(tabId, vaultId, session);
     })
     .finally(() => {
-      if (current.get(tabId) === next) current.delete(tabId);
+      if (current.get(key) === next) current.delete(key);
     });
-  trailing.set(tabId, next);
+  trailing.set(key, next);
   return next;
 }
 
@@ -496,8 +551,17 @@ async function syncPokedTab(tabId: string): Promise<void> {
   // A tab linked on another phone does not exist in this phone's SQLite yet.
   // Pulling it directly used to return no_link, throwing away the only live
   // invalidation and leaving the pre-link local book on screen until a sweep.
-  if (!(await getTabLink(tabId))) await reconcileTabsFromServer();
-  await syncTab(tabId);
+  const bindings = await listTabLinksForId(tabId);
+  const selectedVault = getActiveVaultIdSyncMaybe();
+  // Knowing the book under the other party is not proof that this Kaata has
+  // its binding. A member can accept the invitation as the counterparty on
+  // another phone, or upgrade with the old single-perspective cache present.
+  if (
+    !bindings.length ||
+    (selectedVault && !bindings.some((link) => link.vault_id === selectedVault))
+  )
+    await reconcileTabsFromServer();
+  for (const link of await listTabLinksForId(tabId)) await syncTab(tabId, link.vault_id);
 }
 
 /** Debounced (300 ms) syncTab — the live-poke and focus-effect entry point. */
@@ -578,6 +642,7 @@ function noteRateLimit(err: unknown): void {
 export function _resetTabSyncPacingForTests(): void {
   watchedTabs.clear();
   recentPokes.clear();
+  revokedVaultViews.clear();
   lastFullSweepAt = 0;
   rateLimitedUntil = 0;
   discoveryFailures = 0;
@@ -589,13 +654,28 @@ export function _resetTabSyncPacingForTests(): void {
 // /mine may arrive before the contact's ordinary vault events. Retrying when
 // those events land avoids leaving a new shared binding stranded for a minute.
 const awaitingRelationships = new Set<string>();
+// A removed member's view stays cached. Wake that view when its membership
+// is readmitted, without making every ordinary ledger write force discovery.
+const revokedVaultViews = new Set<string>();
+async function rememberRevokedVault(vaultId: string): Promise<boolean> {
+  const revoked = await isTabVaultRevoked(vaultId);
+  if (revoked) revokedVaultViews.add(vaultId);
+  else revokedVaultViews.delete(vaultId);
+  return revoked;
+}
 
-async function syncTabsInParallel(ids: Iterable<string>): Promise<void> {
-  const pending = [...new Set(ids)];
+type TabBinding = { tab_id: string; vault_id: string };
+async function syncTabsInParallel(ids: Iterable<TabBinding>): Promise<void> {
+  const pending = [
+    ...new Map([...ids].map((item) => [bindingKey(item.tab_id, item.vault_id), item])).values(),
+  ];
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(SYNC_WORKERS, pending.length) }, async () => {
-      while (next < pending.length) await syncTab(pending[next++]);
+      while (next < pending.length) {
+        const item = pending[next++];
+        await syncTab(item.tab_id, item.vault_id);
+      }
     }),
   );
 }
@@ -630,7 +710,9 @@ async function runReconcileTabsFromServer(): Promise<void> {
     attemptedJwt = jwt;
     // Retry recovery binding for token-held tabs created while signed out.
     for (const link of await listTabLinks()) {
-      if (!link.party_token || boundSessions.get(link.tab_id) === jwt) continue;
+      if (await rememberRevokedVault(link.vault_id)) continue;
+      if (!link.party_token || boundSessions.get(bindingKey(link.tab_id, link.vault_id)) === jwt)
+        continue;
       try {
         await applyForCurrentSession(session, async () => {});
         await bindTab(
@@ -645,7 +727,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
           link.recording_mode_known !== 0,
         );
         await applyForCurrentSession(session, async () => {
-          boundSessions.set(link.tab_id, jwt);
+          boundSessions.set(bindingKey(link.tab_id, link.vault_id), jwt);
         });
       } catch (err) {
         if (err instanceof SessionChangedError) throw err;
@@ -653,27 +735,50 @@ async function runReconcileTabsFromServer(): Promise<void> {
       }
     }
     await applyForCurrentSession(session, async () => {});
-    const mine = await fetchMine();
+    // A person can be the direct counterparty and also a member of the other
+    // Kaata. Discover each local book's perspective instead of letting the
+    // account-wide endpoint choose one role and silently hide the other.
+    const vaults = await applyForCurrentSession(session, async () =>
+      (await getDb()).getAllAsync<{ id: string }>("SELECT id FROM vaults"),
+    );
+    const discovered = [] as Awaited<ReturnType<typeof fetchMine>>["tabs"];
+    for (const vault of vaults.length ? vaults : [{ id: "" }]) {
+      await applyForCurrentSession(session, async () => {});
+      if (vault.id && (await rememberRevokedVault(vault.id))) continue;
+      try {
+        discovered.push(...(await fetchMine(vault.id || undefined)).tabs);
+      } catch (error) {
+        if (vault.id && error instanceof TabApiError && [403, 404].includes(error.status)) continue;
+        throw error;
+      }
+    }
+    const mine = {
+      tabs: [
+        ...new Map(
+          discovered.map((item) => [bindingKey(item.tab.id, item.vault_id), item]),
+        ).values(),
+      ],
+    };
     // A re-link is listed newest first. The old period may still be OPEN in
     // this phone's cache, so pull its server-confirmed close before inserting
     // the new binding under the one-open-link-per-contact unique index.
     const closing = await applyForCurrentSession(session, async () => {
-      const ids: string[] = [];
+      const ids: TabBinding[] = [];
       for (const t of mine.tabs) {
         if (t.tab.closed_at_ms == null) continue;
-        const existing = await getTabLink(t.tab.id);
+        const existing = await getTabLink(t.tab.id, t.vault_id);
         if (existing && (existing.closed_at == null || t.tab.rev > existing.rev))
-          ids.push(t.tab.id);
+          ids.push({ tab_id: t.tab.id, vault_id: existing.vault_id });
       }
       return ids;
     });
     await syncTabsInParallel(closing);
-    const toPull = new Set<string>();
+    const toPull: TabBinding[] = [];
     const waiting = new Set<string>();
     const skips: DiscoverySkips = { unbound: 0, waiting: 0, conflicts: 0 };
     for (const t of mine.tabs) {
       const needsSync = await applyForCurrentSession(session, async () => {
-        const existing = await getTabLink(t.tab.id);
+        const existing = await getTabLink(t.tab.id, t.vault_id);
         if (existing) {
           // /mine carries metadata, not entries. It must not advance the cursor
           // or close the cache before all intervening rows have been pulled.
@@ -689,6 +794,14 @@ async function runReconcileTabsFromServer(): Promise<void> {
             (t.tab.unjoined_invitation ? 1 : 0) !== (existing.unjoined_invitation ?? null);
           const invitationDeclined =
             t.tab.invitation_declined_at_ms != null && existing.invitation_declined_at == null;
+          // Joining is metadata, and older servers did not always advance the
+          // financial revision for it. Discovery must refresh the sender's
+          // waiting badge even when no tally has been written yet.
+          const invitationAccepted =
+            t.tab.parties[otherRole(t.role)].joined_at_ms != null &&
+            existing.other_joined_at == null;
+          const invitationExpiryChanged =
+            t.tab.invitation_expires_at_ms != null && existing.invitation_expires_at == null;
           const modeChanged =
             t.tab.recording_mode != null &&
             (t.tab.recording_mode !== (existing.recording_mode ?? "review") ||
@@ -700,6 +813,8 @@ async function runReconcileTabsFromServer(): Promise<void> {
             orderChanged ||
             participationChanged ||
             invitationDeclined ||
+            invitationAccepted ||
+            invitationExpiryChanged ||
             modeChanged ||
             groupChanged ||
             (t.tab.closed_at_ms != null && existing.closed_at == null)
@@ -745,6 +860,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
             other_label: t.tab.parties[them].label,
             other_joined_at: t.tab.parties[them].joined_at_ms,
             invitation_declined_at: t.tab.invitation_declined_at_ms ?? null,
+            invitation_expires_at: t.tab.invitation_expires_at_ms ?? null,
             unjoined_invitation:
               t.tab.recording_mode != null && typeof t.tab.unjoined_invitation === "boolean"
                 ? t.tab.unjoined_invitation
@@ -767,7 +883,7 @@ async function runReconcileTabsFromServer(): Promise<void> {
         return true;
       });
       // Network work must happen after releasing the session mutation lock.
-      if (needsSync) toPull.add(t.tab.id);
+      if (needsSync && t.vault_id) toPull.push({ tab_id: t.tab.id, vault_id: t.vault_id });
     }
     await applyForCurrentSession(session, async () => {
       awaitingRelationships.clear();
@@ -836,7 +952,7 @@ async function runSyncAll(discover: boolean): Promise<void> {
         ).map((row) => row.tab_id)
       : [],
   );
-  const ids = new Set<string>();
+  const ids: TabBinding[] = [];
   for (const l of await listTabLinks({ includeClosed: true })) {
     const hot = isHot(l.tab_id, now);
     // Screens and live pokes need the same 5 s backstop after unlinking.
@@ -846,10 +962,10 @@ async function runSyncAll(discover: boolean): Promise<void> {
     // Between full sweeps, only links where a wait is felt (see isHot); a
     // never-synced link (restore) is always due. rev 0 is not that test: an
     // empty tab stays at rev 0 after it has been pulled.
-    if (full || l.last_synced_at == null || hot) ids.add(l.tab_id);
+    if (full || l.last_synced_at == null || hot) ids.push(l);
   }
   // Unsent ops (closes included) are due every tick.
-  for (const id of await listTabIdsWithQueuedOps()) ids.add(id);
+  for (const binding of await listTabIdsWithQueuedOps()) if (binding.vault_id) ids.push(binding);
   if (full) lastFullSweepAt = now;
   await syncTabsInParallel(ids);
   // Notification availability must never determine whether ledger sync works.
@@ -944,6 +1060,14 @@ export function startTabSyncLoop(): () => void {
   });
   const unsubLedger = onLedgerApplied((vaultId) => {
     if (awaitingRelationships.has(vaultId)) kick(true);
+    if (revokedVaultViews.has(vaultId))
+      void isTabVaultRevoked(vaultId)
+        .then((revoked) => {
+          // Concurrent committed events may all recheck; only the first
+          // confirmed readmission consumes the skip and wakes discovery.
+          if (!stopped && !revoked && revokedVaultViews.delete(vaultId)) kick(true);
+        })
+        .catch(() => {});
   });
   kick(true);
   if (AppState.currentState === "active") arm();

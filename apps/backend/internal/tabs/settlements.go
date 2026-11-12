@@ -115,7 +115,7 @@ func (s *Service) Settle(ctx context.Context, p Party, in SettleInput) (Settleme
 		if marker.CreatedBy != p.Role || marker.ActorAccountID != p.ActorAccountID {
 			return SettlementResponse{}, ErrIDTaken
 		}
-		tab, err := loadTab(ctx, tx, p.TabID, p.Role)
+		tab, err := loadTabForParty(ctx, tx, p)
 		return SettlementResponse{Settlement: marker, Tab: tab}, err
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -196,7 +196,7 @@ func (s *Service) Settle(ctx context.Context, p Party, in SettleInput) (Settleme
 	if err != nil {
 		return SettlementResponse{}, fmt.Errorf("insert settlement: %w", err)
 	}
-	tab, err := loadTab(ctx, tx, p.TabID, p.Role)
+	tab, err := loadTabForParty(ctx, tx, p)
 	if err != nil {
 		return SettlementResponse{}, err
 	}

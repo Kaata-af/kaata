@@ -503,6 +503,7 @@ const libMocks: Record<string, any> = {
   },
   colors: { colors },
   "tabs/link-status": require("../tabs/link-status"),
+  "tabs/use-invitation-time": { useInvitationTime: () => Date.now() },
   currency: {
     applyVaultCurrency: async () => {},
     getEnabledCurrencies: async (id: string) => {
@@ -3816,7 +3817,9 @@ async function main() {
   directoryFriendPersonIds = new Set(["ahmad"]);
   await flush();
   const homeAhmad = () =>
-    homeRenderedNodes().find((node) => node.type === "PersonRow" && node.props.person.id === "ahmad");
+    homeRenderedNodes().find(
+      (node) => node.type === "PersonRow" && node.props.person.id === "ahmad",
+    );
   assert.equal(homeAhmad()!.props.isFriend, undefined, "regular Home rows have no friend label");
   homeInput().props.onChangeText("Ahmad");
   await flush();

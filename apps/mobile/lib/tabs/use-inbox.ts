@@ -168,7 +168,12 @@ export function useInbox() {
           observedResults.current = observeIncomingRequests(
             observedResults.current,
             next.items.filter(
-              (item) => item.kind === "friend_accepted" || item.kind === "vault_invite_rejected",
+              (item) =>
+                item.kind === "friend_accepted" ||
+                item.kind === "vault_invite_accepted" ||
+                item.kind === "vault_invite_rejected" ||
+                item.kind === "invitation_accepted" ||
+                item.kind === "invitation_declined",
             ),
             "connection_result",
             current,

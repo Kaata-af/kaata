@@ -49,6 +49,7 @@ const ORIGINAL_SCHEMA = "051_tally_removal_requests";
 const TALLY_NOTES_SCHEMA = "052_tally_notes";
 const TALLY_NOTE_NUMBERS_SCHEMA = "053_tally_note_number";
 const SHARED_INVITATION_DECLINE_SCHEMA = "054_shared_invitation_decline";
+const SHARED_TAB_BINDINGS_SCHEMA = "055_shared_tab_bindings";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MEMBER_ROLES = new Set(["manager", "editor", "clerk", "viewer"]);
 const TABLES = new Set([
@@ -73,6 +74,7 @@ const TABLES = new Set([
   "vault_device_registry",
   "settlements",
   "tab_links",
+  "tab_books",
   "tab_entries",
   "tab_outbox",
   "tab_failed_ops",
@@ -200,7 +202,7 @@ function sqlTokens(sql: string | null): string[] {
 function normalizedSQL(sql: string | null): string {
   return sqlTokens(sql).join(" ");
 }
-function tableDefinition(sql: string | null, omittedColumn?: string): string {
+function tableDefinition(sql: string | null, omittedColumns: string[] = []): string {
   const tokens = sqlTokens(sql),
     start = tokens.indexOf("(");
   if (start < 0) fail("unsupported");
@@ -226,7 +228,7 @@ function tableDefinition(sql: string | null, omittedColumn?: string): string {
   // ALTER TABLE appends columns; fresh installs may declare those columns
   // earlier. Preserve every constraint/expression while ignoring that order.
   return JSON.stringify({
-    definitions: definitions.filter((definition) => definition !== omittedColumn).sort(),
+    definitions: definitions.filter((definition) => !omittedColumns.includes(definition)).sort(),
     options: tokens.slice(end + 1),
   });
 }
@@ -333,6 +335,8 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
         "event_log_state_machine_insert",
         "event_log_state_machine_update",
         "vaults_freeze_legacy_currency",
+        "tab_links_insert_book",
+        "tab_links_delete_book",
       ].includes(item.name)
     )
       fail("unsupported");
@@ -345,18 +349,23 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
   const hasSharedInvitationDecline = migrations.some(
     (row) => row.name === SHARED_INVITATION_DECLINE_SCHEMA,
   );
-  const expectedMigrations = hasSharedInvitationDecline
-    ? 54
-    : hasTallyNoteNumbers
-      ? 53
-      : hasTallyNotes
-        ? 52
-        : 51;
+  const hasSharedBindings = migrations.some((row) => row.name === SHARED_TAB_BINDINGS_SCHEMA);
+  const expectedMigrations = hasSharedBindings
+    ? 55
+    : hasSharedInvitationDecline
+      ? 54
+      : hasTallyNoteNumbers
+        ? 53
+        : hasTallyNotes
+          ? 52
+          : 51;
   if (
     migrations.length !== expectedMigrations ||
     !migrations.some((row) => row.name === ORIGINAL_SCHEMA) ||
     (hasTallyNoteNumbers && !hasTallyNotes) ||
     (hasSharedInvitationDecline && !hasTallyNoteNumbers) ||
+    (hasSharedBindings && !hasSharedInvitationDecline) ||
+    names.has("tab_books") !== hasSharedBindings ||
     names.has("tally_notes") !== hasTallyNotes ||
     new Set(migrations.map((r) => r.name.slice(0, 3))).size !== expectedMigrations ||
     migrations.some(
@@ -375,14 +384,22 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
   const tabLinkColumns = await db.getAllAsync<{ name: string }>("PRAGMA table_xinfo(tab_links)");
   if (
     tabLinkColumns.some((column) => column.name === "invitation_declined_at") !==
-    hasSharedInvitationDecline
+      hasSharedInvitationDecline ||
+    tabLinkColumns.some((column) => column.name === "invitation_expires_at") !== hasSharedBindings
   )
     fail("unsupported");
   if (trusted) {
     // Older backups keep their original schema until initDb upgrades it.
-    const known = (await catalog(trusted)).filter(
-      (row) => hasTallyNotes || row.tbl_name !== "tally_notes",
-    );
+    const bindingOnlyObjects = new Set([
+      "tab_books",
+      "tab_links_insert_book",
+      "tab_links_delete_book",
+      "idx_tab_outbox_scope",
+      "idx_tab_failed_ops_scope",
+    ]);
+    const known = (await catalog(trusted))
+      .filter((row) => hasTallyNotes || row.tbl_name !== "tally_notes")
+      .filter((row) => hasSharedBindings || !bindingOnlyObjects.has(row.name));
     const trustedMigrations = await trusted.getAllAsync<{
       name: string;
     }>("SELECT name FROM schema_migrations ORDER BY name");
@@ -393,12 +410,14 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
           .map((row) => row.name)
           .filter((name) => hasTallyNotes || name !== TALLY_NOTES_SCHEMA)
           .filter((name) => hasTallyNoteNumbers || name !== TALLY_NOTE_NUMBERS_SCHEMA)
-          .filter(
-            (name) => hasSharedInvitationDecline || name !== SHARED_INVITATION_DECLINE_SCHEMA,
-          ),
+          .filter((name) => hasSharedInvitationDecline || name !== SHARED_INVITATION_DECLINE_SCHEMA)
+          .filter((name) => hasSharedBindings || name !== SHARED_TAB_BINDINGS_SCHEMA),
       )
     )
       fail("unsupported");
+    const compareLegacyBindings =
+      !hasSharedBindings &&
+      trustedMigrations.some((row) => row.name === SHARED_TAB_BINDINGS_SCHEMA);
     const keys = (rows: CatalogRow[]) =>
       rows
         .filter((r) => r.tbl_name !== INFO && r.tbl_name !== "_old_shopkeeper")
@@ -409,31 +428,82 @@ async function validateSchema(db: DB, trusted?: DB): Promise<void> {
       if (item.name === INFO) continue;
       const prior = known.find((r) => r.name === item.name && r.type === item.type);
       if (!prior) fail("unsupported");
+      let expectedSQL = normalizedSQL(prior.sql);
+      if (compareLegacyBindings) {
+        // Reverse only migration 055's known structural changes. All other
+        // constraints, expressions and trigger bodies still compare exactly.
+        if (item.type === "table" && item.name === "tab_links") {
+          expectedSQL = expectedSQL
+            .replace("tab_id text not null", "tab_id text primary key")
+            .replace(", primary key ( tab_id , vault_id )", "");
+        } else if (
+          item.type === "table" &&
+          ["tab_entries", "tab_settlements", "tab_outbox", "tab_failed_ops"].includes(item.name)
+        ) {
+          expectedSQL = expectedSQL.replaceAll(
+            "references tab_books ( tab_id )",
+            "references tab_links ( tab_id )",
+          );
+        } else if (item.type === "index" && item.name === "idx_tab_links_open_rel") {
+          expectedSQL = expectedSQL.replace(
+            "tab_links ( vault_id , relationship_id , currency )",
+            "tab_links ( relationship_id , currency )",
+          );
+        }
+      }
       // Includes CHECK, FK, UNIQUE, STRICT and table options, not just columns.
       if (item.type === "table") {
-        const omittedColumn =
-          item.name === "tally_notes" && !hasTallyNoteNumbers
-            ? { name: "number_text", definition: "number_text text" }
-            : item.name === "tab_links" && !hasSharedInvitationDecline
-              ? { name: "invitation_declined_at", definition: "invitation_declined_at integer" }
-              : undefined;
-        if (tableDefinition(prior.sql, omittedColumn?.definition) !== tableDefinition(item.sql))
+        const omittedColumns: Array<{ name: string; definition: string }> = [];
+        if (item.name === "tally_notes" && !hasTallyNoteNumbers)
+          omittedColumns.push({ name: "number_text", definition: "number_text text" });
+        if (item.name === "tab_links" && !hasSharedInvitationDecline)
+          omittedColumns.push({
+            name: "invitation_declined_at",
+            definition: "invitation_declined_at integer",
+          });
+        if (compareLegacyBindings && item.name === "tab_links")
+          omittedColumns.push({
+            name: "invitation_expires_at",
+            definition: "invitation_expires_at integer",
+          });
+        if (compareLegacyBindings && ["tab_outbox", "tab_failed_ops"].includes(item.name))
+          omittedColumns.push({
+            name: "vault_id",
+            definition: "vault_id text not null default ''",
+          });
+        if (
+          tableDefinition(
+            expectedSQL,
+            omittedColumns.map((column) => column.definition),
+          ) !== tableDefinition(item.sql)
+        )
           fail("unsupported");
-        const shape = async (handle: DB, omittedName?: string) =>
+        const shape = async (handle: DB, omittedNames: string[] = []) =>
           (
             await handle.getAllAsync<Record<string, unknown>>(
               `PRAGMA table_xinfo(${quote(item.name)})`,
             )
           )
-            .filter((row) => row.name !== omittedName)
-            .map(({ cid, ...row }) => row)
+            .filter((row) => !omittedNames.includes(String(row.name)))
+            .map(({ cid, ...row }) => {
+              if (handle === trusted && compareLegacyBindings && item.name === "tab_links") {
+                if (row.name === "tab_id") return { ...row, notnull: 0, pk: 1 };
+                if (row.name === "vault_id") return { ...row, pk: 0 };
+              }
+              return row;
+            })
             .sort((a, b) => String(a.name).localeCompare(String(b.name)));
         if (
           JSON.stringify(await shape(db)) !==
-          JSON.stringify(await shape(trusted, omittedColumn?.name))
+          JSON.stringify(
+            await shape(
+              trusted,
+              omittedColumns.map((column) => column.name),
+            ),
+          )
         )
           fail("unsupported");
-      } else if (normalizedSQL(prior.sql) !== normalizedSQL(item.sql)) fail("unsupported");
+      } else if (expectedSQL !== normalizedSQL(item.sql)) fail("unsupported");
     }
   }
 }
@@ -584,7 +654,11 @@ async function assertLedgerScope(db: DB, accountId: string | null): Promise<void
     if (!names.has(table)) continue;
     if (
       await db.getFirstAsync(
-        `SELECT 1 FROM ${quote(table)} r WHERE NOT EXISTS(SELECT 1 FROM tab_links t WHERE t.tab_id=r.tab_id) LIMIT 1`,
+        `SELECT 1 FROM ${quote(table)} r WHERE NOT EXISTS(SELECT 1 FROM tab_links t WHERE t.tab_id=r.tab_id${
+          names.has("tab_books") && ["tab_outbox", "tab_failed_ops"].includes(table)
+            ? " AND t.vault_id=r.vault_id"
+            : ""
+        }) LIMIT 1`,
       )
     )
       fail("ownership");
@@ -613,8 +687,12 @@ async function pruneJoinedVaults(
   ];
   for (const table of ["tab_outbox", "tab_failed_ops"]) {
     if (!names.has("tab_links") || !names.has(table)) continue;
-    pending.push(`EXISTS (SELECT 1 FROM tab_links t JOIN ${quote(table)} o USING (tab_id)
-                          WHERE t.vault_id=v.id)`);
+    pending.push(
+      names.has("tab_books")
+        ? `EXISTS (SELECT 1 FROM ${quote(table)} o WHERE o.vault_id=v.id)`
+        : `EXISTS (SELECT 1 FROM tab_links t JOIN ${quote(table)} o USING (tab_id)
+                          WHERE t.vault_id=v.id)`,
+    );
   }
   for (const table of [
     "customer_credit_limits",
@@ -622,13 +700,17 @@ async function pruneJoinedVaults(
     "customer_credit_limit_notifications",
   ]) {
     if (!names.has(table)) continue;
-    pending.push(`EXISTS (SELECT 1 FROM ${quote(table)} p WHERE p.vault_id=v.id AND p.sync_pending<>0)`);
+    pending.push(
+      `EXISTS (SELECT 1 FROM ${quote(table)} p WHERE p.vault_id=v.id AND p.sync_pending<>0)`,
+    );
   }
   coverage.skippedPending =
-    (await db.getFirstAsync<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM vaults v WHERE v.id IN (${excluded}) AND (${pending.join(" OR ")})`,
-      skippedIds,
-    ))?.n ?? 0;
+    (
+      await db.getFirstAsync<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM vaults v WHERE v.id IN (${excluded}) AND (${pending.join(" OR ")})`,
+        skippedIds,
+      )
+    )?.n ?? 0;
 
   // Work only on the private temporary copy. Disable cascades while removing
   // scoped rows explicitly, so a corrupt cross-book reference can't delete an
@@ -643,26 +725,35 @@ async function pruneJoinedVaults(
       ({ name, column_name }) => TABLES.has(name) && column_name === "vault_id",
     );
     for (const { name } of scoped) {
-      if (!columns.some((col) => col.name === name && col.column_name === "relationship_id")) continue;
+      if (!columns.some((col) => col.name === name && col.column_name === "relationship_id"))
+        continue;
       if (
         await db.getFirstAsync(
           `SELECT 1 FROM ${quote(name)} s JOIN relationships r ON r.id=s.relationship_id
             WHERE s.vault_id<>r.vault_id AND s.vault_id NOT IN (${excluded}) LIMIT 1`,
           skippedIds,
         )
-      ) fail("ownership");
+      )
+        fail("ownership");
     }
     for (const table of ["tab_entries", "tab_outbox", "tab_failed_ops", "tab_settlements"]) {
       if (!names.has(table)) continue;
+      // Intent belongs to the Kaata/role that authored it. Shared financial
+      // history belongs to the book and survives while any included link does.
+      if (names.has("tab_books") && ["tab_outbox", "tab_failed_ops"].includes(table)) continue;
       await db.runAsync(
-        `DELETE FROM ${quote(table)} WHERE tab_id IN (
-           SELECT tab_id FROM tab_links WHERE vault_id IN (${excluded})
+        `DELETE FROM ${quote(table)} WHERE NOT EXISTS (
+           SELECT 1 FROM tab_links l WHERE l.tab_id=${quote(table)}.tab_id AND l.vault_id NOT IN (${excluded})
          )`,
         skippedIds,
       );
     }
     for (const { name } of scoped)
       await db.runAsync(`DELETE FROM ${quote(name)} WHERE vault_id IN (${excluded})`, skippedIds);
+    if (names.has("tab_books"))
+      await db.execAsync(
+        "DELETE FROM tab_books WHERE NOT EXISTS(SELECT 1 FROM tab_links l WHERE l.tab_id=tab_books.tab_id);",
+      );
     await db.runAsync(`DELETE FROM vaults WHERE id IN (${excluded})`, skippedIds);
 
     // Contact identities are global and may belong to several books. Retain
@@ -673,8 +764,9 @@ async function pruneJoinedVaults(
     );
     const referenced = references
       .filter(({ name }) => TABLES.has(name) && !CLEAR_TABLES.includes(name))
-      .map(({ name, column_name }) =>
-        `EXISTS (SELECT 1 FROM ${quote(name)} r WHERE r.${quote(column_name)}=users.id)`,
+      .map(
+        ({ name, column_name }) =>
+          `EXISTS (SELECT 1 FROM ${quote(name)} r WHERE r.${quote(column_name)}=users.id)`,
       );
     await db.execAsync(
       `DELETE FROM users WHERE COALESCE(is_local_self,0)<>1${referenced.map((sql) => ` AND NOT ${sql}`).join("")};`,
@@ -686,7 +778,8 @@ async function pruneJoinedVaults(
       activeBooks.find((v) => v.id === values.get("default_vault_id")) ??
       activeBooks.find((v) => v.is_default === 1) ??
       activeBooks[0];
-    const activeBook = activeBooks.find((v) => v.id === values.get("active_vault_id")) ?? defaultBook;
+    const activeBook =
+      activeBooks.find((v) => v.id === values.get("active_vault_id")) ?? defaultBook;
     await setMeta(db, "active_vault_id", activeBook?.id ?? "");
     await setMeta(db, "default_vault_id", defaultBook?.id ?? "");
     await db.runAsync(
@@ -757,7 +850,8 @@ function assertCloudOwnership(vaults: Vault[], cloud: ReadonlyMap<string, CloudV
       remote?.role !== "owner" ||
       (vault.vault_trust_anchor_pubkey &&
         remote.vault_trust_anchor_pubkey !== vault.vault_trust_anchor_pubkey)
-    ) fail("ownership");
+    )
+      fail("ownership");
   }
 }
 async function verifyCloudOwnership(

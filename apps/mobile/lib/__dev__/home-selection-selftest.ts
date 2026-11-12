@@ -298,6 +298,7 @@ const mocks: Record<string, any> = {
   "../lib/selection-summary": selectionSummary,
   "../lib/multi-currency-view": { currencyBalances, personCurrencyRows, selectedPeopleByCurrency },
   "../lib/tabs/link-status": require("../tabs/link-status"),
+  "../lib/tabs/use-invitation-time": { useInvitationTime: () => Date.now() },
   "../lib/profile-settings-context": { ProfileSettingsSource: "ProfileSettingsSheet" },
   "../components/Toast": {
     useToast: () => toast,
@@ -1628,8 +1629,16 @@ async function main() {
   assert.equal(initialSummary().props.currency, "AFN");
   assert.equal(initialSummary().props.active, true, "The current idle home may advance balances");
   const backupOffer = () => homeNodes().find((node) => node.type === "HomePersonalBackupOffer");
-  assert.equal(backupOffer()?.props.visible, true, "An idle Home can display the eligible backup offer");
-  assert.equal(backupOffer()?.props.accountId, account, "The offer is scoped to the visible account");
+  assert.equal(
+    backupOffer()?.props.visible,
+    true,
+    "An idle Home can display the eligible backup offer",
+  );
+  assert.equal(
+    backupOffer()?.props.accountId,
+    account,
+    "The offer is scoped to the visible account",
+  );
   assert.equal(
     metadata.has("customer_home:account-a:vault-a"),
     false,
@@ -1696,7 +1705,11 @@ async function main() {
     "semantic will-show adds no JavaScript layout clock",
   );
   render();
-  assert.equal(backupOffer()?.props.visible, false, "An open search keyboard hides the backup offer");
+  assert.equal(
+    backupOffer()?.props.visible,
+    false,
+    "An open search keyboard hides the backup offer",
+  );
   assert.equal(
     initialSummary().props.searchOpen,
     true,

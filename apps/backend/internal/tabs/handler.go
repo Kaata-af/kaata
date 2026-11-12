@@ -438,7 +438,7 @@ func (h *Handler) Mine(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	res, err := h.svc.Mine(r.Context(), claims.AccountID)
+	res, err := h.svc.Mine(r.Context(), claims.AccountID, r.URL.Query().Get("vault_id"))
 	if err != nil {
 		writeServiceError(w, err)
 		return

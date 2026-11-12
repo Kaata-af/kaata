@@ -37,6 +37,7 @@ const handles = new Set<Database.Database>();
 const tallyNotesMigration = "052_tally_notes";
 const tallyNoteNumbersMigration = "053_tally_note_number";
 const sharedInvitationDeclineMigration = "054_shared_invitation_decline";
+const sharedTabBindingsMigration = "055_shared_tab_bindings";
 const migrationNames = [
   ...readFileSync(require.resolve("../db"), "utf8").matchAll(/const MIGRATION_\d+ = "([^"]+)"/g),
 ].map((match) => match[1]);
@@ -45,7 +46,9 @@ function ok(condition: unknown, message: string) {
   checks++;
   assert.ok(condition, message);
 }
-const schema = `CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+const schema = (
+  schemaVersion: number,
+) => `CREATE TABLE app_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE schema_migrations(name TEXT PRIMARY KEY,applied_at INTEGER);
 ${migrationNames.map((name) => `INSERT INTO schema_migrations VALUES('${name}',1);`).join("\n")}
 CREATE TABLE users(id TEXT PRIMARY KEY,account_id TEXT,is_local_self INTEGER);
@@ -58,17 +61,34 @@ CREATE TABLE shop_profile(vault_id TEXT REFERENCES vaults(id),name TEXT);
 CREATE TABLE pending_invitations(token TEXT);
 CREATE TABLE vault_credentials(vmc_blob TEXT);
 CREATE TABLE sync_state(vault_id TEXT,last_pulled_server_seq INTEGER);
-CREATE TABLE tab_links(tab_id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id),party_token TEXT,invite_url TEXT,last_error TEXT,last_synced_at INTEGER,rev INTEGER);
-CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT REFERENCES tab_links(tab_id),note TEXT);
-CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,attempts INTEGER,next_at INTEGER,last_error TEXT,payload TEXT);
-CREATE TABLE tab_failed_ops(id TEXT PRIMARY KEY,tab_id TEXT,last_error TEXT);
+${schemaVersion >= 55 ? "CREATE TABLE tab_books(tab_id TEXT PRIMARY KEY);" : ""}
+CREATE TABLE tab_links(tab_id TEXT ${schemaVersion >= 55 ? "NOT NULL" : "PRIMARY KEY"},vault_id TEXT REFERENCES vaults(id),party_token TEXT,invite_url TEXT,last_error TEXT,last_synced_at INTEGER,rev INTEGER,relationship_id TEXT,currency TEXT,closed_at INTEGER${schemaVersion >= 55 ? ",invitation_expires_at INTEGER,PRIMARY KEY(tab_id,vault_id)" : ""});
+CREATE UNIQUE INDEX idx_tab_links_open_rel ON tab_links(${schemaVersion >= 55 ? "vault_id," : ""}relationship_id,currency) WHERE closed_at IS NULL;
+CREATE TABLE tab_entries(id TEXT PRIMARY KEY,tab_id TEXT REFERENCES ${schemaVersion >= 55 ? "tab_books" : "tab_links"}(tab_id),note TEXT);
+CREATE TABLE tab_settlements(id TEXT PRIMARY KEY,tab_id TEXT REFERENCES ${schemaVersion >= 55 ? "tab_books" : "tab_links"}(tab_id),note TEXT);
+CREATE TABLE tab_outbox(id TEXT PRIMARY KEY,tab_id TEXT,attempts INTEGER,next_at INTEGER,last_error TEXT,payload TEXT${schemaVersion >= 55 ? ",vault_id TEXT NOT NULL DEFAULT ''" : ""});
+CREATE TABLE tab_failed_ops(id TEXT PRIMARY KEY,tab_id TEXT,last_error TEXT${schemaVersion >= 55 ? ",vault_id TEXT NOT NULL DEFAULT ''" : ""});
+${
+  schemaVersion >= 55
+    ? `CREATE TRIGGER tab_links_insert_book BEFORE INSERT ON tab_links BEGIN
+  INSERT OR IGNORE INTO tab_books(tab_id) VALUES(NEW.tab_id);
+END;
+CREATE TRIGGER tab_links_delete_book AFTER DELETE ON tab_links BEGIN
+  DELETE FROM tab_books WHERE tab_id=OLD.tab_id AND NOT EXISTS(SELECT 1 FROM tab_links WHERE tab_id=OLD.tab_id);
+END;
+CREATE INDEX idx_tab_outbox_scope ON tab_outbox(tab_id,vault_id);
+CREATE INDEX idx_tab_failed_ops_scope ON tab_failed_ops(tab_id,vault_id);`
+    : ""
+}
 CREATE TABLE customer_groups(id TEXT PRIMARY KEY,vault_id TEXT REFERENCES vaults(id));`;
-function fixture(name: string, account: string | null = null, schemaVersion = 54) {
+function fixture(name: string, account: string | null = null, schemaVersion = 55) {
   const dir = path.join(temporaryRoot, name);
   mkdirSync(dir);
   const dbPath = path.join(dir, "kaata.db");
   const raw = new Database(dbPath);
-  raw.exec(schema);
+  raw.exec(schema(schemaVersion));
+  if (schemaVersion < 55)
+    raw.prepare("DELETE FROM schema_migrations WHERE name=?").run(sharedTabBindingsMigration);
   if (schemaVersion < 54)
     raw.prepare("DELETE FROM schema_migrations WHERE name=?").run(sharedInvitationDeclineMigration);
   else raw.exec("ALTER TABLE tab_links ADD COLUMN invitation_declined_at INTEGER");
@@ -435,6 +455,26 @@ async function main() {
     afterDecline.rows("SELECT * FROM tab_links WHERE tab_id='old-tab'").length === 1,
     "shared links from a backup without decline metadata restore on update",
   );
+  const beforeBindings = fixture("before-shared-bindings", null, 54);
+  beforeBindings.seed();
+  beforeBindings.sql("INSERT INTO tab_links(tab_id,vault_id,rev) VALUES('legacy-tab',?,0)", VAULT);
+  beforeBindings.sql(
+    "INSERT INTO tab_entries VALUES('legacy-entry','legacy-tab','Legacy shared history')",
+  );
+  beforeBindings.sql(
+    "INSERT INTO tab_outbox VALUES('legacy-intent','legacy-tab',0,NULL,NULL,'{}')",
+  );
+  const afterBindings = fixture("after-shared-bindings");
+  await afterBindings.module.stagePersonalBackupRestore(await exported(beforeBindings));
+  await afterBindings.boot();
+  ok(
+    afterBindings.rows("SELECT * FROM tab_entries WHERE id='legacy-entry'").length === 1,
+    "schema54 shared history restores on schema55",
+  );
+  ok(
+    afterBindings.rows("SELECT * FROM tab_outbox WHERE id='legacy-intent'").length === 1,
+    "schema54 queued intent is preserved for the normal boot migration",
+  );
   const signed = fixture("signed-source", ACCOUNT);
   signed.seed();
   const signedBytes = await exported(signed);
@@ -443,7 +483,11 @@ async function main() {
   offlineSource.seed();
   offlineSource.denyCloud();
   offlineSource.sql("INSERT INTO vaults VALUES(?,?,?,?,0,NULL)", TARGET, OTHER, 1, PUB);
-  offlineSource.sql("INSERT INTO vault_members_mirror VALUES(?,?,'editor',1,NULL)", TARGET, ACCOUNT);
+  offlineSource.sql(
+    "INSERT INTO vault_members_mirror VALUES(?,?,'editor',1,NULL)",
+    TARGET,
+    ACCOUNT,
+  );
   offlineSource.sql("INSERT INTO entries VALUES('joined',?,'PRIVATE_JOINED_OFFLINE')", TARGET);
   offlineSource.sql(
     "INSERT INTO event_log VALUES('joined-pending',?,'entry_created','{}',NULL,NULL)",
@@ -501,7 +545,11 @@ async function main() {
     () => offlineSource.module.createPersonalBackupSnapshot(false, { localOnly: true }),
     "ownership",
   );
-  assert.equal(offlineSource.fetchCount, 0, "an ambiguous local book fails without using the network");
+  assert.equal(
+    offlineSource.fetchCount,
+    0,
+    "an ambiguous local book fails without using the network",
+  );
   const staleOwner = fixture("stale-export-owner", ACCOUNT);
   staleOwner.seed();
   staleOwner.remote[0].role = "editor";
@@ -572,7 +620,10 @@ async function main() {
   mixed.sql("INSERT INTO users VALUES('PRIVATE_JOINED_CONTACT',NULL,0)");
   mixed.sql("INSERT INTO users VALUES('shared-contact',NULL,0)");
   mixed.sql("UPDATE relationships SET user_b_id='shared-contact' WHERE id='person'");
-  mixed.sql("INSERT INTO relationships VALUES('joined-only',?,'self','PRIVATE_JOINED_CONTACT')", TARGET);
+  mixed.sql(
+    "INSERT INTO relationships VALUES('joined-only',?,'self','PRIVATE_JOINED_CONTACT')",
+    TARGET,
+  );
   mixed.sql("INSERT INTO relationships VALUES('joined-shared',?,'self','shared-contact')", OTHER);
   mixed.sql("INSERT INTO entries VALUES('joined-tally',?,'PRIVATE_JOINED_TALLY')", TARGET);
   mixed.sql(
@@ -584,38 +635,121 @@ async function main() {
     "INSERT INTO tab_links(tab_id,vault_id,party_token,last_synced_at,rev) VALUES('joined-tab',?,'PRIVATE_JOINED_TOKEN',1,1)",
     TARGET,
   );
-  mixed.sql("INSERT INTO tab_entries VALUES('joined-tab-entry','joined-tab','PRIVATE_JOINED_SHARED_TALLY')");
+  for (const vault of [VAULT, TARGET]) {
+    mixed.sql("INSERT INTO tab_links(tab_id,vault_id,rev) VALUES('both-books',?,7)", vault);
+    mixed.sql(
+      "INSERT INTO tab_outbox(id,tab_id,attempts,payload,vault_id) VALUES(?,'both-books',0,?,?)",
+      `pending-${vault}`,
+      vault === VAULT ? "OWNED_INTENT" : "PRIVATE_JOINED_INTENT",
+      vault,
+    );
+    mixed.sql(
+      "INSERT INTO tab_failed_ops(id,tab_id,last_error,vault_id) VALUES(?,'both-books',?,?)",
+      `failed-${vault}`,
+      vault === VAULT ? "OWNED_FAILED" : "PRIVATE_JOINED_FAILED",
+      vault,
+    );
+  }
   mixed.sql(
-    "INSERT INTO tab_outbox VALUES('joined-op','joined-tab',0,NULL,NULL,?)",
+    "INSERT INTO tab_entries VALUES('both-entry','both-books','History in the owned book')",
+  );
+  mixed.sql(
+    "INSERT INTO tab_settlements VALUES('both-settlement','both-books','Settled in the owned book')",
+  );
+  mixed.sql(
+    "INSERT INTO tab_entries VALUES('joined-tab-entry','joined-tab','PRIVATE_JOINED_SHARED_TALLY')",
+  );
+  mixed.sql(
+    "INSERT INTO tab_outbox(id,tab_id,attempts,next_at,last_error,payload,vault_id) VALUES('joined-op','joined-tab',0,NULL,NULL,?,?)",
     JSON.stringify({ note: "PRIVATE_JOINED_OP" }),
+    TARGET,
   );
   const mixedBackup = await mixed.module.createPersonalBackupSnapshot();
   let mixedBytes: Uint8Array;
   try {
     assert.deepEqual(mixedBackup.coverage, { included: 1, skipped: 2, skippedPending: 1 });
     mixedBytes = mixedBackup.file.bytesSync();
-    ok(!Buffer.from(mixedBytes).includes("PRIVATE_JOINED_"), "no skipped data remains in SQLite bytes");
+    ok(
+      !Buffer.from(mixedBytes).includes("PRIVATE_JOINED_"),
+      "no skipped data remains in SQLite bytes",
+    );
     ok(!Buffer.from(mixedBytes).includes(TARGET), "skipped active/default metadata is replaced");
   } finally {
     mixedBackup.dispose();
   }
   ok(mixed.rows("SELECT * FROM vaults").length === 3, "pruning never touches live Kaatas");
-  ok(mixed.rows("SELECT * FROM tab_outbox").length === 1, "joined pending edits remain on the phone");
+  ok(mixed.rows("SELECT * FROM tab_outbox").length === 3, "all pending edits remain on the phone");
   const mixedTarget = fixture("mixed-restore-target", ACCOUNT);
   await mixedTarget.module.stagePersonalBackupRestore(mixedBytes);
   await mixedTarget.boot();
   assert.deepEqual(mixedTarget.rows("SELECT id FROM vaults"), [{ id: VAULT }]);
-  assert.deepEqual(mixedTarget.rows("SELECT id FROM users ORDER BY id"), [{ id: "self" }, { id: "shared-contact" }]);
-  assert.deepEqual(mixedTarget.rows("SELECT value FROM app_meta WHERE key IN ('active_vault_id','default_vault_id')"), [{ value: VAULT }, { value: VAULT }]);
-  assert.deepEqual(mixedTarget.rows("SELECT value FROM app_meta WHERE key='personal_backup_joined_recovery_account'"), [{ value: ACCOUNT }]);
+  assert.deepEqual(mixedTarget.rows("SELECT id FROM users ORDER BY id"), [
+    { id: "self" },
+    { id: "shared-contact" },
+  ]);
+  assert.deepEqual(
+    mixedTarget.rows(
+      "SELECT value FROM app_meta WHERE key IN ('active_vault_id','default_vault_id')",
+    ),
+    [{ value: VAULT }, { value: VAULT }],
+  );
+  assert.deepEqual(
+    mixedTarget.rows(
+      "SELECT value FROM app_meta WHERE key='personal_backup_joined_recovery_account'",
+    ),
+    [{ value: ACCOUNT }],
+  );
+  assert.deepEqual(mixedTarget.rows("SELECT tab_id,vault_id FROM tab_links"), [
+    { tab_id: "both-books", vault_id: VAULT },
+  ]);
+  assert.deepEqual(mixedTarget.rows("SELECT tab_id FROM tab_books"), [{ tab_id: "both-books" }]);
+  assert.deepEqual(mixedTarget.rows("SELECT id FROM tab_entries"), [{ id: "both-entry" }]);
+  assert.deepEqual(mixedTarget.rows("SELECT id FROM tab_settlements"), [{ id: "both-settlement" }]);
+  assert.deepEqual(mixedTarget.rows("SELECT id,vault_id FROM tab_outbox"), [
+    { id: `pending-${VAULT}`, vault_id: VAULT },
+  ]);
+  assert.deepEqual(mixedTarget.rows("SELECT id,vault_id FROM tab_failed_ops"), [
+    { id: `failed-${VAULT}`, vault_id: VAULT },
+  ]);
+
+  const ownedPending = fixture("shared-book-owned-intent-only", ACCOUNT);
+  ownedPending.seed();
+  ownedPending.sql("INSERT INTO vaults VALUES(?,?,?,?,0,NULL)", TARGET, OTHER, 1, PUB);
+  ownedPending.sql("INSERT INTO vault_members_mirror VALUES(?,?,'viewer',1,NULL)", TARGET, ACCOUNT);
+  ownedPending.remote.push({ vault_id: TARGET, role: "viewer", vault_trust_anchor_pubkey: PUB });
+  for (const vault of [VAULT, TARGET])
+    ownedPending.sql(
+      "INSERT INTO tab_links(tab_id,vault_id,rev) VALUES('owned-pending-book',?,1)",
+      vault,
+    );
+  ownedPending.sql(
+    "INSERT INTO tab_outbox(id,tab_id,payload,vault_id) VALUES('own-only','owned-pending-book','{}',?)",
+    VAULT,
+  );
+  const ownedPendingCopy = await ownedPending.module.createPersonalBackupSnapshot();
+  try {
+    assert.deepEqual(
+      ownedPendingCopy.coverage,
+      { included: 1, skipped: 1, skippedPending: 0 },
+      "owned intent must not be counted as skipped through the other binding",
+    );
+  } finally {
+    ownedPendingCopy.dispose();
+  }
 
   const verificationUnavailable = fixture("owner-verification-unavailable", ACCOUNT);
   verificationUnavailable.seed();
   verificationUnavailable.denyCloud();
-  await errorCode(() => verificationUnavailable.module.createPersonalBackupSnapshot(), "ownershipUnavailable");
+  await errorCode(
+    () => verificationUnavailable.module.createPersonalBackupSnapshot(),
+    "ownershipUnavailable",
+  );
   const denied = fixture("server-denial", ACCOUNT);
   denied.denyCloud();
-  await errorCode(() => denied.module.stagePersonalBackupRestore(signedBytes), "ownershipUnavailable");
+  await errorCode(
+    () => denied.module.stagePersonalBackupRestore(signedBytes),
+    "ownershipUnavailable",
+  );
   const demoted = fixture("server-role", ACCOUNT);
   demoted.remote[0].role = "editor";
   await errorCode(() => demoted.module.stagePersonalBackupRestore(signedBytes), "ownership");
@@ -641,7 +775,10 @@ async function main() {
   await errorCode(() => secondary.module.stagePersonalBackupRestore(bytes), "notEmpty");
   const edited = fixture("edited-setup");
   edited.seed(false);
-  edited.sql("INSERT INTO event_log VALUES('profile2',?,'shop_profile_updated','{}',NULL,NULL)", VAULT);
+  edited.sql(
+    "INSERT INTO event_log VALUES('profile2',?,'shop_profile_updated','{}',NULL,NULL)",
+    VAULT,
+  );
   await errorCode(() => edited.module.stagePersonalBackupRestore(bytes), "notEmpty");
   const revoked = fixture("revoked-after-stage", ACCOUNT);
   await revoked.module.stagePersonalBackupRestore(signedBytes);
@@ -789,6 +926,28 @@ async function main() {
     "unsupported",
   );
   const reordered = fixture("upgraded-column-order");
+  const inconsistentBindings = fixture("inconsistent-shared-bindings");
+  await errorCode(
+    () =>
+      inconsistentBindings.module.stagePersonalBackupRestore(
+        alterBytes("ALTER TABLE tab_links DROP COLUMN invitation_expires_at"),
+      ),
+    "unsupported",
+  );
+  await errorCode(
+    () =>
+      inconsistentBindings.module.stagePersonalBackupRestore(
+        alterBytes("DROP TRIGGER tab_links_delete_book"),
+      ),
+    "unsupported",
+  );
+  await errorCode(
+    () =>
+      inconsistentBindings.module.stagePersonalBackupRestore(
+        alterBytes("DROP INDEX idx_tab_outbox_scope"),
+      ),
+    "unsupported",
+  );
   await reordered.module.stagePersonalBackupRestore(
     alterBytes(
       "DROP TABLE customer_groups; CREATE TABLE customer_groups(vault_id TEXT REFERENCES vaults(id),id TEXT PRIMARY KEY);",

@@ -97,6 +97,8 @@ export type WireTab = {
   unjoined_invitation?: boolean;
   /** Sender-side outcome of an account-targeted invitation. */
   invitation_declined_at_ms?: number;
+  /** Expiry of the current account-targeted invitation, sender only. */
+  invitation_expires_at_ms?: number;
   id: string;
   currency: string;
   rev: number;
@@ -283,6 +285,7 @@ export type TabLink = {
   other_label: string;
   other_joined_at: number | null;
   invitation_declined_at?: number | null;
+  invitation_expires_at?: number | null;
   /** Party a keeps B's link for re-sharing; NULL on party b. */
   invite_url: string | null;
   /** Pull cursor = highest rev applied. */
@@ -323,6 +326,8 @@ export type TabOutboxRow = {
   /** Op id (uuid); for 'append' this IS the entry id (server idempotency key). */
   id: string;
   tab_id: string;
+  /** Captured Kaata perspective; switching Kaata cannot change an offline intent. */
+  vault_id?: string;
   op: TabOutboxOp;
   /** JSON, shape per op — see lib/tabs/sync.ts performOp. */
   payload: string;

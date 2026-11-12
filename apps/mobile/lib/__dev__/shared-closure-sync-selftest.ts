@@ -13,6 +13,7 @@ import type {
   WireEntry,
 } from "../tabs/types";
 import { Mutex } from "../util/mutex";
+import { migrateSharedTabBindings } from "../shared-tab-bindings-migration";
 
 (globalThis as { __DEV__?: boolean }).__DEV__ = false;
 const fixture = new Database(":memory:");
@@ -27,7 +28,7 @@ const failedDdl = dbSource.match(
 )?.[1];
 assert.ok(failedDdl, "use the shipped refused-operation schema");
 fixture.exec(failedDdl);
-for (const migration of ["030", "031", "041"]) {
+for (const migration of ["030", "031", "032", "041"]) {
   const extraDdl = dbSource.match(
     new RegExp(
       "async function runMigration" + migration + "[\\s\\S]*?db\\.execAsync\\(`([\\s\\S]*?)`\\)",
@@ -73,6 +74,7 @@ function getLink(id: string): TabLink | null {
   return (fixture.prepare("SELECT * FROM tab_links WHERE tab_id=?").get(id) as TabLink) ?? null;
 }
 const sqlite = {
+  execAsync: async (sql: string) => fixture.exec(sql),
   getFirstAsync: async (sql: string, ...args: unknown[]) =>
     fixture.prepare(sql).get(...args) ?? null,
   getAllAsync: async (sql: string, ...args: unknown[]) => {
@@ -161,8 +163,10 @@ const sync = compile<typeof import("../tabs/sync")>("../tabs/sync", (name) => {
       },
       SessionChangedError,
     };
-  if (name === "../db-tx") return { getDb: async () => sqlite };
+  if (name === "../db-tx")
+    return { getDb: async () => sqlite, getActiveVaultIdSyncMaybe: () => "vault" };
   if (name === "../ledger-events") return { onLedgerApplied: () => () => {} };
+  if (name === "./binding-access") return { isTabVaultRevoked: async () => false };
   if (name === "./api")
     return {
       resolveTabAuth: async () => ({ jwt: "fixture-jwt" }),
@@ -235,8 +239,12 @@ const sync = compile<typeof import("../tabs/sync")>("../tabs/sync", (name) => {
         if (useRealCache) return tabsDb.upsertTabFromWire(...args);
         const result = args[1];
         fixture
-          .prepare("UPDATE tab_links SET closed_at=? WHERE tab_id=?")
-          .run(result.tab.closed_at_ms, result.tab.id);
+          .prepare("UPDATE tab_links SET closed_at=?,other_joined_at=? WHERE tab_id=?")
+          .run(
+            result.tab.closed_at_ms,
+            result.tab.parties[result.tab.you === "a" ? "b" : "a"].joined_at_ms,
+            result.tab.id,
+          );
         return { newFromThem: 0, statusChangedOnMine: 0 };
       },
     };
@@ -252,8 +260,8 @@ function seed(
 ) {
   fixture
     .prepare(
-      `INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,rev,closed_at,linked_at,last_synced_at)
-     VALUES (?, 'vault', ?, 'a', 'AFN', ?, ?, 1, 1)`,
+      `INSERT INTO tab_links(tab_id,vault_id,relationship_id,role,currency,rev,closed_at,linked_at,last_synced_at,other_joined_at)
+     VALUES (?, 'vault', ?, 'a', 'AFN', ?, ?, 1, 1, 1)`,
     )
     .run(id, `rel:${id}`, opts.rev ?? 5, opts.open ? null : 100);
   if (opts.status)
@@ -335,6 +343,8 @@ async function test(name: string, run: () => Promise<void>) {
   console.log(`PASS ${++passed}: ${name}`);
 }
 async function main() {
+  fixture.exec("CREATE TABLE vaults(id TEXT PRIMARY KEY); INSERT INTO vaults VALUES('vault');");
+  await migrateSharedTabBindings(sqlite as never);
   await test("successful refresh retires only a server-confirmed legacy unused opening and caches its full audit response", async () => {
     seedLegacyUnused();
     fixture

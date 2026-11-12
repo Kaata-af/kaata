@@ -180,7 +180,7 @@ async function main() {
       },
       friendship: { state: "friends", id: requestID },
       can_receive_requests: true,
-      activity: { shared_tally: "active", kaata_invitation_role: "clerk", invite_token: "secret" },
+      activity: { shared_tally: "active", kaata_member_role: "clerk", invite_token: "secret" },
     };
     f.replies.push(
       () => result(profile),
@@ -195,7 +195,7 @@ async function main() {
       person: { ...identity, existing_relationship_id: relationship },
       friendship: { state: "friends", id: requestID },
       can_receive_requests: true,
-      activity: { shared_tally: "active", kaata_invitation_role: "clerk" },
+      activity: { shared_tally: "active", kaata_member_role: "clerk" },
     });
     assert.equal(f.calls[1].path, `/v1/people/profiles/${peer}?vault_id=${vault}`);
     assert.equal(

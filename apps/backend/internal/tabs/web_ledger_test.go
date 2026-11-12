@@ -137,8 +137,9 @@ func TestTabAccessFlagsPreserveMemberAndRecordingPermissions(t *testing.T) {
 		{"owner", "notify_one_way", "a", true, false},
 	} {
 		joined := time.Now()
+		joinedMS := joined.UnixMilli()
 		p := Party{Role: test.side, MemberRole: test.role, JoinedAt: &joined}
-		tab := Tab{RecordingMode: test.mode}
+		tab := Tab{RecordingMode: test.mode, Parties: map[string]PartyMeta{test.side: {JoinedAtMS: &joinedMS}}}
 		access := callerTabAccess(p, tab)
 		if access.Append != test.append || access.Review != test.review {
 			t.Fatalf("%+v access=%+v", test, access)
@@ -149,6 +150,14 @@ func TestTabAccessFlagsPreserveMemberAndRecordingPermissions(t *testing.T) {
 		if got := callerTabAccess(p, tab); got.Append || got.Review != test.review || got.Void != wantVoid || got.Settle || got.Manage {
 			t.Fatalf("closed access=%+v", got)
 		}
+	}
+	// Permission comes from the committed response, including a just-completed
+	// join whose input Party was resolved before its join timestamp existed.
+	joinedMS := time.Now().UnixMilli()
+	p := Party{Role: "b", MemberRole: "owner"}
+	tab := Tab{RecordingMode: "notify", Parties: map[string]PartyMeta{"b": {JoinedAtMS: &joinedMS}}}
+	if !callerTabAccess(p, tab).Append {
+		t.Fatal("successful join kept pre-join permissions")
 	}
 }
 

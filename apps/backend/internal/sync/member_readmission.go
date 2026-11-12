@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/matee/kaata-backend/internal/connectionnotice"
 	"github.com/matee/kaata-backend/internal/memberreadmission"
 )
 
@@ -167,5 +168,5 @@ func finishReadmissionPush(ctx context.Context, tx pgx.Tx, vaultID string, seatI
 	if tag.RowsAffected() != 1 {
 		return ErrMemberReadmissionConflict
 	}
-	return nil
+	return connectionnotice.VaultInviteAccepted(ctx, tx, seatID)
 }

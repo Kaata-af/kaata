@@ -14,6 +14,7 @@ import {
 import { cacheCreditPolicies } from "../credit-policy-cache";
 import { cacheCreditAlerts } from "../credit-alert-cache";
 import { Mutex } from "../util/mutex";
+import { migrateSharedTabBindings } from "../shared-tab-bindings-migration";
 import { fromMinorUnits, toMinorUnits } from "../money";
 import { signedEntryMinorSumSql } from "../money-sql";
 import { effectiveEntryCurrencySql, isValidCurrencyCode } from "../currency-scope";
@@ -53,6 +54,7 @@ for (const marker of [
   "credit_mutation_baselines",
   "tab_links",
   "tab_failed_ops",
+  "tab_settlements",
 ]) {
   const ddl = new RegExp(
     "execAsync\\(`([^`]*CREATE TABLE IF NOT EXISTS " + marker + "[^`]*)`\\)",
@@ -75,6 +77,7 @@ const historyOrderDDL = /ALTER TABLE tab_links ADD COLUMN history_order TEXT;/.e
 assert.ok(historyOrderDDL, "actual shared history order migration");
 fixture.exec(historyOrderDDL);
 const db = {
+  execAsync: async (sql: string) => fixture.exec(sql),
   getFirstAsync: async (sql: string, ...args: unknown[]) =>
     fixture.prepare(sql).get(...args) ?? null,
   getAllAsync: async (sql: string, ...args: unknown[]) => fixture.prepare(sql).all(...args),
@@ -978,6 +981,7 @@ async function unchangedPolicyRefreshes() {
 }
 
 async function run() {
+  await migrateSharedTabBindings(db as never);
   await applyCurrencyMigration(fixture);
   await preAlertSchemaWarningChecks();
   await unchangedPolicyRefreshes();

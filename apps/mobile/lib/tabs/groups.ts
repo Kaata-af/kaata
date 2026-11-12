@@ -196,7 +196,7 @@ async function cacheGroup(
     groupError("shared_account_conflict", "The shared account is bound to a different contact");
   const links: TabLink[] = [];
   for (const item of response.tabs) {
-    const previous = await getTabLink(item.tab.id);
+    const previous = await getTabLink(item.tab.id, vaultId);
     const tab = item.tab,
       them = group.you === "a" ? "b" : "a";
     const cutover = tab.parties[group.you].linked_at_ms;
@@ -234,7 +234,7 @@ async function cacheGroup(
     upsertTabGroupFromWire(links, response.tabs, { revision: group.rev }),
   );
   const fresh = await atScope(session, vaultId, async () =>
-    Promise.all(links.map(async (link) => (await getTabLink(link.tab_id)) ?? link)),
+    Promise.all(links.map(async (link) => (await getTabLink(link.tab_id, vaultId)) ?? link)),
   );
   return {
     group,
@@ -254,7 +254,7 @@ async function recoverPendingGroup(
 ): Promise<LinkedTabGroup | null> {
   let response: TabGroupResponse;
   try {
-    response = await fetchTabGroup(groupId, { jwt: session.jwt!, recordingMode: mode });
+    response = await fetchTabGroup(groupId, { jwt: session.jwt!, role, recordingMode: mode });
   } catch (error) {
     if (error instanceof TabApiError && [403, 404].includes(error.status)) return null;
     throw error;
@@ -682,6 +682,7 @@ export async function fetchContactTabGroup(link: TabLink): Promise<TabGroupRespo
   checkScope(session, link.vault_id);
   const response = await fetchTabGroup(link.group_id, {
     jwt: session.jwt,
+    role: link.role,
     recordingMode: link.recording_mode,
   });
   if (response.group.id !== link.group_id || response.group.you !== link.role)
@@ -712,6 +713,7 @@ export async function ensureContactGroupCurrency(
   await assertVaultAction(vaultId, "entry.create");
   const current = await fetchTabGroup(source.group_id!, {
     jwt: session.jwt,
+    role: source.role,
     recordingMode: source.recording_mode,
   });
   if (current.group.closed_at_ms != null) {
@@ -732,7 +734,7 @@ export async function ensureContactGroupCurrency(
   const response = await ensureTabGroupCurrency(
     source.group_id!,
     { currency, opening: null, linked_at_ms: Date.now(), ...receipt },
-    { jwt: session.jwt, recordingMode: source.recording_mode },
+    { jwt: session.jwt, role: source.role, recordingMode: source.recording_mode },
   );
   const result = await cacheGroup(response, session, vaultId, source.relationship_id);
   const link = result.links.find((item) => item.currency === currency);
@@ -748,6 +750,7 @@ export async function unlinkTabGroup(link: TabLink): Promise<void> {
   await assertVaultAction(link.vault_id, "entry.amend");
   const response = await closeTabGroup(link.group_id, {
     jwt: session.jwt,
+    role: link.role,
     recordingMode: link.recording_mode,
   });
   await cacheGroup(response, session, link.vault_id, link.relationship_id);
@@ -761,6 +764,7 @@ export async function regenerateTabGroupInvite(link: TabLink): Promise<string> {
   await assertVaultAction(link.vault_id, "entry.amend");
   const response = await regenerateTabGroupLink(link.group_id, {
     jwt: session.jwt,
+    role: link.role,
     recordingMode: link.recording_mode,
   });
   const result = await cacheGroup(response, session, link.vault_id, link.relationship_id);

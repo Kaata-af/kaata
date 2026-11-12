@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
+import { migrateSharedTabBindings } from "../shared-tab-bindings-migration";
 import ts from "typescript";
 import type { TabLink, TabResponse, WireEntry, WireTab } from "../tabs/types";
 
@@ -260,7 +261,7 @@ function ddl(marker: string) {
   assert.ok(statement, `shipped schema ${marker}`);
   return statement;
 }
-function reset() {
+async function reset() {
   fixture?.close();
   fixture = new Database(":memory:");
   fixture.exec(`CREATE TABLE vaults(id TEXT PRIMARY KEY,currency TEXT);
@@ -278,6 +279,7 @@ function reset() {
     "ALTER TABLE tab_links ADD COLUMN history_order",
   ])
     fixture.exec(ddl(marker));
+  await migrateSharedTabBindings(sqlite as never);
   jwt = "fixture-jwt";
   accountId = "account";
   bindingVersion = 1;
@@ -355,7 +357,7 @@ const newTarget = { vaultId: VAULT, newPerson: { firstName: "New", lastName: nul
 let passed = 0,
   failed = 0;
 async function test(name: string, run: () => Promise<void>) {
-  reset();
+  await reset();
   try {
     await run();
     console.log(`PASS ${++passed}: ${name}`);
@@ -707,7 +709,12 @@ async function main() {
     activeVault = "other-vault";
     release.resolve();
     await assert.rejects(changing, errors.TabAuthUnavailableError);
-    assert.equal((await tabsDb.getTabLink(link.tab_id))?.rev, 5);
+    assert.equal(
+      await tabsDb.getTabLink(link.tab_id),
+      null,
+      "default lookup cannot cross the selected Kaata",
+    );
+    assert.equal((await tabsDb.getTabLink(link.tab_id, link.vault_id))?.rev, 5);
   });
   await test("one-way recipient cannot append, cancel, review or clear tallies, including stale-route calls", async () => {
     const link = await seedLink("one-way", {
@@ -830,7 +837,7 @@ async function main() {
   await test("closed pending entries permit one final authorized review/cancellation for either closure reason", async () => {
     for (const reason of [null, "account_deleted"] as const)
       for (const action of ["accept", "dispute", "void"] as const) {
-        reset();
+        await reset();
         const link = await seedLink("prior", { closed_reason: reason });
         seedEntry(link, "entry", action === "void" ? "a" : "b");
         if (action === "accept") await flows.acceptEntry(link, "entry");
@@ -916,7 +923,7 @@ async function main() {
   });
   await test("pending, unsynced action and queued operations refuse relinking before a new request", async () => {
     for (const kind of ["pending", "local", "outbox"] as const) {
-      reset();
+      await reset();
       const link = await seedLink();
       seedEntry(link, "entry", "b", kind === "pending" ? "pending" : "accepted");
       if (kind === "local") fixture.prepare("UPDATE tab_entries SET local_action_pending=1").run();
@@ -937,6 +944,50 @@ async function main() {
       );
       assert.equal(requests.length, 0);
     }
+  });
+  await test("relink only waits for its own Kaata's queued metadata while retaining the other side's intent", async () => {
+    const a = await seedLink();
+    seedEntry(a, "confirmed", "b", "accepted");
+    fixture.exec(
+      "INSERT INTO vaults VALUES('other-vault','AFN'); INSERT INTO relationships VALUES('other-rel','other-vault','other-person',NULL,1)",
+    );
+    const b = await seedLink(a.tab_id, {
+      vault_id: "other-vault",
+      relationship_id: "other-rel",
+      role: "b",
+    });
+    const queued = (id: string, vaultId: string) => ({
+      id,
+      tab_id: a.tab_id,
+      vault_id: vaultId,
+      op: "label" as const,
+      payload: JSON.stringify({ label: "Renamed" }),
+      created_at: 1,
+      attempts: 0,
+      next_at: 999999,
+      last_error: null,
+    });
+    await tabsDb.enqueueTabOp(queued("other-label", b.vault_id));
+    const receipt = await flows.prepareSharedHistory(REL, VAULT, "AFN", snapshot());
+    assert.equal(receipt.expected_previous_tab_id, a.tab_id);
+    assert.equal(receipt.expected_previous_rev, a.rev);
+    assert.equal(
+      count("tab_outbox"),
+      1,
+      "A's history preparation never consumes B's queued operation",
+    );
+    await tabsDb.enqueueTabOp(queued("own-label", a.vault_id));
+    await assert.rejects(
+      flows.prepareSharedHistory(REL, VAULT, "AFN", snapshot()),
+      (error: any) => error.code === "shared_history_pending",
+      "the same metadata on A still requires its own sync",
+    );
+    assert.equal(count("tab_outbox"), 2);
+    assert.equal(
+      count("tab_entries"),
+      1,
+      "history preparation does not alter the confirmed financial row",
+    );
   });
   await test("unlink queues the server-verified invitation cleanup opt-in without local financial edits", async () => {
     const link = await seedLink("unused", {
@@ -1007,7 +1058,7 @@ async function main() {
       ["opening", 0],
       ["opening", null],
     ] as const) {
-      reset();
+      await reset();
       const link = await seedLink("prior", {
         other_joined_at: null,
         unjoined_invitation: invitation,
@@ -1127,7 +1178,7 @@ async function main() {
       recordingMode: "review",
       requireRecordingSupport: true,
     });
-    reset();
+    await reset();
     await seedLink("open", { closed_at: null });
     await assert.rejects(
       flows.joinTabAsContact("token", wire(), { vaultId: VAULT, personId: PERSON }, "B"),
@@ -1176,11 +1227,11 @@ async function main() {
       errors.TabSameAccountError,
     );
     assert.deepEqual(archived, ["new-person"]);
-    reset();
+    await reset();
     joinError = new errors.TabApiError(503, "unavailable", "uncertain");
     await assert.rejects(flows.joinTabAsContact("token", wire(), newTarget, "B"));
     assert.deepEqual(archived, [], "a possible server binding must remain recoverable");
-    reset();
+    await reset();
     joinError = new errors.TabApiError(
       503,
       "notification_only_unsupported",
@@ -1207,7 +1258,7 @@ async function main() {
     assert.deepEqual(fixture.prepare("SELECT * FROM tab_entries").all(), saved);
     assert.deepEqual(fixture.prepare("SELECT * FROM tab_links").all(), metadata);
     assert.equal(count("tab_outbox"), 0);
-    reset();
+    await reset();
     const existing = await seedLink();
     seedEntry(existing, "saved-source", "a", "recorded");
     const before = fixture.prepare("SELECT * FROM tab_entries").all();
@@ -1337,7 +1388,7 @@ async function main() {
   });
   await test("review tap cannot cross an account switch during asynchronous authorization", async () => {
     for (const action of ["accept", "dispute", "void"] as const) {
-      reset();
+      await reset();
       const link = await seedLink();
       seedEntry(link, "entry", action === "void" ? "a" : "b");
       const started = deferred(),
@@ -1380,7 +1431,7 @@ async function main() {
   });
   await test("late create/join acknowledgements cannot cache links into a replacement session", async () => {
     for (const action of ["create", "join"] as const) {
-      reset();
+      await reset();
       const started = deferred(),
         release = deferred();
       requestWait = async () => {

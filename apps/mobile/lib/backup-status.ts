@@ -31,9 +31,9 @@ async function cloudVaults(session: SessionSnapshot): Promise<CloudVaultRow[]> {
        SELECT v.id, v.name, s.last_push_at AS lastPushAt, v.archived_at IS NOT NULL AS archived,
               (EXISTS (SELECT 1 FROM event_log e WHERE e.vault_id=v.id AND e.server_acked_at IS NULL
                          AND e.tombstone_reason IS NULL)
-               OR EXISTS (SELECT 1 FROM tab_links t JOIN tab_outbox o ON o.tab_id=t.tab_id
+               OR EXISTS (SELECT 1 FROM tab_links t JOIN tab_outbox o ON o.tab_id=t.tab_id AND o.vault_id=t.vault_id
                            WHERE t.vault_id=v.id)
-               OR EXISTS (SELECT 1 FROM tab_links t JOIN tab_failed_ops f ON f.tab_id=t.tab_id
+               OR EXISTS (SELECT 1 FROM tab_links t JOIN tab_failed_ops f ON f.tab_id=t.tab_id AND f.vault_id=t.vault_id
                            WHERE t.vault_id=v.id)
                OR EXISTS (SELECT 1 FROM customer_credit_limits c WHERE c.vault_id=v.id AND c.sync_pending<>0)
                OR EXISTS (SELECT 1 FROM credit_alert_policies p WHERE p.vault_id=v.id AND p.sync_pending<>0)
@@ -61,7 +61,8 @@ export async function readBackupStatus(): Promise<BackupStatus> {
   return {
     signedIn,
     localBackupAt,
-    cloudUpToDate: current.length > 0 && current.every((vault) => Boolean(vault.lastPushAt) && !vault.pending),
+    cloudUpToDate:
+      current.length > 0 && current.every((vault) => Boolean(vault.lastPushAt) && !vault.pending),
     vaults: rows.map(({ id, name, lastPushAt, pending }) => ({
       id,
       name,
@@ -91,13 +92,13 @@ export async function syncBackupNow(): Promise<void> {
         (await getDb()).getAllAsync<{ tab_id: string }>(
           `SELECT t.tab_id FROM tab_links t
             WHERE t.vault_id=? AND (t.closed_at IS NULL OR EXISTS (
-              SELECT 1 FROM tab_outbox o WHERE o.tab_id=t.tab_id))`,
+              SELECT 1 FROM tab_outbox o WHERE o.tab_id=t.tab_id AND o.vault_id=t.vault_id))`,
           vault.id,
         ),
       );
       for (const { tab_id } of tabs) {
         await applyForCurrentSession(session, async () => {});
-        const tab = await syncTab(tab_id);
+        const tab = await syncTab(tab_id, vault.id);
         if (!tab.ok || tab.failed > 0) failed = true;
       }
     } catch {

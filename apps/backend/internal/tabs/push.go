@@ -127,7 +127,7 @@ func (h *Handler) Notifications(w http.ResponseWriter, r *http.Request) {
 		_, err = tx.Exec(r.Context(), `INSERT INTO tab_push_subscriptions
    (tab_id,role,install_id,token,locale,account_id,capability_hash,preferences)
    VALUES($1::uuid,$2,$3::uuid,$4,$5,$6::uuid,$7,$8::jsonb)
-   ON CONFLICT(tab_id,install_id) DO UPDATE SET role=EXCLUDED.role,token=EXCLUDED.token,
+   ON CONFLICT(tab_id,role,install_id) DO UPDATE SET token=EXCLUDED.token,
     locale=EXCLUDED.locale,account_id=EXCLUDED.account_id,capability_hash=EXCLUDED.capability_hash,
     preferences=CASE WHEN tab_push_subscriptions.account_id IS DISTINCT FROM EXCLUDED.account_id
       THEN EXCLUDED.preferences ELSE COALESCE(EXCLUDED.preferences,tab_push_subscriptions.preferences) END,
@@ -150,6 +150,9 @@ type pushEvent struct {
 	Kind, EntryID  string
 	ActorAccountID *string
 	ActorInstallID *string
+	// A group mutation changes every currency leg, but represents one action.
+	// Secondary legs still advance their revisions without duplicate alerts.
+	Suppress bool
 }
 
 func (p Party) actorAccount() *string {
@@ -171,6 +174,9 @@ func queuePush(ctx context.Context, tx pgx.Tx, tabID, actor string, rev int64, e
 	if len(events) > 0 {
 		event = events[0]
 	}
+	if event.Suppress {
+		return nil
+	}
 
 	// Also persist when no device has granted push permission. A delivery job
 	// can expire or be deleted without erasing the user's notification history.
@@ -186,7 +192,12 @@ func queuePush(ctx context.Context, tx pgx.Tx, tabID, actor string, rev int64, e
 	// Malformed preferences suppress only the alert, never the financial event.
 	rows, err := tx.Query(ctx, `SELECT id::text,preferences FROM tab_push_subscriptions
  WHERE tab_id=$1::uuid AND role<>$2 AND renewed_at>NOW()-INTERVAL '30 days'
- AND account_id IS DISTINCT FROM $3::uuid AND install_id IS DISTINCT FROM $4::uuid`,
+ AND account_id IS DISTINCT FROM $3::uuid AND install_id IS DISTINCT FROM $4::uuid
+ AND NOT EXISTS(SELECT 1 FROM tab_parties p JOIN vault_members removed ON removed.vault_id=p.vault_id
+   WHERE p.tab_id=tab_push_subscriptions.tab_id AND p.role=tab_push_subscriptions.role
+   AND removed.account_id=tab_push_subscriptions.account_id AND removed.revoked_at IS NOT NULL
+   AND NOT EXISTS(SELECT 1 FROM vault_members active WHERE active.vault_id=removed.vault_id
+     AND active.account_id=removed.account_id AND active.accepted_at IS NOT NULL AND active.revoked_at IS NULL))`,
 		tabID, actor, event.ActorAccountID, event.ActorInstallID)
 	if err != nil {
 		return err
@@ -293,10 +304,15 @@ func (s *Service) deliverPush(ctx context.Context) (bool, error) {
 	err = tx.QueryRow(ctx, `SELECT o.id,o.rev,o.subscription_id::text,s.tab_id::text,s.role,s.token,s.locale,
   o.receipt_id,o.attempts,o.event_kind,COALESCE(o.entry_id::text,''),s.preferences,
   COALESCE((SELECT e.status FROM tab_entries e WHERE e.id=o.entry_id AND e.tab_id=s.tab_id),''),
-  (t.recording_mode='review' AND COALESCE(s.account_id=p.account_id OR EXISTS(SELECT 1 FROM vault_members vm WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL AND vm.role IN ('owner','manager','editor')),FALSE)),
+  (t.recording_mode='review' AND COALESCE((SELECT vm.role IN ('owner','manager','editor') FROM vault_members vm
+    WHERE vm.vault_id=p.vault_id AND vm.account_id=s.account_id AND vm.accepted_at IS NOT NULL AND vm.revoked_at IS NULL),s.account_id=p.account_id,FALSE)),
 	  s.renewed_at>NOW()-INTERVAL '30 days' AND o.created_at>NOW()-INTERVAL '24 hours'
 	  AND t.closed_at IS NULL
 	  AND EXISTS(SELECT 1 FROM auth_credentials ac WHERE ac.install_id=s.install_id AND ac.account_id=s.account_id AND ac.revoked_at IS NULL)
+ AND NOT EXISTS(SELECT 1 FROM vault_members removed WHERE removed.vault_id=p.vault_id
+   AND removed.account_id=s.account_id AND removed.revoked_at IS NOT NULL
+   AND NOT EXISTS(SELECT 1 FROM vault_members active WHERE active.vault_id=removed.vault_id
+     AND active.account_id=removed.account_id AND active.accepted_at IS NOT NULL AND active.revoked_at IS NULL))
  AND NOT EXISTS(SELECT 1 FROM tab_notifications n WHERE n.tab_id=s.tab_id AND n.rev=o.rev
    AND (n.actor_account_id=s.account_id OR n.actor_install_id=s.install_id))
  AND NOT EXISTS(SELECT 1 FROM tab_notifications n JOIN tab_notification_reads nr ON nr.notification_id=n.id
@@ -434,6 +450,9 @@ func pushBody(kind, locale string) string { return pushBodyFor(kind, locale, tru
 // accept or reject; a clerk or viewer is told what happened (audit #7).
 func pushBodyFor(kind, locale string, canReview bool) string {
 	locale = applocale.Normalize(locale)
+	if kind == "invitation_accepted" || kind == "invitation_declined" {
+		return sharedInvitationResultBody(kind, locale)
+	}
 	if locale == "ps" {
 		if kind == "entry_created" && !canReview {
 			return "ستاسو په ګډ حساب کې نوې راکړه ورکړه زیاته شوه."
